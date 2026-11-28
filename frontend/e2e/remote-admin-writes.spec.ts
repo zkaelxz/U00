@@ -78,6 +78,13 @@ test('member: Diagnostics shows the not-allowed state and asks the server nothin
   expect(unmocked.filter((u) => u.includes('/api/diagnostics'))).toEqual([])
 })
 
+test('remote admin: Diagnostics says it opens at the main PC, not "ask to be made an admin"', async ({ page }) => {
+  await mock(page, ['library.read'])
+  await page.goto('/#/diagnostics')
+  await expect(page.getByTestId('diagnostics-not-allowed')).toContainText('Diagnostics opens only at the main PC.')
+  await expect(page.getByTestId('diagnostics-not-allowed')).not.toContainText('make you an admin')
+})
+
 test('member: Text is disabled with a reason and no Settings link', async ({ page }) => {
   await mock(page, ['library.read'])
   await page.route('**/api/translate/engines', (r) => r.fulfill({ json: {

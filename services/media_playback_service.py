@@ -56,11 +56,14 @@ def burn_preview_ass(lines, line, style_state, pad=2.0):
     around `line` -- `pad` seconds either side -- timed to the clip the
     same way the vertical export is. style_state: optional {style,
     speaker_colors, speaker_names, wrap_chars, language,
-    chinese_script, frame_aspect}; None or no style = the
-    "Clean" preset."""
+    chinese_script, frame_aspect, ear_placement, field, source_text}; None
+    or no style = the "Clean" preset. No field means "en"; "en" on a line
+    with no English yet shows the original text."""
     style_state = style_state or {}
     start, end = max(line.start - pad, 0.0), line.end + pad
-    field = "en" if line.en.strip() else "zh"
+    field = style_state.get("field") or "en"
+    if field == "en" and not line.en.strip():
+        field = "zh"
     clip_lines = subtitle_formats.lines_for_clip(lines, start, end)
     ass = subtitle_ass.lines_to_ass(
         clip_lines, style_state.get("style") or subtitle_ass.ASS_PRESETS["Clean"], field,
@@ -69,5 +72,7 @@ def burn_preview_ass(lines, line, style_state, pad=2.0):
         wrap_chars=style_state.get("wrap_chars"),
         language=style_state.get("language"),
         chinese_script=style_state.get("chinese_script") or "simplified",
-        frame_aspect=style_state.get("frame_aspect"))
+        frame_aspect=style_state.get("frame_aspect"),
+        ear_placement=style_state.get("ear_placement"),
+        source_text=style_state.get("source_text"))
     return start, end, ass

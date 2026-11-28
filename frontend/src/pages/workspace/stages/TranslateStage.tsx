@@ -58,7 +58,6 @@ import {
   buildPresetBody,
   buildRunBody,
   bulkAvailable,
-  bulkReflectAvailable,
   FALLBACK_KIND_MESSAGE,
   fallbackKindMismatch,
   fallbackOptions,
@@ -78,6 +77,7 @@ import {
   withSavedEngine,
   memberEngine,
   memberRunForm,
+  parseCap,
   type RunForm,
 } from '../translateForm'
 import { StyleField } from './StartFromPicker'
@@ -149,7 +149,7 @@ function advancedSummary(f: RunForm, base: RunForm, reviewFirst: boolean): strin
   if (f.context_window !== base.context_window || f.context_window_ahead !== base.context_window_ahead) {
     parts.push(`context ${f.context_window}/${f.context_window_ahead}`)
   }
-  if (f.cost_cap.trim()) parts.push(`cap $${f.cost_cap.trim()}`)
+  if ((parseCap(f.cost_cap) ?? 0) > 0) parts.push(`cap $${f.cost_cap.trim()}`)
   if (f.chapter_from.trim() || f.chapter_to.trim()) parts.push(`chapters ${f.chapter_from.trim() || 1}-${f.chapter_to.trim() || 'end'}`)
   if (f.genre_notes !== base.genre_notes) parts.push(f.genre_notes ? 'genre notes on' : 'genre notes off')
   if (f.female_pronouns !== base.female_pronouns) parts.push(f.female_pronouns ? 'she/her default' : 'no she/her default')
@@ -328,7 +328,6 @@ function RunPanel({
     return e ? engineOptionLabel(e) : name
   }
   const effEngine = member ? memberEngine(config.translation_engine, config.engines, holdsPaid) : f.engine || config.translation_engine
-  const canBulk = bulkAvailable(effEngine, config.bulk_supported_engines) && !(f.reflect && !bulkReflectAvailable(effEngine, config.bulk_supported_engines))
   const scanFirst = reviewFirst && canReview
   const lineCount = f.force && f.forceConfirmed ? config.line_count : config.untranslated_count
   const engineBatch = defaultBatchSize(config, f)
@@ -563,7 +562,7 @@ function RunPanel({
             </div>
           )}
           <div className="advanced-wide">
-            <Field label="Style note" help="Optional extra instruction for this run only.">
+            <Field label="Style note" help="Optional extra instruction. It is kept on this title, so later runs, the Queue and Library batches use it too.">
               <textarea rows={2} value={f.style_note} onChange={(e) => set('style_note', e.target.value)} />
             </Field>
           </div>
@@ -581,7 +580,7 @@ function RunPanel({
           <Field
             label="Cost cap"
             unit="$"
-            help={`Stop this run at this many dollars; blank means no cap. ${monthSpendText(config.month_spend, config.monthly_cap_usd)}`}
+            help={`Stop this run at this many dollars; blank or 0 means no cap. ${monthSpendText(config.month_spend, config.monthly_cap_usd)}`}
           >
             <input type="number" min={0} step="0.01" value={f.cost_cap} onChange={(e) => set('cost_cap', e.target.value)} />
           </Field>
@@ -663,9 +662,9 @@ function RunPanel({
             {bulkAvailable(effEngine, config.bulk_supported_engines) && (
               <Field
                 label="Bulk"
-                help={`Send the whole title as one discounted batch (Claude/Gemini batch API or DeepSeek off-peak). Results can take up to 24 hours; needs no line selection or fallbacks.${!canBulk && !f.bulk ? ' Not with Reflect on this engine.' : ''}`}
+                help="Send the whole title as one discounted batch (Claude/Gemini batch API or DeepSeek off-peak). Results can take up to 24 hours; needs no line selection or fallbacks."
               >
-                <Toggle checked={f.bulk} disabled={!canBulk && !f.bulk} onChange={(v) => set('bulk', v)} />
+                <Toggle checked={f.bulk} onChange={(v) => set('bulk', v)} />
               </Field>
             )}
             {!member && <Field
@@ -694,7 +693,7 @@ function RunPanel({
             </Field>
             {bySentenceSaved !== null && (
               <span className="muted" aria-live="polite" data-testid="by-sentence-saved">
-                {bySentenceSaved ? 'Saved for this title; every later run uses it.' : 'Could not save this choice for the title; it will not apply to later runs.'}
+                {bySentenceSaved ? 'Saved for this title; every later run uses it.' : 'Could not save this choice for the title, so it is back as it was.'}
               </span>
             )}
             {savedNote && <span className="muted" aria-live="polite" data-testid="toggle-saved">{savedNote.trim()}</span>}

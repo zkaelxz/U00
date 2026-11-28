@@ -4537,6 +4537,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/ext-bridge/subs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Device token: the English lines of your title made from this video page, for its own player */
+        post: operations["post_subs_api_ext_bridge_subs_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/ext-bridge/text": {
         parameters: {
             query?: never;
@@ -8467,6 +8484,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/queue/items/{item_id}/tonight": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Make a waiting item wait for the night window, or run it in turn (Run now) */
+        post: operations["set_item_tonight_api_queue_items__item_id__tonight_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/queue/night": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** The night window Tonight items wait for, and the nightly self-check switch */
+        post: operations["set_night_api_queue_night_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/queue/novel-flow/{drama_id}": {
         parameters: {
             query?: never;
@@ -8724,6 +8775,24 @@ export interface paths {
         get: operations["get_caption_track_api_reader_dramas__drama_id__captions__track__get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/reader/dramas/{drama_id}/ear-marks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Lines heard mostly in the left or right ear, by line id */
+        get: operations["get_ear_marks_api_reader_dramas__drama_id__ear_marks_get"];
+        put?: never;
+        /** Work out the ear marks (poll the GET) */
+        post: operations["post_ear_marks_api_reader_dramas__drama_id__ear_marks_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -14483,6 +14552,11 @@ export interface components {
         /** AssExportRequest */
         AssExportRequest: {
             /**
+             * Ear Placement
+             * @default false
+             */
+            ear_placement?: boolean;
+            /**
              * Field
              * @default en
              */
@@ -14492,6 +14566,11 @@ export interface components {
              * @default false
              */
             include_notes?: boolean;
+            /**
+             * Karaoke
+             * @default false
+             */
+            karaoke?: boolean;
             /**
              * Notes As Separate Line
              * @default false
@@ -14507,6 +14586,16 @@ export interface components {
              * @default Clean
              */
             preset?: string;
+            /**
+             * Reading Line
+             * @default false
+             */
+            reading_line?: boolean;
+            /**
+             * Sound Captions
+             * @default false
+             */
+            sound_captions?: boolean;
             /** Speaker Colors */
             speaker_colors?: {
                 [key: string]: string;
@@ -17334,6 +17423,18 @@ export interface components {
         };
         /** BurnPreviewStart */
         BurnPreviewStart: {
+            /**
+             * Ear Placement
+             * @default false
+             */
+            ear_placement?: boolean;
+            /** Field */
+            field?: ("en" | "zh" | "bilingual") | null;
+            /**
+             * Karaoke
+             * @default false
+             */
+            karaoke?: boolean;
             /** Line Id */
             line_id: number;
             /** Pad Seconds */
@@ -17345,6 +17446,11 @@ export interface components {
             per_speaker_colors?: boolean;
             /** Preset */
             preset?: string | null;
+            /**
+             * Reading Line
+             * @default false
+             */
+            reading_line?: boolean;
             /** Speaker Colors */
             speaker_colors?: {
                 [key: string]: string;
@@ -20620,6 +20726,45 @@ export interface components {
             /** Title */
             title: string;
         };
+        /** EarMark */
+        EarMark: {
+            /** Line Id */
+            line_id: number;
+            /**
+             * Side
+             * @enum {string}
+             */
+            side: "left" | "right";
+        };
+        /**
+         * EarMarks
+         * @description Lines heard mostly in one ear of a stereo title, by line id. state:
+         *     "ready", "working", "needed" (to be worked out, by POST) or "unavailable".
+         */
+        EarMarks: {
+            /** Drama Id */
+            drama_id: number;
+            /** Marks */
+            marks: components["schemas"]["EarMark"][];
+            /** One Sided */
+            one_sided: number;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "ready" | "working" | "needed" | "unavailable";
+            /** Total Lines */
+            total_lines: number;
+        };
+        /** EarMarksStarted */
+        EarMarksStarted: {
+            /** Drama Id */
+            drama_id: number;
+            /** Job Id */
+            job_id: string;
+            /** Started */
+            started: boolean;
+        };
         /** EffectiveGlossaryTerm */
         EffectiveGlossaryTerm: {
             /** Aliases */
@@ -20880,12 +21025,22 @@ export interface components {
             dense_line_count: number;
             /** Drama Id */
             drama_id: number;
+            /**
+             * Ear Marked Lines
+             * @default 0
+             */
+            ear_marked_lines: number;
             /** En Filled */
             en_filled: number;
             /** Fully Translated */
             fully_translated: boolean;
             /** Overlap Count */
             overlap_count: number;
+            /**
+             * Sound Captioned Lines
+             * @default 0
+             */
+            sound_captioned_lines: number;
             /** Total Lines */
             total_lines: number;
             /** Zh Filled */
@@ -22629,6 +22784,11 @@ export interface components {
             en: string | {
                 [key: string]: string;
             };
+            /**
+             * Link
+             * @default
+             */
+            link: string;
             /** Note */
             note: string;
             /** Source */
@@ -26676,6 +26836,11 @@ export interface components {
         QueueAddAllSteps: {
             /** Drama Id */
             drama_id: number;
+            /**
+             * Tonight
+             * @default false
+             */
+            tonight?: boolean;
         };
         /** QueueAddBulk */
         QueueAddBulk: {
@@ -26686,6 +26851,11 @@ export interface components {
              * @enum {string}
              */
             step: "transcribe" | "translate" | "export" | "all";
+            /**
+             * Tonight
+             * @default false
+             */
+            tonight?: boolean;
         };
         /** QueueAddItem */
         QueueAddItem: {
@@ -26700,6 +26870,11 @@ export interface components {
              * @enum {string}
              */
             step: "transcribe" | "translate" | "export";
+            /**
+             * Tonight
+             * @default false
+             */
+            tonight?: boolean;
         };
         /** QueueBulkAdded */
         QueueBulkAdded: {
@@ -26743,6 +26918,11 @@ export interface components {
             /** Mine */
             mine: boolean;
             /**
+             * Page Run
+             * @default false
+             */
+            page_run: boolean;
+            /**
              * Paid
              * @default false
              */
@@ -26763,6 +26943,11 @@ export interface components {
             step: "download" | "transcribe" | "translate" | "export" | "names" | "import" | "text" | "append" | "lines" | "follow" | "run_translate" | "run_scanlate";
             /** Title */
             title: string;
+            /**
+             * Tonight
+             * @default false
+             */
+            tonight: boolean;
         };
         /** QueueMove */
         QueueMove: {
@@ -26771,6 +26956,27 @@ export interface components {
              * @enum {string}
              */
             direction: "up" | "down";
+        };
+        /** QueueNight */
+        QueueNight: {
+            /** End */
+            end: string;
+            /** Self Check */
+            self_check: boolean;
+            /** Start */
+            start: string;
+        };
+        /** QueueNightSet */
+        QueueNightSet: {
+            /** End */
+            end: string;
+            /**
+             * Self Check
+             * @default true
+             */
+            self_check?: boolean;
+            /** Start */
+            start: string;
         };
         /** QueuePolicy */
         QueuePolicy: {
@@ -26850,6 +27056,7 @@ export interface components {
             max_items: number;
             /** Monthly Cap Usd */
             monthly_cap_usd: number;
+            night: components["schemas"]["QueueNight"];
             /** Notice */
             notice: string | null;
             /** Overlap Online Translate */
@@ -26883,6 +27090,11 @@ export interface components {
             step: "transcribe" | "translate" | "export";
             /** Title */
             title: string;
+        };
+        /** QueueTonight */
+        QueueTonight: {
+            /** Tonight */
+            tonight: boolean;
         };
         /** QuickReadDropResult */
         QuickReadDropResult: {
@@ -33023,6 +33235,8 @@ export interface components {
             meanings: string[];
             /** Reading */
             reading: string | null;
+            /** Start */
+            start: number | null;
             /** Word */
             word: string;
         };
@@ -34203,6 +34417,8 @@ export interface components {
         };
         /** TranslateHistoryEntry */
         TranslateHistoryEntry: {
+            /** Account */
+            account: string | null;
             /** Created At */
             created_at: string | null;
             /** Engine */
@@ -47355,6 +47571,8 @@ export interface operations {
                 wrap_chars_source?: number;
                 tidy_timing?: boolean;
                 speaker_names?: boolean;
+                sound_captions?: boolean;
+                reading_line?: boolean;
             };
             header?: never;
             path: {
@@ -47663,6 +47881,26 @@ export interface operations {
         };
     };
     get_sites_api_ext_bridge_sites_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    post_subs_api_ext_bridge_subs_post: {
         parameters: {
             query?: never;
             header?: never;
@@ -59459,6 +59697,128 @@ export interface operations {
             };
         };
     };
+    set_item_tonight_api_queue_items__item_id__tonight_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                item_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["QueueTonight"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QueueState"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    set_night_api_queue_night_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["QueueNightSet"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QueueState"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     get_novel_flow_api_queue_novel_flow__drama_id__get: {
         parameters: {
             query?: never;
@@ -60520,6 +60880,113 @@ export interface operations {
             };
             /** @description Unprocessable Content */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    get_ear_marks_api_reader_dramas__drama_id__ear_marks_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                drama_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EarMarks"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    post_ear_marks_api_reader_dramas__drama_id__ear_marks_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                drama_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EarMarksStarted"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Too Many Requests */
+            429: {
                 headers: {
                     [name: string]: unknown;
                 };

@@ -37,7 +37,7 @@ const SETTINGS_ROWS: Record<string, { label: string; value: string; engine?: str
     { label: 'VTuber names', value: 'Off' },
     { label: 'Reply check', value: 'Off' },
     { label: 'Off-peak start', value: 'Off: the queue runs it right away' },
-    { label: 'Cost', value: 'About $0.40; uses your API key and costs money' },
+    { label: 'Cost', value: 'About $0.40; costs money' },
     { label: 'Monthly cap left', value: '$5.00 of $5.00' },
   ],
   export: [{ label: 'Format', value: 'SRT' }, { label: 'Language', value: 'English' }],
@@ -55,7 +55,7 @@ export function queueItem(id: number, p: Partial<Item> = {}): Item {
 export async function mockQueueApi(page: Page, items: Item[] = [], extra: Record<string, unknown> = {}): Promise<QueueMock> {
   const mock: QueueMock = {
     state: {
-      version: 1, state: 'idle', stop_on_failure: false, overlap_online_translate: false, schedule: null, notice: null, max_items: 200,
+      version: 1, state: 'idle', stop_on_failure: false, overlap_online_translate: false, schedule: null, night: { start: '01:00', end: '07:00', self_check: true }, notice: null, max_items: 200,
       can_control: true, monthly_cap_usd: 5, items, ...extra,
     },
     calls: [],
@@ -89,7 +89,7 @@ export async function mockQueueApi(page: Page, items: Item[] = [], extra: Record
       mock.addBodies.push(body)
       const changed = Object.entries(body.settings ?? {}).map(([label, value]) => ({ label, value: String(value) }))
       s.items = [...s.items, queueItem(nextId++, {
-        drama_id: id, title: TITLES[id], step: body.step, changed_settings: changed,
+        drama_id: id, title: TITLES[id], step: body.step, changed_settings: changed, tonight: !!body.tonight,
         ...(body.step === 'translate' ? { engine: 'claude', paid: true } : {}),
       })]
     } else if (r.method() === 'POST' && path === '/api/queue/items/all-steps') {
@@ -132,6 +132,10 @@ export async function mockQueueApi(page: Page, items: Item[] = [], extra: Record
       s.state = 'paused'
     } else if (path.endsWith('/schedule')) {
       s.schedule = body.time ? { time: body.time, start_at: Date.now() / 1000 + 3600, missed: false } : null
+    } else if (path.endsWith('/tonight')) {
+      s.items = s.items.map((i, n) => (n === find() ? { ...i, tonight: !!body.tonight } : i))
+    } else if (path.endsWith('/night')) {
+      s.night = { start: body.start, end: body.end, self_check: !!body.self_check }
     } else if (path.endsWith('/policy')) {
       if (body.stop_on_failure !== undefined) s.stop_on_failure = !!body.stop_on_failure
       if (body.overlap_online_translate !== undefined) s.overlap_online_translate = !!body.overlap_online_translate

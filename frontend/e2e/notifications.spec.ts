@@ -330,7 +330,7 @@ test('header bell: empty list, and hidden when the list is refused', async ({ pa
     route.fulfill({ status: 403, contentType: 'application/json', body: JSON.stringify({ error: { code: 'forbidden', message: 'Not allowed.' } }) }),
   )
   await page.reload()
-  await expect(page.getByRole('button', { name: 'Report a problem' })).toBeVisible()
+  await expect(page.locator('details.you-menu > summary')).toBeVisible()
   await expect(page.getByRole('button', { name: /^Alerts/ })).toHaveCount(0)
   expect(unmocked).toEqual([])
 })

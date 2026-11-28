@@ -1,5 +1,7 @@
 """Tests for services/line_ai_service.py + /api/line-ai (Migration Slice 50).
 Fully mocked: fake engine and stubbed LLM helpers, no network."""
+import json
+
 import pytest
 
 pytest.importorskip("fastapi")
@@ -139,6 +141,17 @@ def test_improve_uses_the_shared_style_context_with_emotion(monkeypatch):
     monkeypatch.setattr(line_tools, "improve_line", fake)
     svc.improve_line(did, ids[1])
     assert "angry" in seen["style"] and "shouting" in seen["style"]
+
+
+def test_improve_uses_the_titles_last_run_style_preset(monkeypatch):
+    did, ids = _seed()
+    db.update_drama(did, translate_start_json=json.dumps({"style_preset": "novel"}))
+    presets, real = [], svc.workspace_job_service.build_run_style_context
+    monkeypatch.setattr(svc.workspace_job_service, "build_run_style_context",
+                        lambda d, dr, ln, preset, **k: presets.append(preset) or real(d, dr, ln, preset, **k))
+    monkeypatch.setattr(line_tools, "improve_line", lambda zh, en, engine, **k: en)
+    svc.improve_line(did, ids[1])
+    assert presets == ["novel"]
 
 
 def test_line_tools_use_the_lines_own_language(monkeypatch):

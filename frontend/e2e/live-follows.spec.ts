@@ -9,7 +9,6 @@ import { SCREENS, SID, followRow, mockLive, openLive } from './liveMocks'
 test('follow a channel, check it now and remove it', async ({ page }) => {
   const m = await mockLive(page)
   const live = await openLive(page)
-  await live.getByText('Followed channels').click()
   await expect(live.getByText('No channels followed yet.')).toBeVisible()
   const follow = live.getByRole('button', { name: 'Follow', exact: true })
   await expect(follow).toBeDisabled()
@@ -61,7 +60,6 @@ test('check all queues every channel and shows the results', async ({ page }) =>
   m.follows.can_auto_start = false
   m.follows.items = [followRow(1), followRow(2)]
   const live = await openLive(page)
-  await live.getByText('Followed channels').click()
   await live.getByRole('button', { name: 'Check all my channels' }).click()
   await expect(live.getByText('Checking 2 channels…')).toBeVisible()
   await expect(live.getByTestId('live-follow-status').first()).toContainText('Not live', { timeout: 10_000 })
@@ -74,7 +72,6 @@ test('the automatic start needs the hourly check, and says so', async ({ page })
   const m = await mockLive(page)
   m.follows.items = [followRow(1, { state: 'upcoming', last_status: 'Scheduled', starts_at: 1_900_000_000, stream_title: 'Evening stream', last_checked_at: Date.now() / 1000 })]
   const live = await openLive(page)
-  await live.getByText('Followed channels').click()
   const row = live.getByTestId('live-follow-row')
   await expect(row.getByTestId('live-follow-status')).toContainText(/Starts at \d.*: Evening stream/)
   await row.getByRole('button', { name: /show details/ }).click()
@@ -98,7 +95,6 @@ test('a member sees no automatic-start choice', async ({ page }) => {
   m.follows.can_auto_start = false
   m.follows.items = [followRow(1)]
   const live = await openLive(page)
-  await live.getByText('Followed channels').click()
   const row = live.getByTestId('live-follow-row')
   await row.getByRole('button', { name: /show details/ }).click()
   await expect(row.getByRole('combobox')).toHaveCount(0)
@@ -112,9 +108,8 @@ test('a live channel comes first as a card, and Watch with subtitles shows the s
   const m = await mockLive(page)
   m.follows.items = [followRow(1, { state: 'live', last_status: 'Live now', live_now: true, stream_title: 'Late night chat', last_checked_at: Date.now() / 1000 })]
   const live = await openLive(page)
-  // The card is there without opening the Followed channels section, above the start form.
+  // The card is above the start form.
   await expect(live.getByTestId('live-now-card')).toHaveCount(1)
-  await live.getByText('Followed channels').click()
   await expect(live.getByTestId('live-follow-status')).toContainText('Live now: Late night chat')
   await live.getByRole('button', { name: 'Watch with subtitles' }).click()
   await expect(live.getByTestId('live-status')).toBeVisible()
@@ -154,7 +149,6 @@ test('the bell link opens Live with that channel picked', async ({ page }) => {
   await expect(page).toHaveURL(/#\/live\?follow=4$/)
   await expect(live.getByTestId('live-now-card')).toHaveAttribute('data-picked', 'true')
   // The picked channel's row is open, the other stays folded.
-  await live.getByText('Followed channels').click()
   await expect(live.getByRole('button', { name: /^Channel 4.*hide details/ }).first()).toBeVisible()
   expect(m.unmocked).toEqual([])
 })

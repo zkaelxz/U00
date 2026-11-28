@@ -5,7 +5,7 @@ import { comicApi } from '../../api/comic'
 import { browserStorage, readPref, writePref } from '../../hooks/usePersistedState'
 import type { ComicPageInfo, ComicPanel } from '../../types/comic'
 import { isStripPage, NO_ZOOM, type Zoom } from './comicLogic'
-import { arriveAt, panelIndexFor, panelStep, panelZoom, PANEL_START, visiblePart, type PanelAt, type Rect } from './panelLogic'
+import { arriveAt, panelIndexFor, panelScroll, panelStep, panelZoom, PANEL_START, visiblePart, type PanelAt, type Rect } from './panelLogic'
 
 // The switch is kept per browser for every title (how this reader likes to read, not a fact about the title), and
 // shared: the two-page layout reads it too, so one page shows at a time while it is on.
@@ -95,7 +95,15 @@ export function usePanels({ dramaId, single, rtl, page, current, stageRef, figur
       const r = stage.getBoundingClientRect()
       const box = { w: stage.clientWidth || r.width, h: stage.clientHeight || r.height }
       const view = visiblePart({ x: r.left, y: r.top, w: box.w, h: box.h }, { w: window.innerWidth, h: window.innerHeight })
-      zoomTo(panelZoom(panel, image, view, box))
+      const zoom = panelZoom(panel, image, view, box)
+      zoomTo(zoom)
+      if (zoom.scale > 1) return
+      // No zoom fits (a page taller than the window, as in Fit width): the window scrolls to the panel instead.
+      const top = r.top + image.y + panel.y * image.h
+      const h = panel.h * image.h
+      const inset = parseFloat(getComputedStyle(stage).scrollMarginTop) || 0
+      const by = panelScroll(top, h, window.innerHeight, inset)
+      if (Math.abs(by) > 1) window.scrollBy({ top: by })
     }
     apply()
     // The stage changes size when the window does and when the bars hide; the image when it loads.

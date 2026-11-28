@@ -2,7 +2,8 @@ import { expect, type Locator, type Page } from '@playwright/test'
 
 import { expectPickedTab, pickTab } from './tabPicker'
 
-// Tools shares the Transcribe tab and Credits the Details tab; each keeps its own panel, so a spec can still say which.
+// Tools shares the Transcribe tab (as its Tools fold) and Credits the Details tab; each keeps its own panel, so a spec
+// can still say which. Going to 'tools' opens that fold.
 export type MediaTabName = 'add' | 'transcribe' | 'tools' | 'details' | 'credits'
 export const TAB_LABEL: Record<MediaTabName, string> = { add: 'Add media', transcribe: 'Run', tools: 'Run', details: 'Details', credits: 'Details' }
 
@@ -11,6 +12,7 @@ export async function gotoMedia(page: Page, tab: MediaTabName, id = 1) {
   await page.goto(`/#/drama/${id}/source?tab=${tab}`)
   // A phone shows the sections as a picker, not a tab row.
   await expectPickedTab(page, 'Media sections', new RegExp(`^${TAB_LABEL[tab]}( \\(unsaved changes\\))?$`))
+  if (tab === 'tools') await openFold(mediaPanel(page, 'tools'), 'Tools')
 }
 
 // A tab with unsaved edits carries "(unsaved changes)" in its name.
@@ -18,8 +20,17 @@ export const mediaTab = (page: Page, tab: MediaTabName) =>
   page.getByRole('tablist', { name: 'Media sections' }).getByRole('tab', { name: new RegExp(`^${TAB_LABEL[tab]}( \\(unsaved changes\\))?$`) })
 
 /** Opens one sub-tab: a click on the tab row, or the picker a phone shows instead. */
-export const selectMediaTab = (page: Page, tab: MediaTabName) =>
-  pickTab(page, new RegExp(`^${TAB_LABEL[tab]}( \\(unsaved changes\\))?$`), 'Media sections')
+export async function selectMediaTab(page: Page, tab: MediaTabName) {
+  await pickTab(page, new RegExp(`^${TAB_LABEL[tab]}( \\(unsaved changes\\))?$`), 'Media sections')
+  if (tab === 'tools') await openFold(mediaPanel(page, 'tools'), 'Tools')
+}
+
+/** Opens one of a sub-tab's top folds by its title, leaving it open if it already is (the state is remembered). */
+export async function openFold(panel: Locator, title: string) {
+  const fold = panel.locator(':scope > details.section').filter({ has: panel.page().locator(':scope > summary > .section-title', { hasText: new RegExp(`^${title}$`) }) })
+  if ((await fold.getAttribute('open')) === null) await fold.locator(':scope > summary').click()
+  await expect(fold).toHaveAttribute('open', '')
+}
 
 /** The visible body of one sub-tab. */
 export const mediaPanel = (page: Page, tab: MediaTabName) => page.locator(`#media-panel-${tab}`)
@@ -64,10 +75,17 @@ export async function expectNoSidewaysScroll(page: Page, what: string) {
   expect(scroll, `${what}: page scrolls sideways`).toBeLessThanOrEqual(client)
 }
 
-/** The titles of a sub-tab's top-level cards (folds not inside another fold) and whether each is open. */
+/**
+ * The titles of a sub-tab's top-level cards (folds not inside another fold) and whether each is open. The Run tab's
+ * Tools fold only wraps the Tools panel, so the folds inside it count as that panel's top level.
+ */
 export async function topCards(panel: Locator): Promise<{ title: string; open: boolean }[]> {
   return panel.locator('details.section').evaluateAll((all) =>
     all
-      .filter((d) => !d.parentElement?.closest('details.section'))
+      .filter((d) => d.parentElement?.id !== 'media-panel-tools')
+      .filter((d) => {
+        const outer = d.parentElement?.closest('details.section')
+        return !outer || outer.parentElement?.id === 'media-panel-tools'
+      })
       .map((d) => ({ title: d.querySelector(':scope > summary > .section-title')?.textContent ?? '', open: (d as HTMLDetailsElement).open })))
 }

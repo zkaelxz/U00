@@ -6,8 +6,8 @@ import { useEffect, useState } from 'react'
 
 import { getPcMode, loadPcMode, pcOnlyFetch } from '../../api/pcOnly'
 import { getSettings, updateSetting } from '../../api/settings'
-import { Card } from '../../components/Card'
 import { Field } from '../../components/Field'
+import { Section } from '../../components/Section'
 import { Toggle } from '../../components/Toggle'
 import { usePcOnly } from '../../hooks/usePcOnly'
 import { assistantErrorText } from '../assistant/assistantFormat'
@@ -58,7 +58,7 @@ function RemoteUploadsControls() {
   }
 
   return (
-    <Card title={REMOTE_UPLOADS_TITLE} aria-label={REMOTE_UPLOADS_TITLE} meta={uploads === null ? undefined : uploads ? 'On' : 'Off'}>
+    <Section title={REMOTE_UPLOADS_TITLE} summary={uploads === null ? undefined : uploads ? 'On' : 'Off'}>
       {uploads === null ? (
         !error && <p className="muted">Loading…</p>
       ) : (
@@ -73,6 +73,6 @@ function RemoteUploadsControls() {
           {error}
         </p>
       )}
-    </Card>
+    </Section>
   )
 }

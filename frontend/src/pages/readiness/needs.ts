@@ -318,6 +318,16 @@ const LIVE_SIZE_FLAGS: Record<string, keyof SetupReadiness> = {
 }
 
 /**
+ * Whether one Whisper size is on this PC. The title's config answers for its saved size only; readiness for each size
+ * it lists. Any other size is unknown (null).
+ */
+export function whisperSizeCached(r: SetupReadiness | null, size: string, saved: { size: string; cached: boolean } | null): boolean | null {
+  if (saved && saved.size === size) return saved.cached
+  const flag = LIVE_SIZE_FLAGS[size]
+  return r && flag ? !!r[flag] : null
+}
+
+/**
  * Whether a Live Whisper size can be picked. A model that is on the PC always can. One that is not
  * downloads on first use at the main PC (when Whisper itself is installed), but away from it the
  * server refuses it, so it is switched off there with the reason.
