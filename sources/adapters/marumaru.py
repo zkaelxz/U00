@@ -33,8 +33,7 @@ from urllib.parse import quote, urlsplit
 
 from ..base import PlainImageDownload, SourceAdapter, layout_changed_class, https_only
 from ..domains import SiteDomains, hostport
-from ..models import (AutomationPermission, ChapterInfo, ContentAccess, ContentType, FailureReason,
-                      PageRef, SearchResult, SeriesInfo, SourceUnavailable)
+from ..models import (AutomationPermission, ChapterInfo, ContentAccess, ContentType, PageRef, SearchResult, SeriesInfo)
 from ..pacing import PaceLevel, PacingProfile
 from ..registry import register
 from .. import store
@@ -102,24 +101,22 @@ class MarumaruSource(PlainImageDownload, SourceAdapter):
         return bool(m and "마루마루" in m.group(1))
 
     def _api(self, path: str, action: str) -> dict:
-        try:
-            resp = self.site.get(path, action=action, use_cache=False)
-        except SourceUnavailable as e:
-            if e.reason is FailureReason.ALL_DOMAINS_UNREACHABLE and not self.site.fixed:
-                self._propose_from_landing()
-            raise
+        resp = self.site.get(path, action=action, use_cache=False)
         return _json(resp, action.lower())
 
-    def _propose_from_landing(self):
-        """Reads the landing page and proposes each https address on it that serves this site.
-        Never changes the list itself; the owner confirms on the PC."""
+    def discover_addresses(self, redirected_hosts):
+        """Proposes each https address that serves this site: the hosts the old address
+        redirected to (its answers are JSON, which verify_site cannot read) and those on the
+        landing page. Never changes the list itself; the owner confirms on the PC."""
+        listed = {hostport(o) for o in self.site.origins()}
+        candidates = [f"https://{h}" for h in redirected_hosts]
         try:
             landing = self.client.get(LANDING_URL, action="Looking for Marumaru's new address",
                                       use_cache=False)
+            candidates += _HREF.findall(landing.text)[:10]
         except Exception:
-            return
-        listed = {hostport(o) for o in self.site.origins()}
-        for origin in dict.fromkeys(_HREF.findall(landing.text)[:10]):
+            pass
+        for origin in dict.fromkeys(candidates):
             host = hostport(origin)
             if not host or host in listed or "marumaru" not in host:
                 continue

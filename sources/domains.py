@@ -186,6 +186,26 @@ class SiteDomains:
             store.log_dropped("a domain proposal")
             return False
 
+    def _discover(self, redirected: list) -> bool:
+        """Lets an adapter look for a new address (a landing page, or a redirect
+        target whose answer was not a page `verify_site` can read, like a JSON
+        API) before the unreachable hook decides nobody knows one."""
+        finder = getattr(self.adapter, "discover_addresses", None)
+        if finder is None:
+            return False
+        try:
+            finder(list(dict.fromkeys(redirected)))
+            return self._proposals_pending()
+        except Exception:
+            import applog
+            applog.get_logger().warning("Looking for a new address failed", exc_info=True)
+            return False
+
+    def _log_summary(self, probed: int, redirected: int, found: bool):
+        import applog
+        applog.get_logger().info("Source domains: %s probed %d, redirected away %d, new address %s",
+                                 self.source, probed, redirected, "proposed" if found else "none")
+
     def get(self, path_or_url: str, **kw):
         return self.request("GET", path_or_url, **kw)
 
@@ -206,7 +226,7 @@ class SiteDomains:
                 return self.client.request(method, path_or_url, data=data, **kw)
             parts = urlsplit(path_or_url)
             path = (parts.path or "/") + (f"?{parts.query}" if parts.query else "")
-        errors, found = [], False
+        errors, found, redirected = [], False, []
         for base in listed:
             url = urljoin(base + "/", path)
             try:
@@ -231,11 +251,16 @@ class SiteDomains:
                     (method == "POST" and final != base):
                 if final is None:
                     found = self._maybe_propose(final_url, resp) or found
+                    if _scheme(final_url) == "https" and hostport(final_url):
+                        redirected.append(hostport(final_url))
                 errors.append(f"{hostport(base)}: redirected away from this domain")
                 continue
             health.record_success(self.source, 0.0)
             self._worked(final)
             return resp
+        if not found and not self.fixed:
+            found = self._discover(redirected)
+        self._log_summary(len(listed), len(redirected), found)
         msg = "Every domain on this source's list failed:\n" + "\n".join(errors)
         if found:
             msg += ("\nA possible new address was found. Confirm it on this PC under "
