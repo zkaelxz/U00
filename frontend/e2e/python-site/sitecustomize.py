@@ -20,9 +20,18 @@ def _connect_patiently(database, *args, **kwargs):
 
 sqlite3.connect = _connect_patiently
 
-# This file hides any sitecustomize the Python install has, so that one runs too.
+# This file hides any sitecustomize the Python install has, so that one runs too. samefile, not
+# a path compare: this folder reached under another spelling (a link, other letter case) would load this file again.
 _here = os.path.dirname(os.path.abspath(__file__))
-_spec = importlib.machinery.PathFinder.find_spec(
-    "sitecustomize", [p for p in sys.path if os.path.abspath(p or ".") != _here])
+
+
+def _elsewhere(entry):
+    try:
+        return not os.path.samefile(entry or ".", _here)
+    except OSError:
+        return True
+
+
+_spec = importlib.machinery.PathFinder.find_spec("sitecustomize", [p for p in sys.path if _elsewhere(p)])
 if _spec and _spec.loader:
     _spec.loader.exec_module(importlib.util.module_from_spec(_spec))
