@@ -124,6 +124,7 @@ button.watch-row:hover:not(:disabled) { background: var(--surface-2); border: 0;
 .watch-mark { min-width: 44px; justify-content: center; font-size: var(--text-lg); }
 .watch-now-checked { color: var(--ok); font-family: var(--font-sans, inherit); }
 .watch-now-flag, .watch-row-flag { color: var(--warn); }
+.watch-ear { color: var(--muted); }
 .watch-row-meta { display: inline-flex; flex-wrap: wrap; align-items: center; gap: var(--space-1) var(--space-2); }
 .watch-mark[aria-pressed='true'].watch-mark-good { color: var(--ok); border-color: var(--ok); background: color-mix(in srgb, var(--ok) 14%, var(--surface)); }
 .watch-mark[aria-pressed='true'].watch-mark-wrong { color: var(--bad); border-color: var(--bad); background: color-mix(in srgb, var(--bad) 14%, var(--surface)); }

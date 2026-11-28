@@ -3,7 +3,9 @@ import type { MouseEvent, ReactNode, Ref } from 'react'
 
 import { ErrorBanner } from '../../components/ErrorBanner'
 import { buttonClass } from '../../components/uiClasses'
+import type { EarSide } from '../../types/reader'
 import type { ReviewLine } from '../../types/review'
+import { EarMark } from './EarMark'
 import { LineMarkBadge } from '../workspace/stages/review/LineMarkButtons'
 import { StudyLine } from './StudyLine'
 import { CONFLICT_TEXT, CONFLICT_UNREAD_TEXT, fieldKey, lineHeading, type LineFix, type Verdict } from './watchLogic'
@@ -14,6 +16,8 @@ const NO_ENGLISH = 'No English yet'
 export interface NowCardProps {
   /** The open fix's line while one is open, else the line being spoken (null before the first). */
   line: ReviewLine | null
+  /** The ear the line is heard in, on a stereo title where it is mostly one-sided. */
+  ear?: EarSide | null
   /** The title, for the study breakdown; absent where there is none to ask. */
   dramaId?: number
   /** The title's language, for a line that does not carry its own. */
@@ -50,7 +54,7 @@ const press = (e: MouseEvent<HTMLButtonElement>, act: () => void) => {
 }
 
 // No hooks here, so a test can call it and press what it returns without a browser.
-export function NowCard({ line, dramaId, sourceLanguage, canEdit, fix, busy, status, onOpen, onDraft, onSave, onCancel, onAgain, onMark, onJump, markBusy = false, check = null, feedback, fixButtonRef, fieldRef, cardRef }: NowCardProps) {
+export function NowCard({ line, ear = null, dramaId, sourceLanguage, canEdit, fix, busy, status, onOpen, onDraft, onSave, onCancel, onAgain, onMark, onJump, markBusy = false, check = null, feedback, fixButtonRef, fieldRef, cardRef }: NowCardProps) {
   const again = (
     <button type="button" className={buttonClass()} onClick={onAgain} disabled={busy} title="Hear this line again">Listen</button>
   )
@@ -61,6 +65,7 @@ export function NowCard({ line, dramaId, sourceLanguage, canEdit, fix, busy, sta
         <>
           <p className="watch-now-meta" data-testid="watch-now-meta">
             {lineHeading(line)}
+            <EarMark side={ear} />
             <LineMarkBadge line={line} />
             {line.reviewed && <span className="watch-now-checked" data-testid="watch-now-checked">✓ Looks right</span>}
             {line.flag && <span className="watch-now-flag">⚑ Flagged</span>}

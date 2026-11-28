@@ -9,10 +9,12 @@ interface Props {
   form: AssForm
   setForm: (f: AssForm) => void
   options: AssStyleOptions
+  /** The title has lines heard mostly in one ear (a stereo title). */
+  earMarks?: boolean
 }
 
 // The style form is owned by ExportStage so the ASS file and the burned-in video share it.
-export function ExportAss({ form, setForm, options }: Props) {
+export function ExportAss({ form, setForm, options, earMarks = false }: Props) {
   const set = <K extends keyof AssForm>(k: K, v: AssForm[K]) => setForm({ ...form, [k]: v })
 
   const align = (key: 'alignment' | 'sfxAlignment' | 'notesAlignment', label: string) => (
@@ -106,6 +108,11 @@ export function ExportAss({ form, setForm, options }: Props) {
         <Field label="Colour each speaker">
           <Toggle checked={form.perSpeakerColors} onChange={(v) => set('perSpeakerColors', v)} />
         </Field>
+        {earMarks && (
+          <Field label="Place one-ear lines left or right" help="Lines heard mostly in one ear go to the bottom left or right.">
+            <Toggle checked={form.earPlacement} onChange={(v) => set('earPlacement', v)} />
+          </Field>
+        )}
         <Field label="Notes on own line">
           <Toggle
             checked={form.notesAsSeparateLine}

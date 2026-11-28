@@ -2,7 +2,7 @@
 vocabulary, wiki and novel files.
 """
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, StrictBool
 
@@ -30,6 +30,9 @@ __all__ = [
     "WatchBookmarks",
     "WatchBookmarkDeleted",
     "ReaderMediaAvailability",
+    "EarMark",
+    "EarMarks",
+    "EarMarksStarted",
     "ReaderEngineFields",
     "ReaderLookupRequest",
     "ReaderDefinition",
@@ -206,6 +209,27 @@ class ReaderMediaAvailability(BaseModel):
     narration: bool
     caption_tracks: List[str]
     captions_overlay: bool
+
+
+class EarMark(BaseModel):
+    line_id: int
+    side: Literal["left", "right"]
+
+
+class EarMarks(BaseModel):
+    """Lines heard mostly in one ear of a stereo title, by line id. state:
+    "ready", "working", "needed" (to be worked out, by POST) or "unavailable"."""
+    drama_id: int
+    state: Literal["ready", "working", "needed", "unavailable"]
+    marks: List[EarMark]
+    one_sided: int
+    total_lines: int
+
+
+class EarMarksStarted(BaseModel):
+    job_id: str
+    drama_id: int
+    started: bool
 
 
 class ReaderEngineFields(BaseModel):

@@ -307,13 +307,18 @@ def _fit_cjk_rows(text: str, limit: int, language, chinese_script: str) -> str:
                      for row in text.split("\n"))
 
 
+# lines_to_ass's ear_placement. libass keeps an event's first alignment tag, so one put in
+# front wins over an imported line's own.
+_EAR_TAGS = {"left": r"{\an1}", "right": r"{\an3}"}
+
+
 def lines_to_ass(lines, style: dict, field: str = "en", notes_by_idx: dict | None = None,
                  speaker_colors: dict | None = None, speaker_names: dict | None = None,
                  wrap_chars: dict | None = None, title: str = "",
                  notes_as_separate_line: bool = False,
                  language=None, chinese_script: str = "simplified",
                  frame_aspect=None, ass_header: dict | None = None,
-                 ass_header_key: str | None = None) -> str:
+                 ass_header_key: str | None = None, ear_placement: dict | None = None) -> str:
     """style: a dict shaped like ASS_PRESETS' values. speaker_colors:
     {speaker_label: "#RRGGBB"} -- each speaker gets its own Style with that
     fill colour (so libass colours them without any override tags); None
@@ -332,7 +337,8 @@ def lines_to_ass(lines, style: dict, field: str = "en", notes_by_idx: dict | Non
     ass_header, ass_header_key: an imported file's styles and canvas and
     the key its events carry (ass_header_for). Those lines are written back
     with their own style, layer, margins, effect and override tags
-    (_event_text); the rest get Baihe's styles, scaled to that canvas."""
+    (_event_text); the rest get Baihe's styles, scaled to that canvas.
+    ear_placement: {line_id: "left" | "right"} puts those lines' Dialogue bottom left / right."""
     speaker_colors = speaker_colors or {}
     lines = list(lines)
     records = [_header_record(ln, ass_header, ass_header_key) for ln in lines]
@@ -378,13 +384,14 @@ def lines_to_ass(lines, style: dict, field: str = "en", notes_by_idx: dict | Non
         plain = _cue_text(ln, field, cue_notes, wrap_chars, italic_tags=False,
                           language=language, chinese_script=chinese_script)
         start, end = _ass_ts(ln.start), _ass_ts(ln.end)
+        ear = _EAR_TAGS.get((ear_placement or {}).get(getattr(ln, "id", None)) or "", "")
         if getattr(ln, "sfx", False):
             style_name, name = sfx_name, ""
         else:
             style_name = style_for.get(ln.speaker, default_name)
             name = _ass_field((speaker_names or {}).get(ln.speaker) or "") if ln.speaker else ""
         if record is None:
-            text = _ass_escape(_fit_cjk_rows(plain, row_limit, language, chinese_script))
+            text = ear + _ass_escape(_fit_cjk_rows(plain, row_limit, language, chinese_script))
             events.append(f"Dialogue: 0,{start},{end},{style_name},{name},0,0,0,,{text}")
         else:
             own = _ass_field(record.get("style") or "")
@@ -396,8 +403,8 @@ def lines_to_ass(lines, style: dict, field: str = "en", notes_by_idx: dict | Non
                 limit = imported_limits[own]
             if not ln.speaker:
                 name = _ass_clean(record.get("name")).replace(",", " ").strip()
-            text = _event_text(ln, record, field, plain,
-                               _fit_cjk_rows(plain, limit, language, chinese_script))
+            text = ear + _event_text(ln, record, field, plain,
+                                     _fit_cjk_rows(plain, limit, language, chinese_script))
             events.append(_imported_dialogue(record, start, end, style_name, name, text))
         if notes_as_separate_line:
             note_text = notes_suffix(ln.idx, notes_by_idx).lstrip("\n")

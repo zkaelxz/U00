@@ -261,6 +261,7 @@ DRAMA_JOB_PREFIXES = LINE_WRITING_JOB_PREFIXES + (
     "bulk_consistency_", "bulk_emotion_", "bulk_notes_", "bulk_flag_", "resegpreview_", "scanlate_",
     "lncrawl_",
     "comparetx_", "retime_", "speechcov_", "restructure_", "hardsub_reference_",
+    "earmarks_",
 )
 
 

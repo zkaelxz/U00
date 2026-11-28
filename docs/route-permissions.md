@@ -569,6 +569,8 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `DELETE /api/reader/dramas/{drama_id}/bookmarks/{bookmark_id}` | lines.edit |
 | `PATCH /api/reader/dramas/{drama_id}/bookmarks/{bookmark_id}` | lines.edit |
 | `GET /api/reader/dramas/{drama_id}/captions/{track}` | lines.read |
+| `GET /api/reader/dramas/{drama_id}/ear-marks` | lines.read |
+| `POST /api/reader/dramas/{drama_id}/ear-marks` | jobs.start |
 | `GET /api/reader/dramas/{drama_id}/lines/{line_id}/study` | lines.read |
 | `POST /api/reader/dramas/{drama_id}/lookup` | lines.edit |
 | `GET /api/reader/dramas/{drama_id}/media` | library.read |

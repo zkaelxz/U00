@@ -43,6 +43,7 @@ export interface AssExportRequest {
   notes_as_separate_line: boolean
   wrap_chars_en?: number
   wrap_chars_source?: number
+  ear_placement?: boolean
 }
 
 export type AssStyleOptions = Schemas['AssStyleOptions']
