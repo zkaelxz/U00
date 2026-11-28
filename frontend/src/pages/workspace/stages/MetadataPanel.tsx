@@ -420,26 +420,35 @@ export function FillInPanel({ hasMedia, onNeedMedia }: { hasMedia: boolean; onNe
     }
     return want
   })
-  const [mode, setMode] = usePersistedState<FillMode>('source.fillin.mode', 'page')
+  const [savedMode, setMode] = usePersistedState<FillMode>('source.fillin.mode', 'page')
   const { dramaId } = useStage()
+  // A page or research lookup can spend on a paid engine, and only admin.library may apply
+  // what it finds, so without that right only the free audio mode is offered.
+  const canSave = useHolds('admin.library')
+  const modes = canSave ? FILL_MODES : FILL_MODES.filter(([m]) => m === 'audio')
+  const mode = canSave ? savedMode : 'audio'
   return (
     <section className="panel" aria-label="Fill in details">
-      <Section storageKey="source.fillin" defaultOpen={arrived} title="Fill in details" summary="From a page, online research or the audio">
+      <Section storageKey="source.fillin" defaultOpen={arrived} title="Fill in details" summary={canSave ? 'From a page, online research or the audio' : 'From the audio'}>
         <div className="source-panel">
           <div className="segmented fill-in-modes" role="radiogroup" aria-label="Fill in from">
-            {FILL_MODES.map(([m, label]) => (
+            {modes.map(([m, label]) => (
               <label key={m} className={m === mode ? 'segmented-on' : undefined}>
                 <input type="radio" name={`fill-in-${dramaId}`} checked={m === mode} onChange={() => setMode(m)} />
                 {label}
               </label>
             ))}
           </div>
-          <div hidden={mode !== 'page'}>
-            <AutofillBody arrived={arrived} />
-          </div>
-          <div hidden={mode !== 'research'}>
-            <ResearchPanel />
-          </div>
+          {canSave && (
+            <>
+              <div hidden={mode !== 'page'}>
+                <AutofillBody arrived={arrived} />
+              </div>
+              <div hidden={mode !== 'research'}>
+                <ResearchPanel />
+              </div>
+            </>
+          )}
           <div hidden={mode !== 'audio'}>
             <AnalyzeBody hasMedia={hasMedia} onNeedMedia={onNeedMedia} />
           </div>

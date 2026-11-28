@@ -2,7 +2,7 @@
  * Live capture sessions (api/routers/live_routes.py, spec L-1). Status is also
  * pushed over GET /api/events (src/api/eventStream.ts); cues are read here.
  * Start needs `media.import_url` (plus `engines.paid` for a paid engine);
- * reading is `library.read`, stopping `jobs.cancel`. Sessions live in the
+ * reading is `library.read`, stopping `jobs.cancel`; fixing a name is the starter's only. Sessions live in the
  * API process only: a 404 after a restart means the session is gone.
  */
 import type { TranslateEngine } from '../types/translate'
@@ -11,6 +11,8 @@ import type {
   LiveChatPage,
   LiveCue,
   LiveFormOptions,
+  LiveNameFixAdd,
+  LiveNameFixes,
   LiveOllamaCheck,
   LiveSessionStart,
   LiveSessionStarted,
@@ -218,6 +220,10 @@ export const getLive = async (id: string, after: number, f?: Fetch) =>
 export const getLiveChat = async (id: string, after: number, f?: Fetch) =>
   getJson<LiveChatPage>(`${sessionPath(id)}/chat?after=${Math.max(0, Math.floor(after))}`, f)
 export const stopLive = async (id: string, f?: Fetch) => postJson<LiveSessionStopped>(`${sessionPath(id)}/stop`, undefined, f)
+
+/** Later lines of the session translate `source` as `english`; the session's starter only. */
+export const fixLiveName = async (id: string, body: LiveNameFixAdd, f?: Fetch) =>
+  postJson<LiveNameFixes>(`${sessionPath(id)}/names`, body, f)
 
 /** Why Start can't be pressed with this link yet, or null. */
 export function checkLiveUrl(url: string, maxLen = MAX_URL_LEN): string | null {

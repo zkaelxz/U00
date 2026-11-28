@@ -120,7 +120,7 @@ describe('merged engines and keys list', () => {
     capabilities: [],
     engines: [
       eng({ engine: 'claude' }),
-      eng({ engine: 'ollama', tags: ['local', 'translate'], needs_key: false }),
+      eng({ engine: 'ollama', tags: ['translate'], needs_key: false }),
       eng({ engine: 'fake', tags: [], needs_key: false }),
     ],
   }
@@ -131,7 +131,7 @@ describe('merged engines and keys list', () => {
     expect(rows.map((r) => r.engine)).toEqual(['claude', 'ollama', 'fake', 'groq', 'hf_token'])
     expect(rows.map((r) => r.keyState)).toEqual(['missing', 'none', 'none', 'set', 'missing'])
     expect(rows.map((r) => r.writable)).toEqual([true, false, false, true, true])
-    expect(rows.map((r) => r.cost)).toEqual(['Paid', 'Free · runs on this PC', 'Free', 'Paid', 'Free'])
+    expect(rows.map((r) => r.cost)).toEqual(['Paid', 'Paid · billed by Ollama', 'Free', 'Paid', 'Free'])
     expect(rows[3].status).toBeNull()
   })
 

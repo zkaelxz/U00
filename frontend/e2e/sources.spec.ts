@@ -481,9 +481,9 @@ test('manage sources, Timing & cache: one Save, validation, cache limit, Clear c
 
   // Clear cache: two presses, then the line updates.
   await expect(manage.getByText('Saved pages: 120 items · 45.2 MB')).toBeVisible()
-  await manage.getByRole('button', { name: 'Clear cache raw-content cache' }).click()
+  await manage.getByRole('button', { name: 'Clear cache saved pages' }).click()
   expect(posted(s, '/api/sources/cache/clear')).toHaveLength(0)
-  await manage.getByRole('button', { name: 'Confirm clear raw-content cache' }).click()
+  await manage.getByRole('button', { name: 'Confirm clear saved pages' }).click()
   await expect(manage.getByText('Saved pages: empty')).toBeVisible()
   expect(posted(s, '/api/sources/cache/clear')[0].body).toEqual({ confirm: true })
 
