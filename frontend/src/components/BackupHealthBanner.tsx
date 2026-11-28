@@ -9,7 +9,8 @@ import { useEffect, useState } from 'react'
 
 import { ApiError } from '../api/client'
 import { dismissSameDriveNote, getBackupSettings } from '../api/backups'
-import { usePcOnly } from '../hooks/usePcOnly'
+import { usePcOnly, type PcMode } from '../hooks/usePcOnly'
+import { isMember, useSession } from '../hooks/useSession'
 import { routeHref } from '../router'
 import { BACKUP_PROBLEM_TEXT } from '../pages/backupsFormat'
 import type { AutoBackupSettings } from '../types/backups'
@@ -18,12 +19,18 @@ import { WarnBar } from './WarnBar'
 export const POLL_MS = 10 * 60_000
 const HIDE_ON = [401, 403, 404]
 
+/** The route is PC-only, not role-gated, so a member signed in at the PC would otherwise get the owner's warning. */
+export function backupBannerWanted(pc: PcMode, member: boolean): boolean {
+  return pc === 'local' && !member
+}
+
 export function BackupHealthBanner() {
   const pc = usePcOnly()
+  const wanted = backupBannerWanted(pc, isMember(useSession()))
   const [problem, setProblem] = useState<AutoBackupSettings['problem']>(null)
   const [dismissed, setDismissed] = useState<AutoBackupSettings['problem']>(null)
   useEffect(() => {
-    if (pc !== 'local') return
+    if (!wanted) return
     let live = true
     let timer: ReturnType<typeof setInterval> | undefined
     const load = () =>
@@ -44,8 +51,8 @@ export function BackupHealthBanner() {
       live = false
       if (timer) clearInterval(timer)
     }
-  }, [pc])
-  if (pc !== 'local' || !problem || problem === dismissed) return null
+  }, [wanted])
+  if (!wanted || !problem || problem === dismissed) return null
   const text = BACKUP_PROBLEM_TEXT[problem]
   return (
     <WarnBar
