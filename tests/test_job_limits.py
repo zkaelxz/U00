@@ -685,3 +685,38 @@ class TestGpuSlotWorkUnderTheJobLock:
             go.set()
             _wait("beat_throttle")
             bg.clear_job("beat_throttle")
+
+
+
+@pytest.mark.parametrize("alert_limit,floor", [(None, 10), (7, 7), (5, 5), (2, 5), (1, 5), (50, 10),
+                                               ("x", 10), (0, 10)])
+def test_the_member_disk_floor_never_sits_above_the_owners_alert_limit(isolated_db, alert_limit, floor):
+    from services import resource_monitor_service as rms
+    if alert_limit is not None:
+        db.set_app_setting(rms.RULES_SETTING, {"disk_free": {"limit": alert_limit}})
+    assert user_caps.member_min_free_gb() == floor
+
+
+def test_switching_the_disk_alert_off_leaves_the_member_floor_where_it_was(isolated_db):
+    from services import resource_monitor_service as rms
+    rms.set_rules({"disk_free": {"limit": 6}})
+    assert user_caps.member_min_free_gb() == 6
+    rms.set_rules({"disk_free": {"enabled": False}})
+    assert user_caps.member_min_free_gb() == user_caps.MEMBER_MIN_FREE_GB
+
+
+def test_the_floor_reads_the_alerts_own_setting_and_range():
+    from services import resource_monitor_service as rms
+    assert user_caps.ALERT_RULES_SETTING == rms.RULES_SETTING
+    assert user_caps.ALERT_LIMIT_RANGE == rms.METRICS["disk_free"]["range"]
+
+
+def test_a_member_starts_a_job_above_a_lowered_alert_limit(isolated_db, monkeypatch):
+    from collections import namedtuple
+    from services import resource_monitor_service as rms
+    usage = namedtuple("usage", "total used free")
+    monkeypatch.setattr(user_caps.shutil, "disk_usage", lambda _p: usage(100 << 30, 94 << 30, 6 << 30))
+    with pytest.raises(user_caps.DiskLowError):
+        user_caps.refuse_if_disk_low(7)
+    rms.set_rules({"disk_free": {"limit": 5}})
+    user_caps.refuse_if_disk_low(7)
