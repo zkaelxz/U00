@@ -1166,42 +1166,61 @@ class TestPhoneAppHandOff:
     def _redeem(self, app, code):
         return _app(app).post("/api/auth/app/redeem", data={"code": code, "verifier": _VERIFIER})
 
-    def test_app_session_ends_when_the_confirming_session_would(self, isolated_db, app):
-        """Walking a session cookie through the hand-off again and again must
-        not outlast the absolute timeout."""
+    @staticmethod
+    def _app_token(r):
+        return next(c.split("=", 1)[1].split(";")[0] for c in _cookies(r)
+                    if c.lower().startswith("__host-baihe_session="))
+
+    def test_app_session_keeps_its_full_length_when_the_browser_ends(self, isolated_db, app):
+        """Owner decision 2026-11-28: the phone keeps its own sign-in length
+        instead of ending with the browser session that linked it."""
         user = _add()
         old_start = time.time() - 29 * 86400
         browser = auth_service.create_session(user["id"], now=old_start)
         db.auth_touch_session(browser["session_id"], time.time())
-        browser_end = old_start + auth_service.ABSOLUTE_TIMEOUT_SECONDS
+        linked = time.time()
         r = self._redeem(app, _hand_off(app, user, session=browser))
         assert r.headers["location"] == "/"
         app_row = next(s for s in db.auth_list_sessions(user["id"]) if s["id"] != browser["session_id"])
-        assert app_row["expires_at"] == browser_end
-        # And the app's own session, used as the next "browser", passes on the same end.
-        token = next(c.split("=", 1)[1].split(";")[0] for c in _cookies(r)
-                     if c.lower().startswith("__host-baihe_session="))
-        child = {"session_token": token}
-        r = self._redeem(app, _hand_off(app, user, session=child))
-        assert r.headers["location"] == "/"
-        assert max(s["expires_at"] for s in db.auth_list_sessions(user["id"])) == browser_end
+        assert app_row["expires_at"] >= linked + auth_service.ABSOLUTE_TIMEOUT_SECONDS
+        token = self._app_token(r)
+        two_days_on = old_start + auth_service.ABSOLUTE_TIMEOUT_SECONDS + 86400
+        assert auth_service.resolve_session(browser["session_token"], now=two_days_on) is None
+        assert auth_service.resolve_session(token, now=two_days_on) is not None
 
-    def test_shortened_absolute_timeout_ends_app_session_with_its_browser(
+    def test_signing_the_browser_out_leaves_the_app_signed_in(self, isolated_db, app):
+        user = _add()
+        browser = auth_service.create_session(user["id"])
+        r = self._redeem(app, _hand_off(app, user, session=browser))
+        token = self._app_token(r)
+        auth_service.revoke_session(browser["session_id"], user["id"])
+        assert auth_service.resolve_session(token) is not None
+
+    def test_an_app_session_cannot_vouch_for_another(self, isolated_db, app):
+        """Chaining hand-offs would let one app cookie renew itself past the
+        absolute timeout for good."""
+        user = _add()
+        r = self._redeem(app, _hand_off(app, user))
+        child = {"session_token": self._app_token(r)}
+        r = self._redeem(app, _hand_off(app, user, session=child))
+        assert r.headers["location"] == "/?login_error=expired"
+        assert len(db.auth_list_sessions(user["id"])) == 2
+        assert any("app_parent_is_hand_off" in a["detail_redacted"] for a in _audit("login.error"))
+        assert not any("app_browser_signed_out" in a["detail_redacted"] for a in _audit("login.error"))
+
+    def test_shortened_absolute_timeout_counts_from_the_hand_off(
             self, isolated_db, app, monkeypatch):
-        """A timeout shortened after the hand-off counts from the browser's
-        sign-in, not from when the app's session was made."""
         user = _add()
         signed_in = time.time() - 10 * 86400
         browser = auth_service.create_session(user["id"], now=signed_in)
         db.auth_touch_session(browser["session_id"], time.time())
         r = self._redeem(app, _hand_off(app, user, session=browser))
         assert r.headers["location"] == "/"
-        token = next(c.split("=", 1)[1].split(";")[0] for c in _cookies(r)
-                     if c.lower().startswith("__host-baihe_session="))
-        assert auth_service.resolve_session(token) is not None
+        token = self._app_token(r)
         monkeypatch.setattr(auth_service, "ABSOLUTE_TIMEOUT_SECONDS", 7 * 86400)
-        assert auth_service.resolve_session(token) is None
         assert auth_service.resolve_session(browser["session_token"]) is None
+        assert auth_service.resolve_session(token) is not None
+        assert auth_service.resolve_session(token, now=time.time() + 8 * 86400) is None
 
     def test_code_minted_before_sign_out_everywhere_is_refused(self, isolated_db, app):
         user = _add()
@@ -1253,3 +1272,94 @@ class TestPhoneAppHandOff:
             c.post("/api/auth/app/redeem", data={"code": "x", "verifier": _VERIFIER})
         r = c.post("/api/auth/app/redeem", data={"code": "x", "verifier": _VERIFIER})
         assert r.status_code == 429 and "Sign-in paused" in r.text
+
+
+class TestPhoneAppSignOutPaths:
+    """The phone's session no longer ends with the browser that linked it, so
+    every other way of ending a sign-in must end it on its very next request
+    (nothing is cached: api.auth re-reads the session and rights each time)."""
+
+    def _signed_in_pair(self, app, user):
+        browser = auth_service.create_session(user["id"])
+        r = _app(app).post("/api/auth/app/redeem",
+                           data={"code": _hand_off(app, user, session=browser), "verifier": _VERIFIER})
+        assert r.headers["location"] == "/"
+        phone = next(c.split("=", 1)[1].split(";")[0] for c in _cookies(r)
+                     if c.lower().startswith("__host-baihe_session="))
+        phone_id = next(s["id"] for s in db.auth_list_sessions(user["id"])
+                        if s["id"] != browser["session_id"])
+        return browser, phone, phone_id
+
+    def _me(self, app, token):
+        c = _client(app)
+        c.cookies.set("__Host-baihe_session", token, domain="baihe.example.com")
+        return c.get("/api/auth/me").json()
+
+    def _admin(self):
+        admin = auth_service.add_user("admin@example.com")
+        db.auth_update_user(admin["id"], is_admin=1)
+        return admin
+
+    def test_people_and_access_signs_the_phone_out(self, isolated_db, app):
+        user, admin = _add(), self._admin()
+        browser, phone, phone_id = self._signed_in_pair(app, user)
+        auth_service.admin_revoke_device(user["id"], phone_id, actor_id=admin["id"])
+        assert self._me(app, phone)["signed_in"] is False
+        assert self._me(app, browser["session_token"])["signed_in"] is True
+
+    def test_own_signed_in_devices_signs_the_phone_out(self, isolated_db, app):
+        user = _add()
+        browser, phone, phone_id = self._signed_in_pair(app, user)
+        auth_service.revoke_own_session(user["id"], phone_id, browser["session_id"],
+                                        is_admin=False, at_pc=False)
+        assert self._me(app, phone)["signed_in"] is False
+        assert self._me(app, browser["session_token"])["signed_in"] is True
+
+    def test_sign_out_all_other_devices_signs_the_phone_out(self, isolated_db, app):
+        user = _add()
+        browser, phone, _ = self._signed_in_pair(app, user)
+        renewed = auth_service.revoke_other_sessions(user["id"], browser["session_id"],
+                                                     is_admin=False, at_pc=False)
+        assert self._me(app, phone)["signed_in"] is False
+        assert self._me(app, renewed["session_token"])["signed_in"] is True
+
+    def test_sign_out_everywhere_signs_both_out(self, isolated_db, app):
+        user, admin = _add(), self._admin()
+        browser, phone, _ = self._signed_in_pair(app, user)
+        auth_service.admin_revoke_sessions(user["id"], actor_id=admin["id"])
+        assert self._me(app, phone)["signed_in"] is False
+        assert self._me(app, browser["session_token"])["signed_in"] is False
+
+    def test_deactivating_and_deleting_the_member_signs_both_out(self, isolated_db, app):
+        user, admin = _add(), self._admin()
+        browser, phone, _ = self._signed_in_pair(app, user)
+        auth_service.admin_set_active(user["id"], False, actor_id=admin["id"])
+        assert self._me(app, phone)["signed_in"] is False
+        assert self._me(app, browser["session_token"])["signed_in"] is False
+        auth_service.admin_delete_user(user["id"], actor_id=admin["id"])
+        assert self._me(app, phone)["signed_in"] is False
+
+    def test_deactivated_member_is_refused_even_if_a_session_row_survived(self, isolated_db, app):
+        user = _add()
+        browser, phone, _ = self._signed_in_pair(app, user)
+        db.auth_update_user(user["id"], is_active=0)
+        assert self._me(app, phone)["signed_in"] is False
+        assert self._me(app, browser["session_token"])["signed_in"] is False
+
+    def test_removing_admin_rights_signs_both_out(self, isolated_db, app):
+        self._admin()
+        user = _add()
+        db.auth_update_user(user["id"], is_admin=1)
+        browser, phone, _ = self._signed_in_pair(app, user)
+        auth_service.revoke_admin(user["id"], at_pc=True)
+        assert self._me(app, phone)["signed_in"] is False
+        assert self._me(app, browser["session_token"])["signed_in"] is False
+
+    def test_a_removed_right_is_gone_on_the_next_request(self, isolated_db, app):
+        user, admin = _add(), self._admin()
+        browser, phone, _ = self._signed_in_pair(app, user)
+        assert "library.read" in self._me(app, phone)["permissions"]
+        auth_service.admin_set_permission(user["id"], "library.read", False, actor_id=admin["id"])
+        for token in (phone, browser["session_token"]):
+            me = self._me(app, token)
+            assert me["signed_in"] is True and "library.read" not in me["permissions"]
