@@ -24,26 +24,42 @@
 .translate-note a { color: var(--accent-text); display: inline-block; min-height: 44px; line-height: 44px; }
 .translate-warning a { color: var(--accent-text); }
 
-/* Source and result panes. */
+/* Source and result panes; Translate sits between them on a phone and under them from 1024px. */
 .translate-panes { display: grid; gap: var(--space-4); min-width: 0; }
+.translate-run { display: grid; gap: var(--space-2); min-width: 0; }
 .translate-pane { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-2); align-content: start; min-width: 0; }
 .translate-pane-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-2); min-height: 44px; }
 .translate-pane-title { margin: 0; font-size: var(--text-md); font-weight: var(--weight-bold); color: var(--text); }
 .translate-source textarea { min-height: 10rem; resize: vertical; }
-.translate-actions { gap: var(--space-2); }
-.translate-result-pane {
-  padding: var(--space-3) var(--space-4) var(--space-4);
-  border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface-2);
-}
+.translate-actions { gap: var(--space-2); align-items: center; }
+.translate-actions > p { margin: 0; }
+.translate-result-pane { min-height: 10rem; }
 .translate-result-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); }
 .translate-result { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; line-height: 1.5; }
 .translate-placeholder { margin: 0; }
 
-/* Open a file: a hidden native input behind a button-styled label. */
+/* "+ File or screenshot": a menu of two rows. Open a file is a hidden native input behind its label. */
+.translate-add { position: relative; }
+.translate-add > summary { list-style: none; }
+.translate-add > summary::-webkit-details-marker { display: none; }
+.translate-add-panel {
+  position: absolute; top: calc(100% + var(--space-1)); right: 0; z-index: 10;
+  display: flex; flex-direction: column; width: max-content; max-width: min(20rem, calc(100vw - 2 * var(--space-4)));
+  padding: var(--space-1); background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-md); box-shadow: var(--shadow-pop);
+}
+.translate-add-file { display: grid; min-width: 0; }
+.translate-add-file label, .translate-add-panel > button {
+  display: flex; align-items: center; min-height: 40px; padding: var(--space-2) var(--space-3);
+  border: 0; border-radius: var(--radius-sm); background: none; color: inherit; font: inherit; text-align: left; cursor: pointer;
+}
+.translate-add-file > span { padding: 0 var(--space-3) var(--space-2); font-size: var(--text-sm); }
+.translate-add-file label:hover, .translate-add-panel > button:hover, .translate-add-panel > button:focus-visible { background: var(--surface-2); }
+.translate-add-file input:focus-visible + label { outline: 2px solid transparent; box-shadow: 0 0 0 4px var(--focus); outline-offset: 2px; }
+/* Choose a picture (Read from a screenshot): a hidden native input behind a button-styled label. */
 .translate-file { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); min-width: 0; font-size: var(--text-sm); }
 .translate-file label { cursor: pointer; }
 .translate-file input:focus-visible + label { outline: 2px solid transparent; box-shadow: 0 0 0 4px var(--focus); outline-offset: 2px; }
-.translate-file-error { color: var(--bad); }
+.translate-file-error { color: var(--bad); font-size: var(--text-sm); }
 
 /* History: a readable list, source and translation side by side on wide screens. */
 .translate-history { display: grid; margin: 0; padding: 0; list-style: none; }
@@ -60,18 +76,26 @@
   .translate-toolbar { grid-template-columns: minmax(200px, 1fr) minmax(320px, 1.4fr); }
   .translate-toolbar.has-model { grid-template-columns: minmax(180px, 1fr) minmax(180px, 1fr) minmax(320px, 1.4fr); }
   .translate-toolbar .translate-langs, .translate-toolbar:not(.has-model) .translate-engine { grid-column: auto; }
-  .translate-panes { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: var(--space-5); }
-  .translate-source textarea { min-height: 16rem; }
-  .translate-result-pane { min-height: 16rem; }
+  /* The boxes take the height the window leaves, so Translate stays on screen from a 1280x720 laptop up. */
+  .translate-panes {
+    --translate-box-h: max(14rem, calc(100dvh - 29rem));
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); grid-template-areas: "source result" "run run";
+    gap: var(--space-3) var(--space-5);
+  }
+  .translate-source { grid-area: source; }
+  .translate-result-pane { grid-area: result; min-height: 0; }
+  .translate-run { grid-area: run; }
+  .translate-source textarea { height: var(--translate-box-h); min-height: 14rem; }
+  .translate-result { max-height: var(--translate-box-h); overflow-y: auto; }
   .translate-history-pair { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: var(--space-4); }
   .translate-history-pair p + p { color: var(--text); }
 }
 
 @media (pointer: coarse), (max-width: 640px) {
-  .translate-file label { min-height: 44px; }
+  .translate-file label, .translate-add-file label, .translate-add-panel > button { min-height: 44px; }
 }
 
-/* Read from a screenshot: a boxed panel above the text area. */
+/* Read from a screenshot: a boxed panel above the text boxes. */
 .translate-read { display: grid; gap: var(--space-2); min-width: 0; }
 .translate-read-open { padding: var(--space-3); border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface-2); }
 .translate-read-head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); }

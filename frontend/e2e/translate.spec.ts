@@ -43,6 +43,39 @@ test('shows source and result side by side on desktop, with humanized history', 
   await expect(row).not.toContainText('fake')
 })
 
+for (const [width, height] of [[1280, 720], [1536, 864]]) {
+  test(`Translate stays on screen beside the boxes at ${width}x${height}`, async ({ page }) => {
+    await page.setViewportSize({ width, height })
+    await page.goto('/#/translate')
+    // The engine note appears once the engine list loads and moves the boxes down; measure after it.
+    await expect(page.getByTestId('engine-note')).toBeVisible()
+    const translate = page.getByRole('button', { name: 'Translate', exact: true })
+    const box = await translate.boundingBox()
+    expect(box && box.y + box.height <= height).toBe(true)
+    const src = await page.getByLabel('Text to translate').boundingBox()
+    expect(src && box && box.y > src.y + src.height - 1).toBe(true)
+  })
+}
+
+test('the + menu loads a file and closes; the file name stays in view', async ({ page }) => {
+  await page.goto('/#/translate')
+  const menu = page.getByText('+ File or screenshot')
+  await menu.click()
+  await expect(page.getByText('Open a file…')).toBeVisible()
+  await page.getByLabel('Open a file…').setInputFiles({ name: 'ep1.txt', mimeType: 'text/plain', buffer: Buffer.from('你好') })
+  await expect(page.getByText('Open a file…')).toBeHidden()
+  await expect(page.getByRole('status').filter({ hasText: 'Loaded ep1.txt' })).toBeVisible()
+  await expect(page.getByLabel('Text to translate')).toHaveValue('你好')
+  await menu.click()
+  await page.keyboard.press('Escape')
+  await expect(page.getByText('Open a file…')).toBeHidden()
+  // Choosing a row hides it; focus goes back to the menu button, not to the top of the page.
+  await menu.click()
+  await page.getByRole('button', { name: 'Read from a screenshot…' }).click()
+  await expect(page.getByRole('group', { name: 'Read from a screenshot' })).toBeVisible()
+  await expect(menu).toBeFocused()
+})
+
 test('swap flips the languages in one press and is remembered', async ({ page }) => {
   await page.goto('/#/translate')
   await expect(page.getByLabel('Source language')).toHaveValue('zh')

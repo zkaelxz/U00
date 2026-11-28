@@ -442,9 +442,7 @@ textarea {
 textarea { min-height: 0; resize: vertical; font-size: var(--text-edit); line-height: var(--leading); }
 input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); outline-offset: 2px; border-color: var(--accent); box-shadow: 0 0 0 4px var(--focus); }
 input::placeholder, textarea::placeholder { color: var(--muted); }
-:disabled,
-button.primary:disabled,
-button.danger:disabled {
+:disabled {
   cursor: not-allowed;
   color: var(--muted);
   background: color-mix(in srgb, var(--text) 7%, var(--surface));
@@ -469,10 +467,6 @@ button, a.button-link {
 }
 button:where(:not(.link, .toggle, .field-help-btn)), a.button-link { min-height: var(--control-h); }
 button:hover:not(:disabled) { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, var(--surface)); }
-button.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); font-weight: 600; }
-button.primary:hover:not(:disabled) { background: color-mix(in srgb, var(--accent) 88%, var(--text)); }
-button.danger { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 50%, var(--border)); }
-button.danger:hover:not(:disabled) { background: color-mix(in srgb, var(--bad) 14%, var(--surface)); border-color: var(--bad); }
 button.link {
   background: none;
   border: none;
@@ -966,16 +960,7 @@ button.toggle::after { content: ''; position: absolute; inset: -11px -4px; }
 .pill-info { color: var(--info); background: color-mix(in srgb, var(--info) 14%, var(--surface)); }
 .pill-row { display: inline-flex; flex-wrap: wrap; gap: var(--space-1); }
 
-/* Legacy aliases: older screens' `button.primary` and `.badge` take the kit look
-   (.btn-primary, .pill) until they are migrated to Button/Badge. Markup is unchanged. */
-button.primary {
-  padding-inline: 16px;
-  font-weight: var(--weight-bold);
-  line-height: 1.2;
-  transition: background var(--dur-2) var(--ease), border-color var(--dur-2) var(--ease), color var(--dur-2) var(--ease);
-}
-button.primary:hover:not(:disabled) { border-color: var(--accent); color: var(--on-accent); }
-button.primary:disabled { background: color-mix(in srgb, var(--accent) 20%, var(--surface)); border-color: color-mix(in srgb, var(--accent) 35%, var(--surface)); color: var(--muted); border-style: solid; }
+/* Legacy alias: older screens' `.badge` takes the kit look (.pill) until they are migrated to Badge. Markup is unchanged. */
 .badge {
   display: inline-flex;
   align-items: center;

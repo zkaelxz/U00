@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
-import { openBenchTab } from './benchSections'
+import { flatSection, openBenchTab } from './benchSections'
 import { navLink, openMenu } from './settingsNav'
 import { enableDeveloperMode } from './sourceHelpers'
 
@@ -49,19 +49,17 @@ test('Benchmark Lab: import a set, run the offline engine twice, compare in the 
   await openMenu(page)
   await expect(navLink(page, 'Benchmark Lab')).toHaveAttribute('aria-current', 'page')
 
-  // Import a golden set from pasted TSV.
-  const sets = page.getByRole('region', { name: 'Golden sets' })
-  await sets.getByLabel('Set name', { exact: true }).first().fill(setName)
-  await sets.getByLabel('Format', { exact: true }).selectOption('tsv')
-  await sets.getByLabel('Cases', { exact: true }).fill('你好\tHello\n谢谢\tThank you\n再见\tGoodbye')
-  await sets.getByRole('button', { name: 'Import' }).click()
-  await expect(sets.getByRole('status')).toContainText(`Added 3 cases to “${setName}”`)
-  const row = sets.getByRole('row', { name: new RegExp(setName) })
-  await expect(row).toContainText('Public')
-  await expect(row).toContainText('Translation')
+  // Import a golden set from pasted TSV (under Add cases).
+  await openBenchTab(page, 'Add cases')
+  const importer = flatSection(page, 'Import golden set')
+  await importer.getByLabel('Set name', { exact: true }).fill(setName)
+  await importer.getByLabel('Format', { exact: true }).selectOption('tsv')
+  await importer.getByLabel('Cases', { exact: true }).fill('你好\tHello\n谢谢\tThank you\n再见\tGoodbye')
+  await importer.getByRole('button', { name: 'Import' }).click()
+  await expect(importer.getByRole('status')).toContainText(`Added 3 cases to “${setName}”`)
 
   // Add one case by hand to the same set, then delete it (two steps).
-  const add = sets.locator('details', { hasText: 'Add one case' })
+  const add = flatSection(page, 'Add one case')
   await add.getByLabel('Label', { exact: true }).fill('Morning')
   await add.getByLabel('Set name', { exact: true }).fill(setName)
   await add.getByLabel('Tier', { exact: true }).selectOption('public')
@@ -69,6 +67,11 @@ test('Benchmark Lab: import a set, run the offline engine twice, compare in the 
   await add.getByLabel('Reference translation', { exact: true }).fill('Good morning')
   await add.getByRole('button', { name: 'Add case' }).click()
   await expect(add.getByRole('status')).toHaveText(`Added “Morning” to ${setName}.`)
+  await openBenchTab(page, 'Golden sets')
+  const sets = page.getByRole('region', { name: 'Golden sets' })
+  const row = sets.getByRole('row', { name: new RegExp(setName) })
+  await expect(row).toContainText('Public')
+  await expect(row).toContainText('Translation')
   await expect(row).toContainText('4')
 
   await sets.getByRole('button', { name: `Show cases in ${setName} (Public)` }).click()

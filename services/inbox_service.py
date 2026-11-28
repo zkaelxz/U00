@@ -157,7 +157,7 @@ def _eligible(root: str, cfg: dict, now: float) -> Optional[tuple]:
     try:
         entries = sorted(os.scandir(root), key=lambda e: e.name.lower())
     except OSError as exc:
-        _status["message"] = f"The inbox folder can't be read: {exc.strerror or 'error'}."
+        _status["message"] = f"The watch folder can't be read: {exc.strerror or 'error'}."
         return None
     names = set()
     ready = None
@@ -272,7 +272,7 @@ def scan(now: Optional[float] = None) -> None:
         if _worker is not None and _worker.is_alive():
             return
         if not os.path.isdir(cfg["path"]):
-            _status["message"] = "The inbox folder is missing."
+            _status["message"] = "The watch folder is missing."
             return
         root = os.path.realpath(cfg["path"])
         found = _eligible(root, cfg, _clock() if now is None else now)

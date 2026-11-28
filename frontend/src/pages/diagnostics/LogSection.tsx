@@ -59,7 +59,7 @@ export function LogSection({ openSignal }: { openSignal?: number }) {
     <Section title="Log" storageKey="diagnostics.log" summary="Recent lines from the app log" openSignal={openSignal}>
       <div ref={openRef} className="diag-stack">
         <div className="field-row">
-          <Field label="Filter" help="A title name, or ERROR.">
+          <Field label="Filter" help="A title name, or ERROR. Searches the last 5,000 lines of the log and shows the newest matches.">
             <input
               type="search"
               value={text}

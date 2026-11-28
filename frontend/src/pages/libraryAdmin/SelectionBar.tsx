@@ -320,7 +320,7 @@ export function SelectionBar({
         {local && (
           <button
             type="button"
-            className="danger"
+            className={buttonClass('danger')}
             disabled={busy || !n}
             onClick={() => {
               closeMenu(false)

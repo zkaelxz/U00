@@ -40,6 +40,7 @@ import { SERIES_HELP } from '../../../helpText'
 import { useCancellableEffect } from '../../../hooks/useCancellableEffect'
 import { useHolds } from '../../../hooks/useHolds'
 import { changedKeys, useStageDraft } from '../../../hooks/useStageDraft'
+import { buttonClass } from '../../../components/uiClasses'
 
 interface Props {
   tab: MediaTab
@@ -189,7 +190,7 @@ export function DetailsPanel({ tab, onUnsaved, fillIn }: Props) {
   const saveBar = (label: string, feedback: boolean) => (
     <>
       <div className="actions">
-        <button type="submit" className="primary" disabled={!dirty || busy}>
+        <button type="submit" className={buttonClass('primary')} disabled={!dirty || busy}>
           {label}
         </button>
         {reason && <span className="muted">{reason}</span>}
