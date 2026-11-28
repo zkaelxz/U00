@@ -205,7 +205,9 @@ def test_a_plan_without_glossary_terms_passes_none():
     ("Hello–—world", "Hello, world"),
     ("<i>—Hi</i>", "<i>Hi</i>"),
     ("a – – b", "a, b"),
-    ("Take it—it's yours.", "Take it, it's yours."),
+    ("Take it—it's yours.", "Take it. It's yours."),
+    ("I told him—he never listens.", "I told him. He never listens."),
+    ("Fine—I'll do it.", "Fine, I'll do it."),
     ("Line one—\nLine two——", "Line one...\nLine two..."),
     ("—", "..."),
 ])
@@ -230,3 +232,25 @@ def test_em_dash_rule_sees_masked_terms_tags_and_labels_as_words():
     terms = ["Paris", "London"]
     assert clean("Paris—now.", protected_terms=terms)[0] == "Paris, now."
     assert clean("Paris—", protected_terms=terms)[0] == "Paris..."
+
+
+@pytest.mark.parametrize("source", ["他——他走了", "彼は―来た", "그는──왔다", "他－－走了"])
+def test_a_dash_in_the_source_keeps_the_english_dashes(source):
+    assert ec.drop_em_dashes("He—he left.", source) == "He—he left."
+    assert clean("He—he left.", source=source)[0] == "He—he left."
+
+
+def test_a_source_without_a_dash_still_loses_them():
+    assert ec.drop_em_dashes("He—the king—came.", "国王来了") == "He, the king, came."
+    assert ec.drop_em_dashes("Wait—", "ちょっと待ってー") == "Wait..."
+
+
+@pytest.mark.parametrize("before,after", [
+    ("I told him—he never listens.\nOkay.", "I told him. He never listens.\nOkay."),
+    ("It was him—that guy over there.", "It was him, that guy over there."),
+    ("The man who—he was tall.", "The man who... he was tall."),
+    ("I like that—it's nice.", "I like that. It's nice."),
+    ("Line one—he left\nOkay then—they came.", "Line one. He left\nOkay then. They came."),
+])
+def test_sentence_split_edges(before, after):
+    assert ec.drop_em_dashes(before) == after

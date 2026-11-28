@@ -175,7 +175,7 @@ def cleanup_plan(drama_id: int, lines) -> list:
     style = en_cleanup.detect_style(ln.en for ln in lines if not en_cleanup.too_long(ln.en))
     plan = []
     for ln in lines:
-        new, rules = en_cleanup.clean_text(ln.en, style, terms, ln.speaker)
+        new, rules = en_cleanup.clean_text(ln.en, style, terms, ln.speaker, source=ln.zh)
         if rules:
             plan.append((ln, new, rules))
     return plan

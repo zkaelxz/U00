@@ -159,6 +159,14 @@ _DASH_RE = re.compile(rf"[ \t]*{_DASH}(?:[ \t]*[\u2013\u2014\u2015])*[ \t]*")
 _SENTENCE_STARTERS = frozenset(
     "look wait stop run no yes come go get help hey listen please don't do what why how who "
     "where when this that it we you they he she there here never forget".split())
+# Marks the letter after a new sentence break; the substitution can only replace the dash.
+_CAPITALIZE_NEXT = "\x00"
+# Words that open a clause of their own: after a dash they start a new sentence.
+_SUBJECTS = frozenset(
+    "i you he she we they it i'm you're he's she's we're they're it's "
+    "there's that's i'll you'll he'll she'll we'll they'll i've you've we've they've "
+    "i'd you'd he'd she'd we'd they'd".split())
+_JOINING_WORDS = frozenset("who which the a an and but or if because so to of".split())
 # Afterthoughts that keep the comma: "I thought—never mind." is not an explanation.
 _NOT_A_COLON_TAIL = frozenset("never maybe again now please probably right okay ok too either".split())
 # A line that starts with formatting ("<i>—Hi", "{\\an8}—Hi") still starts there.
@@ -202,24 +210,39 @@ def _dash_replacement(text: str, m, line_prefixes) -> str:
     if (tail and len(tail.group(1).split()) <= 2 and len(before.split()) >= 4
             and tail.group(1).split()[0].lower() not in _NOT_A_COLON_TAIL and not _DASH_RE.search(before)):
         return ": "
+    # "I told him—he never listens.": a new subject and verb after a single dash is a
+    # second sentence; a comma there splices two sentences (the owner found too many).
+    clause = re.match(r"([A-Za-z']+)\s+\S+[^\n\u2013\u2014\u2015]*(?=\n|$)", after)
+    if (word and word.group(0).lower() in _SUBJECTS and clause and len(before.split()) >= 2
+            and not _DASH_RE.search(before.rsplit("\n", 1)[-1])
+            and not _DASH_RE.search(after.split("\n", 1)[0]) and prev not in "\"'“‘"):
+        # "The man who—he was tall": a sentence left hanging on a joining word broke off.
+        return "... " if last and last.group(1).lower() in _JOINING_WORDS else ". " + _CAPITALIZE_NEXT
     return ", "
 
 
-def drop_em_dashes(text: str, line_prefixes=frozenset()) -> str:
+# A dash in the source ("——", "―", "─", "－－", "--") is the author's own, so the English keeps its dashes.
+_SOURCE_DASH_RE = re.compile(r"[\u2014\u2015\u2500\u2501]|\uFF0D\uFF0D|--")
+
+
+def drop_em_dashes(text: str, source: str = "", line_prefixes=frozenset()) -> str:
     """English with its dashes swapped for the punctuation the owner prefers:
     a comma mid-sentence, an ellipsis for a cut-off line, nothing at a line's
-    start. Dashes between two CJK letters are left alone. `line_prefixes`:
+    start; unchanged when `source` (the line's original text) has a dash of
+    its own. Dashes between two CJK letters are left alone. `line_prefixes`:
     clean_text's sentinels for masked tags and labels, which a line may start with."""
-    if not text or not _DASH_RE.search(text):
+    if (not text or not _DASH_RE.search(text) or _SOURCE_DASH_RE.search(source or "")
+            or _CAPITALIZE_NEXT in text):
         return text
     cleaned = _DASH_RE.sub(lambda m: _dash_replacement(text, m, line_prefixes), text)
+    cleaned = re.sub(_CAPITALIZE_NEXT + r"(\w)", lambda m: m.group(1).upper(), cleaned).replace(_CAPITALIZE_NEXT, "")
     # A reply that was only a dash (a cut-off or silent line) must not turn blank,
     # which reads as untranslated.
     return cleaned if cleaned.strip() else "..."
 
 
 def _em_dash(text, style):
-    return drop_em_dashes(text, style.get("line_prefixes", frozenset()))
+    return drop_em_dashes(text, style.get("source", ""), style.get("line_prefixes", frozenset()))
 
 
 def _ellipsis(text, style):
@@ -352,10 +375,11 @@ _RULE_FUNCS = {
 
 def clean_text(text: str, style: Optional[dict] = None,
                protected_terms: "Iterable[str] | re.Pattern | None" = (),
-               speaker: Optional[str] = None, rules: Iterable[str] = RULES) -> tuple:
+               speaker: Optional[str] = None, rules: Iterable[str] = RULES, source: str = "") -> tuple:
     """(cleaned text, rules that changed it). Text with CJK letters, empty
     text, over-long text, or text holding private-use characters comes back
-    unchanged. `protected_terms` may be a `compile_terms` result."""
+    unchanged. `protected_terms` may be a `compile_terms` result; `source` is
+    the line's original text (its own dashes keep the English ones)."""
     if not text or too_long(text) or has_cjk_letters(text):
         return text, []
     style = style or {"quotes": "straight", "ellipsis": "dots"}
@@ -364,7 +388,7 @@ def clean_text(text: str, style: Optional[dict] = None,
         return text, []
     masked, spans = protected
     # Masked glossary terms are words; masked tags and speaker labels can open a line.
-    style = dict(style, line_prefixes=frozenset(
+    style = dict(style, source=source, line_prefixes=frozenset(
         chr(_SENTINEL_BASE + i) for i, span in enumerate(spans)
         if _TAG_RE.fullmatch(span) or span.rstrip().endswith(":")))
     wanted = set(rules)
