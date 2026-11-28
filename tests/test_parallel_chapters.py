@@ -329,3 +329,170 @@ def test_the_first_batch_is_sent_even_when_it_alone_passes_the_cap(novel):
     engine = _Engine()
     _lines, _errors, usage, _ = _run(engine, 1, cost_cap_usd=0.5)
     assert len(usage) == 1
+
+
+# --- A slow DeepSeek run moves to the fallback at a chapter start -------------------------
+
+from engine_backends import fallback as fb  # noqa: E402
+
+
+class _Timed(_Engine):
+    def __init__(self, name, model, delay=0.0, error=None):
+        super().__init__()
+        self.name, self.model, self.delay, self.error = name, model, delay, error
+
+    def translate_batch(self, zh_lines, context):
+        if self.error:
+            raise self.error
+        time.sleep(self.delay)
+        self.calls.append(list(zh_lines))
+        self.last_usage = {"input_tokens": 10, "output_tokens": 5}
+        return [f"{self.name} {z}" for z in zh_lines]
+
+
+@pytest.fixture
+def quick_slow_line(monkeypatch):
+    monkeypatch.setattr(fb, "SLOW_REQUEST_SECONDS", 0.05)
+    monkeypatch.setattr(fb, "SLOW_SECONDS_PER_LINE", 0.01)
+    monkeypatch.setattr(fb, "_slow_until", {})
+
+
+def _switching(primary_delay, fallback_error=None):
+    return fb.SlowSwitchEngine([_Timed("deepseek", "deepseek-flash", primary_delay),
+                                _Timed("ollama", "gemma4:31b-cloud", error=fallback_error)],
+                               ["deepseek", "ollama"])
+
+
+def _engine_per_chapter(lines):
+    chapters = {}
+    for ln in lines:
+        chapters.setdefault(ln.idx // PER_CHAPTER, set()).add(ln.en.split(" ")[0])
+    return chapters
+
+
+@pytest.mark.parametrize("parallel", [1, 3])
+def test_a_slow_engine_hands_later_chapters_to_the_fallback_never_mid_chapter(
+        novel, quick_slow_line, parallel):
+    engine = _switching(primary_delay=0.1)
+    lines, errors, _, _ = _run(engine, parallel)
+    assert errors == []
+    per_chapter = _engine_per_chapter(lines)
+    assert all(len(engines) == 1 for engines in per_chapter.values())
+    assert {"ollama"} in per_chapter.values()
+    assert [e["reason"] for e in engine.events] == ["slow"]
+    assert fb.recently_slow(engine.engines[0])
+
+
+def test_a_fast_engine_keeps_the_whole_run(novel, quick_slow_line):
+    engine = _switching(primary_delay=0.0)
+    lines, errors, _, _ = _run(engine, 3)
+    assert errors == [] and engine.events == []
+    assert all(ln.en.startswith("deepseek ") for ln in lines)
+
+
+def test_a_run_right_after_a_slow_one_starts_on_the_fallback(novel, quick_slow_line):
+    _run(_switching(primary_delay=0.1), 1)
+    engine = _switching(primary_delay=0.0)
+    lines, errors, _, _ = _run(engine, 3)
+    assert errors == []
+    assert all(ln.en.startswith("ollama ") for ln in lines)
+    assert engine.engines[0].calls == []
+
+
+def test_a_fallback_that_cannot_serve_hands_the_run_back(novel, quick_slow_line):
+    engine = _switching(primary_delay=0.1, fallback_error=ConnectionError("refused"))
+    lines, errors, _, _ = _run(engine, 3)
+    assert errors == []
+    assert all(ln.en.startswith("deepseek ") for ln in lines)
+    assert [e["to"] for e in engine.events] == ["ollama", "deepseek"]
+
+
+def test_spend_is_priced_by_the_engine_that_ran_the_batch(novel, quick_slow_line, monkeypatch):
+    priced = []
+    monkeypatch.setattr(tp, "estimate_cost_for_engine",
+                        lambda engine, *a, **k: priced.append(engine.model) or 1.0)
+    engine = _switching(primary_delay=0.1)
+    _run(engine, 3)
+    calls = len(engine.engines[0].calls), len(engine.engines[1].calls)
+    assert (priced.count("deepseek-flash"), priced.count("gemma4:31b-cloud")) == calls
+
+
+def test_a_slow_switch_run_keeps_its_chapter_lanes():
+    engine = _switching(primary_delay=0.0)
+    assert tp.can_run_in_parallel(engine)
+
+
+def test_only_a_deepseek_run_gets_the_slow_switch(monkeypatch):
+    from services import translate_run_options
+    monkeypatch.setattr(translate_run_options.engine_registry, "get_engine",
+                        lambda name, key, model, **k: _Timed(name, model))
+    deepseek = translate_run_options.with_slow_switch(_Timed("deepseek", "deepseek-flash"))
+    assert isinstance(deepseek, fb.SlowSwitchEngine)
+    assert deepseek.engines[1].model == "gemma4:31b-cloud"
+    claude = _Timed("claude", "claude-sonnet-5-5")
+    assert translate_run_options.with_slow_switch(claude) is claude
+
+
+class _RateLimited(Exception):
+    status_code = 429
+
+
+def test_a_busy_fallback_is_not_handed_back(novel, quick_slow_line, monkeypatch):
+    monkeypatch.setattr(fb, "_slow_until", {("deepseek", "deepseek-flash"): float("inf")})
+    engine = _switching(primary_delay=0.0, fallback_error=_RateLimited("busy"))
+    with pytest.raises(_RateLimited):
+        engine.translate_batch(["a"], {})
+    assert engine.active == 1 and not engine._state.fallback_failed
+
+
+def test_a_timed_out_fallback_is_not_handed_back(monkeypatch):
+    from engine_backends.local import OllamaUnavailableError
+    monkeypatch.setattr(fb, "_slow_until", {("deepseek", "deepseek-flash"): float("inf")})
+    engine = _switching(primary_delay=0.0, fallback_error=OllamaUnavailableError("ollama_timeout", "slow"))
+    with pytest.raises(OllamaUnavailableError):
+        engine.translate_batch(["a"], {})
+    assert engine.active == 1 and not engine._state.fallback_failed
+
+
+def test_an_unreachable_ollama_is_handed_back(monkeypatch):
+    from engine_backends.local import OllamaUnavailableError
+    monkeypatch.setattr(fb, "_slow_until", {("deepseek", "deepseek-flash"): float("inf")})
+    engine = _switching(primary_delay=0.0,
+                        fallback_error=OllamaUnavailableError("ollama_unreachable", "down"))
+    assert engine.translate_batch(["a"], {}) == ["deepseek a"]
+    assert engine._state.fallback_failed
+
+
+def test_failed_attempts_of_a_slow_switch_run_are_billed_by_the_pipeline():
+    from services import workspace_job_service as wjs
+    engine = _switching(primary_delay=0.0)
+    wjs._bill_failed_attempts(1, engine)
+    assert not hasattr(engine, "failed_usage_cb")
+
+
+def test_a_run_on_the_primary_keeps_the_primarys_deadline():
+    from engine_backends import llm_tasks
+    engine = _switching(primary_delay=0.0)
+    assert llm_tasks.batch_deadline_for(engine) == llm_tasks.batch_deadline_for(engine.engines[0])
+    engine.active = 1
+    assert llm_tasks.batch_deadline_for(engine) > llm_tasks.batch_deadline_for(engine.engines[1])
+
+
+def test_reflect_and_bulk_runs_get_no_slow_switch(monkeypatch):
+    from services import translate_run_options
+    monkeypatch.setattr(translate_run_options.engine_registry, "get_engine",
+                        lambda name, key, model, **k: _Timed(name, model))
+    built = [("deepseek", "k", "deepseek-flash", False)]
+    chain = [{"engine": "deepseek", "model": "deepseek-flash"}]
+    _, plain, _ = translate_run_options.instantiate_engines(built, chain, [None], False)
+    _, switching, _ = translate_run_options.instantiate_engines(built, chain, [None], True)
+    assert not isinstance(plain, fb.SlowSwitchEngine)
+    assert isinstance(switching, fb.SlowSwitchEngine)
+
+
+def test_a_member_whose_key_cannot_be_read_gets_no_slow_switch(monkeypatch):
+    from engine_backends import local
+    from services import translate_run_options
+    monkeypatch.setattr(local, "member_cloud_key", lambda: local.UNREADABLE_MEMBER_KEY)
+    deepseek = _Timed("deepseek", "deepseek-flash")
+    assert translate_run_options.with_slow_switch(deepseek) is deepseek

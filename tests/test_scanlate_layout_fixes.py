@@ -391,6 +391,20 @@ def test_art_in_the_notch_of_two_lobes_cut_off_by_the_page_edge_is_not_erased():
     assert mask[:22, 25:53][img[:22, 135:163] == 0].all()
 
 
+def test_lettering_the_interior_missed_is_erased_when_only_a_speck_of_paper_lies_outside(monkeypatch):
+    img = np.full((200, 300), 255, np.uint8)
+    strokes = np.zeros((200, 300), bool)
+    for x in (60, 120, 180):                        # glyphs cut by the page's bottom edge
+        strokes[150:200, x:x + 5] = strokes[150:200, x + 30:x + 35] = strokes[150:155, x:x + 35] = True
+    img[strokes] = 0
+    filled = (~strokes).astype(np.uint8)
+    outside = np.zeros_like(filled)
+    outside[0:3, 0:3] = 1                           # the speck
+    monkeypatch.setattr(scanlate_balloons, "_balloon_interior", lambda roi: (filled.copy(), outside.copy()))
+    mask = scanlate_balloons.bubble_erase_mask("x.png", {"x": 0, "y": 0, "w": 300, "h": 200}, image=img)
+    assert mask is not None and mask[strokes].all()
+
+
 def test_box_nearly_inside_a_balloon_keeps_the_dark_corners_it_cuts_across():
     img = _page([(150, 100, 120, 80)], size=(200, 300), ground=0)
     box = {"x": 60, "y": 40, "w": 180, "h": 120}

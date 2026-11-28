@@ -19,12 +19,16 @@
       The token stops other pages in your browser from using it, so treat it like a password.</p>
     <div>
       <label for="server">Baihe address</label>
-      <input type="url" id="server" autocomplete="off">
+      <input type="url" id="server" autocomplete="off" placeholder="Leave empty for Baihe on this computer"
+             aria-describedby="server-hint">
+      <p class="hint" id="server-hint">For another computer, your household address, starting with https://</p>
     </div>
     <div>
       <label for="token">Token</label>
       <input type="password" id="token" autocomplete="off"
-             placeholder="Paste from Baihe → Settings → Browser extension">
+             placeholder="Paste the token from Baihe" aria-describedby="token-hint">
+      <p class="hint" id="token-hint">Baihe on this computer: Settings → Browser extension. Another computer:
+        Settings → My account and look → Remote access keys → Add device.</p>
     </div>
     <button id="save" class="primary" type="button">Save and test</button>
     <p id="status" class="status" role="status" aria-live="polite">Not checked yet.</p>
