@@ -202,7 +202,10 @@ HALO_MIN_TEXTURE = 8.0
 HALO_LIGHT_TEXT_BELOW = 150
 HALO_STRENGTH = 0.85
 # How far the glow leans from the background colour toward the contrasting one (0 to 1).
+HALO_SHADOW = 0.7
 HALO_TINT = 0.25
+# Corner against centre brightness that marks a box as a balloon on other ground, not floating text.
+HALO_BALLOON_CONTRAST = 80
 # A sign's English is wrapped to where its original lettering stood when that spans under this share
 # of the box, padded by LETTERING_BOX_PAD each side; marks over the share are the rim or art.
 LETTERING_BOX_MAX_SHARE = 0.85

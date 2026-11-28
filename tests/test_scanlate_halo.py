@@ -18,6 +18,14 @@ def test_a_flat_area_needs_no_halo_and_a_textured_one_does():
     assert scanlate_halo.over_art(_page(120, noise=30), BOX)
 
 
+def test_a_balloon_the_finder_missed_is_not_floating_text():
+    page = _page(255)
+    arr = np.asarray(page).copy()
+    arr[10:90, 40:160] = np.random.default_rng(2).integers(60, 130, (80, 120, 3), dtype=np.uint8)
+    disc_on_paper = Image.fromarray(arr)
+    assert not scanlate_halo.over_art(disc_on_paper, dict(BOX, x=20, y=10, w=160, h=80))
+
+
 def test_lettering_is_light_on_dark_art_and_dark_on_light_art():
     light_text, light_edge = scanlate_halo.colours(_page(40), BOX)
     dark_text, dark_edge = scanlate_halo.colours(_page(220), BOX)
@@ -43,10 +51,10 @@ def _typeset(style):
     return np.asarray(page).astype(int)
 
 
-def test_halo_style_is_off_by_default_and_changes_only_the_art_text_it_is_asked_for():
-    plain = _typeset(TypesetStyle())
-    assert np.array_equal(plain, _typeset(TypesetStyle(halo=False)))
-    assert not np.array_equal(plain, _typeset(TypesetStyle(halo=True)))
+def test_halo_is_on_by_default_and_halo_false_gives_the_plain_render():
+    default = _typeset(TypesetStyle())
+    assert np.array_equal(default, _typeset(TypesetStyle(halo=True)))
+    assert not np.array_equal(default, _typeset(TypesetStyle(halo=False)))
 
 
 def test_a_box_wholly_off_the_page_is_not_art_and_paints_nothing():

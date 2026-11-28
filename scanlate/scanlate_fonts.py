@@ -69,7 +69,7 @@ class TypesetStyle:
     FONTS = {"bangers": "Bangers-Regular.ttf"}
 
     def __init__(self, min_font: Any = 0, stroke: bool = False, align: str = "auto",
-                 erase_grow: Any = 1.0, bubble_fill: Any = 0, font: str = "default", halo: bool = False):
+                 erase_grow: Any = 1.0, bubble_fill: Any = 0, font: str = "default", halo: bool = True):
         self.font = font if font in self.FONTS else "default"
         self.min_font = int(max(0, min(_finite(min_font, 0), 40)))
         self.erase_grow = max(1.0, min(_finite(erase_grow, 1.0), 3.0))
