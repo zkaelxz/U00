@@ -58,6 +58,7 @@ export type RomanizeCreditsResult = Schemas['RomanizeCreditsResult']
 
 // POST /api/dramas/{id}/cover
 export type CoverArtResult = Schemas['CoverArtResult']
+export type SiteCoverResult = Schemas['SiteCoverResult']
 
 // GET /api/discover/platforms (known_sites.KNOWN_SITES)
 export interface KnownPlatform {

@@ -351,25 +351,36 @@ def cover_referer(cover_url: str, page_url: str) -> str:
     return page_url if cover.hostname == page.hostname else f"{page.scheme}://{page.netloc}/"
 
 
-def fetch_site_cover(drama_id: int, cover_url: str, page_url: str, replace: bool = False) -> bool:
+def _download_cover(cover_url: str, page_url: str, client=None) -> bytes | None:
+    """The picture's bytes, or None when it can't be downloaded."""
+    from services import quick_read_fetch
+    try:
+        referer = cover_referer(cover_url, page_url or "")
+        if client is not None:
+            # The source's own paced client, so a pass over many titles keeps its per-site gap.
+            return client.get(cover_url, classify_body=False, headers={"Referer": referer} if referer else {}).content or None
+        return quick_read_fetch.fetch_one(cover_url, {"referer": referer}, MAX_COVER_BYTES)[0]
+    except Exception:
+        return None
+
+
+def _store_site_cover(drama_id: int, data: bytes, replace: bool) -> bool:
+    if replace and not _is_portrait(data):
+        # A page's og:image is often a site logo or banner; only a cover-shaped picture may displace page one.
+        return False
+    try:
+        save_cover(drama_id, io.BytesIO(data), only_if_missing=not replace)
+        return True
+    except Exception:
+        return False
+
+
+def fetch_site_cover(drama_id: int, cover_url: str, page_url: str, replace: bool = False, client=None) -> bool:
     """Best-effort cover from a picture a site shows for the series. lib.http checks every hop is a
     public address and save_cover re-encodes the bytes, so only a clean image is kept. `replace`
     is for a caller that has already decided the current cover may go."""
-    if not cover_url:
-        return False
-    from services import quick_read_fetch
-    try:
-        data, _reason = quick_read_fetch.fetch_one(
-            cover_url, {"referer": cover_referer(cover_url, page_url or "")}, MAX_COVER_BYTES)
-        if data and replace and not _is_portrait(data):
-            # A page's og:image is often a site logo or banner; only a cover-shaped picture may displace page one.
-            return False
-        if data:
-            save_cover(drama_id, io.BytesIO(data), only_if_missing=not replace)
-            return True
-    except Exception:
-        pass
-    return False
+    data = _download_cover(cover_url, page_url, client) if cover_url else None
+    return bool(data) and _store_site_cover(drama_id, data, replace)
 
 
 def _is_portrait(data: bytes) -> bool:
@@ -410,11 +421,23 @@ def cover_url_from_html(page_html: str, page_url: str) -> str:
     return ""
 
 
-def site_cover_url(page_url: str) -> str | None:
+def paced_client(link: str):
+    """The source's own paced client for `link` (its per-host gap, slowdown and health record apply),
+    with the page and picture caps this service uses."""
+    from sources import generic_import
+    client = generic_import.http_client(None, link)
+    client.max_page_bytes = _PAGE_BYTES
+    client.max_image_bytes = MAX_COVER_BYTES
+    return client
+
+
+def site_cover_url(page_url: str, client=None) -> str | None:
     """The cover address a stored page link names; "" when the page names none, None when it can't be read."""
     from lib import http
     from services import quick_read_fetch
     try:
+        if client is not None:
+            return cover_url_from_html(client.get(page_url, classify_body=False).text, page_url)
         response = http.get(page_url, timeout=_PAGE_TIMEOUT, max_bytes=_PAGE_BYTES,
                             headers={"User-Agent": quick_read_fetch.FALLBACK_USER_AGENT,
                                      "Accept": "text/html,*/*;q=0.8"}, max_error_bytes=1024)
@@ -471,3 +494,26 @@ def fill_missing_cover(drama_id: int, cover_url: str = "", page_url: str = "",
     except Exception:
         pass
     return False
+
+
+def refresh_site_cover(drama_id: int, client=None, only_first_page: bool = False) -> str:
+    """Replaces the cover with the picture the title's stored link names for the series. Returns
+    "fetched"; "kept" when the page names no cover-shaped picture (the cover stays); "unreachable"
+    when the page couldn't be read; "skipped" when `only_first_page` and the cover is one the person
+    chose; "no_link" when the title has no stored link."""
+    drama = _require_drama(drama_id)
+    link = (drama.get("source_url_full") or drama.get("source_url") or "").strip()
+    if not link.startswith(("http://", "https://")):
+        return "no_link"
+    if only_first_page and drama.get("cover_art_filename") and not cover_is_first_page(drama_id):
+        return "skipped"
+    client = client or paced_client(link)
+    picture = site_cover_url(link, client)
+    if picture is None:
+        return "unreachable"
+    if not picture:
+        return "kept"
+    data = _download_cover(picture, link, client)
+    if data is None:
+        return "unreachable"
+    return "fetched" if _store_site_cover(drama_id, data, replace=True) else "kept"

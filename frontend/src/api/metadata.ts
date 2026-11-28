@@ -1,7 +1,7 @@
 import type { DramaDetail } from './types'
 import { apiUrl, getJson, postJson, postMultipart, type Fetch } from './client'
 import type {
-  AutofillRequest, AutofillSuggestion, CoverArtResult, KnownPlatform, MediaAnalysis, RomanizeCreditsResult,
+  AutofillRequest, AutofillSuggestion, CoverArtResult, KnownPlatform, MediaAnalysis, RomanizeCreditsResult, SiteCoverResult,
 } from '../types/workspace'
 
 const base = (id: number) => `/api/metadata/dramas/${id}`
@@ -35,6 +35,10 @@ export function uploadCover(id: number, file: File, f?: Fetch) {
 // One frame of the title's own video becomes the cover (media.upload).
 export const makeCoverFromVideo = (id: number, f: Fetch = fetch) =>
   postJson<CoverArtResult>(`/api/dramas/${id}/cover/from-video`, {}, f)
+
+// Asks the title's own site (through its paced client) for the series picture and makes it the cover.
+export const refreshCoverFromSite = (id: number, f: Fetch = fetch) =>
+  postJson<SiteCoverResult>(`/api/dramas/${id}/cover/from-site`, {}, f)
 
 // An <img src>; `v` busts the browser cache after a new upload.
 export const coverUrl = (id: number, v: number | string = 0) =>
