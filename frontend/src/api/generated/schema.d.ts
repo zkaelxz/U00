@@ -33135,7 +33135,7 @@ export interface components {
             /** Line Id */
             line_id: number;
             /** Run */
-            run: number;
+            run: number | null;
         };
         /** ThreeRunPickResult */
         ThreeRunPickResult: {
@@ -33159,6 +33159,8 @@ export interface components {
             items: components["schemas"]["ThreeRunItem"][];
             /** Line Count */
             line_count: number;
+            /** Line Ids */
+            line_ids: number[];
             /** Runs Done */
             runs_done: number;
         };

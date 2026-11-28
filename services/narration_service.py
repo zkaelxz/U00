@@ -150,10 +150,10 @@ def start_narration_run(drama_id: int, engine_name: Optional[str] = None,
     job_id = f"narration_{drama_id}"
     started = job_launch.start_job(
         job_id, _run_narration_job, job_id, drama_id, text, engine_name, api_key, model,
-        description=f"Chunk & tag (title {drama_id})", fresh=bool(fresh),
+        description=f"Split and name speakers (title {drama_id})", fresh=bool(fresh),
         append=bool(append), chapters=selection, one_narrator=bool(one_narrator), line_fields=db.FULL_SYNC)
     if not started:
-        raise ConflictError("A narration chunk & tag run is already active for this title.")
+        raise ConflictError("A split-and-name run is already active for this title.")
     return {"job_id": job_id}
 
 
@@ -269,10 +269,10 @@ def _pending_tail(drama_id: int, text: str) -> str:
     chars, length = waiting.chars, waiting.length
     if length != len(text):
         raise ConflictError("The translation text changed after the chapters were added, so their lines "
-                            "can't be cut on their own. Run chunk & tag again from the Source stage.")
+                            "can't be cut on their own. Run Split and name speakers again from the Media tab.")
     saved = db.load_lines(drama_id)
     if not saved:
-        raise InvalidInputError("This title has no lines to add to; run chunk & tag first.")
+        raise InvalidInputError("This title has no lines to add to; run Split and name speakers first.")
     if lines_already_added(waiting, text, [ln["zh"] if isinstance(ln, dict) else ln.zh for ln in saved]):
         # A stop between saving the lines and clearing the marker: adding them again would repeat them.
         novel_text.clear_pending_lines(os.path.join(db.DRAMAS_DIR, str(drama_id)))

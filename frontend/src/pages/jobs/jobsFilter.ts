@@ -42,7 +42,7 @@ export const KIND_OPTIONS: { id: KindFilter; label: string }[] = [
 
 export const RANGE_OPTIONS: { id: RangeFilter; label: string }[] = [
   { id: 'all', label: 'Any time' },
-  { id: 'today', label: 'Today' },
+  { id: 'today', label: 'Last 24 hours' },
   { id: 'week', label: 'Last 7 days' },
 ]
 
@@ -62,8 +62,10 @@ const matchesStatus = (j: JobRecord, status: StatusFilter) =>
   (status === 'cancelled' && isCancelled(j)) ||
   (status === 'finished' && isFinished(j.status) && shownStatus(j) === 'done')
 
-// `align` (resegment, resplit) is not worth a chip of its own.
-export function kindGroup(kind: JobKind | undefined): Exclude<KindFilter, 'all'> {
+// `align` (resegment, resplit) is not worth a chip of its own. The Sources page's own jobs have no title,
+// so the server calls them "other"; their page puts them under Sources with the title imports.
+export function kindGroup(kind: JobKind | undefined, page?: JobPage | null): Exclude<KindFilter, 'all'> {
+  if (page === 'sources') return 'sources'
   switch (kind) {
     case 'transcribe': case 'translate': case 'review': case 'dub': case 'export':
       return kind
@@ -106,7 +108,7 @@ export function filterJobs(
   const since = filters.range === 'today' ? nowSec - DAY_S : filters.range === 'week' ? nowSec - 7 * DAY_S : null
   return jobs.filter((j) => {
     if (!matchesStatus(j, status)) return false
-    if (filters.kind !== 'all' && kindGroup(j.kind) !== filters.kind) return false
+    if (filters.kind !== 'all' && kindGroup(j.kind, j.page) !== filters.kind) return false
     if (filters.mine && j.owned_by_me !== true) return false
     if (since !== null && !isActive(j.status) && jobTime(j) < since) return false
     if (needle) {
@@ -156,6 +158,7 @@ const STAGE_BY_KIND: Partial<Record<JobKind, StageId>> = {
   translate: 'translate',
   review: 'review',
   align: 'review',
+  dub: 'export',
   export: 'export',
 }
 
@@ -183,7 +186,8 @@ export function jobLinks(j: JobLike<'drama_id' | 'kind' | 'page'> & { job_id?: s
       stage: { label: STAGE_LABELS.review, route: { name: 'drama', id: j.drama_id, stage: 'review', tools: 'problems', focus: 'compare' } },
     }
   }
-  const stage = j.kind ? STAGE_BY_KIND[j.kind] : undefined
+  // Narration is the one dub-kind job started from the Media stage; voices, dubs and audiobooks are in Export.
+  const stage = j.job_id?.startsWith('narration_') ? 'source' : j.kind ? STAGE_BY_KIND[j.kind] : undefined
   return {
     title: { name: 'drama', id: j.drama_id, stage: null },
     stage: stage ? { label: STAGE_LABELS[stage], route: { name: 'drama', id: j.drama_id, stage } } : null,
