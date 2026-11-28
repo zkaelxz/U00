@@ -21,19 +21,16 @@ import java.util.Base64;
 final class SaveDownload {
     private SaveDownload() {}
 
-    /**
-     * Hands the download to the system's download manager with the signed-in cookie, so it works
-     * with no signal later. Only the saved Baihe address is served: any other link is ignored, so
-     * the cookie cannot be sent elsewhere.
-     */
-    /** Decoded, so a page cannot hand the bridge a file that fills the phone. */
-    static final int MAX_FILE_BYTES = 50 * 1024 * 1024;
+    /** Kept well under a phone's app memory, since the file arrives as one base64 string and is decoded whole. */
+    static final int MAX_FILE_BYTES = 30 * 1024 * 1024;
     static final String TOO_OLD = "This phone's Android can't save files from the app. "
             + "Open Baihe in the phone's browser to save it.";
 
     /** A Downloads name with no folder part or control characters, kept short. */
     static String cleanName(String name) {
-        String clean = name == null ? "" : name.replaceAll("[\\\\/:*?\"<>|\\p{Cntrl}]", "_").trim();
+        // \\p{Cf} drops the direction marks that could make "x.apk" read as "x.srt".
+        String clean = name == null ? "" : name.replaceAll("[\\p{Cf}]", "")
+                .replaceAll("[\\\\/:*?\"<>|\\p{Cntrl}]", "_").trim();
         while (clean.startsWith(".")) clean = clean.substring(1);
         if (clean.length() > 120) {
             int dot = clean.lastIndexOf('.');
@@ -53,21 +50,22 @@ final class SaveDownload {
             return false;
         }
         String fileName = cleanName(name);
-        byte[] data;
-        try {
-            data = Base64.getDecoder().decode(base64 == null ? "" : base64);
-        } catch (IllegalArgumentException e) {
-            toast(context, "Could not save the file.");
+        if (base64 == null || base64.length() > (MAX_FILE_BYTES / 3 + 1) * 4) {
+            toast(context, "That file is too big to save from the app. Open Baihe in the phone's browser to save it.");
             return false;
         }
-        if (data.length > MAX_FILE_BYTES) {
-            toast(context, "That file is too big to save from the app. Open Baihe in the phone's browser to save it.");
+        byte[] data;
+        try {
+            data = Base64.getDecoder().decode(base64);
+        } catch (IllegalArgumentException | OutOfMemoryError e) {
+            toast(context, "Could not save the file.");
             return false;
         }
         ContentResolver resolver = context.getContentResolver();
         ContentValues values = new ContentValues();
         values.put(MediaStore.MediaColumns.DISPLAY_NAME, fileName);
-        if (mimeType != null && !mimeType.isEmpty()) values.put(MediaStore.MediaColumns.MIME_TYPE, mimeType);
+        String type = mimeType == null ? "" : mimeType.split(";", 2)[0].trim();
+        if (!type.isEmpty()) values.put(MediaStore.MediaColumns.MIME_TYPE, type);
         values.put(MediaStore.MediaColumns.IS_PENDING, 1);
         Uri item = null;
         try {
@@ -100,6 +98,11 @@ final class SaveDownload {
         new Handler(Looper.getMainLooper()).post(() -> Toast.makeText(context, text, Toast.LENGTH_LONG).show());
     }
 
+    /**
+     * Hands the download to the system's download manager with the signed-in cookie, so it works
+     * with no signal later. Only the saved Baihe address is served: any other link is ignored, so
+     * the cookie cannot be sent elsewhere.
+     */
     static boolean enqueue(Context context, String address, String url, String userAgent,
                            String contentDisposition, String mimeType) {
         if (url != null && (url.startsWith("blob:") || url.startsWith("data:"))) {

@@ -40,12 +40,12 @@ describe('downloadBlob', () => {
   it('hands the file to the phone app instead of a blob link the app cannot follow', async () => {
     const { events } = stubDocument()
     const saveFile = vi.fn(() => true)
-    vi.stubGlobal('window', { BaiheShell: { get: () => true, set: vi.fn(), saveFile } })
+    vi.stubGlobal('window', { BaiheShell: { get: () => true, set: vi.fn(), saveFile }, __baiheSaveKey: 'k' })
     const create = vi.spyOn(URL, 'createObjectURL')
     downloadText('x', 'a.srt', 'application/x-subrip')
     expect(create).not.toHaveBeenCalled()
     expect(events).toEqual([])
-    await vi.waitFor(() => expect(saveFile).toHaveBeenCalledWith('a.srt', 'application/x-subrip;charset=utf-8', btoa('x')))
+    await vi.waitFor(() => expect(saveFile).toHaveBeenCalledWith('k', 'a.srt', 'application/x-subrip;charset=utf-8', btoa('x')))
   })
 
   it('saves text as UTF-8 with the given type', () => {

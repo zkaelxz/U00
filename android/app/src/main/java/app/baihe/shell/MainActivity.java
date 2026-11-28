@@ -41,6 +41,7 @@ public class MainActivity extends Activity {
     private static final int ALERT_PERMISSION_REQUEST = 41;
 
     private WebView web;
+    private ShellSettings.Bridge bridge;
     /** Covers the WebView when the page could not load, so Android's raw error page is never shown. */
     private View failureView;
     private TextView failureMessage;
@@ -141,7 +142,11 @@ public class MainActivity extends Activity {
                 // A fresh load has not re-announced a Live picture yet, and the old page's cleanup never ran.
                 setLiveWatching(false);
                 String address = savedAddress();
-                if (address != null && ServerAddress.sameOrigin(address, url)) checkForUpdate(address);
+                if (address != null && ServerAddress.sameOrigin(address, url)) {
+                    // evaluateJavascript runs in the top page only, so no iframe ever sees the key.
+                    view.evaluateJavascript("window.__baiheSaveKey=" + org.json.JSONObject.quote(bridge.newSaveKey()), null);
+                    checkForUpdate(address);
+                }
             }
 
             @Override
@@ -213,7 +218,7 @@ public class MainActivity extends Activity {
         });
         // Baihe's own pages read and set the phone app's switches (Settings > Phone app). Only Baihe's
         // address loads in this WebView, so no other site can reach it.
-        web.addJavascriptInterface(new ShellSettings.Bridge(this, new ShellSettings.Host() {
+        bridge = new ShellSettings.Bridge(this, new ShellSettings.Host() {
             @Override
             public void alertsSwitchedOn() {
                 askForAlertPermission();
@@ -251,7 +256,8 @@ public class MainActivity extends Activity {
                     showStrip();
                 });
             }
-        }), "BaiheShell");
+        });
+        web.addJavascriptInterface(bridge, "BaiheShell");
         setContentView(page());
         open(getIntent());
         try {

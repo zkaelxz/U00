@@ -92,9 +92,27 @@ final class ShellSettings {
             }
         }
 
+        private volatile String saveKey = "";
+
+        /**
+         * A new key for saveFile, handed only to Baihe's own top page: the bridge object also reaches every
+         * iframe (Live's players and their ads), which must not be able to write files into Downloads.
+         */
+        String newSaveKey() {
+            byte[] random = new byte[24];
+            new java.security.SecureRandom().nextBytes(random);
+            saveKey = android.util.Base64.encodeToString(random, android.util.Base64.NO_WRAP | android.util.Base64.URL_SAFE);
+            return saveKey;
+        }
+
         /** Saves a file the page built itself into Downloads; false when it could not (the phone said why). */
         @JavascriptInterface
-        public boolean saveFile(String name, String mimeType, String base64) {
+        public boolean saveFile(String key, String name, String mimeType, String base64) {
+            String expected = saveKey;
+            if (expected.isEmpty() || key == null || !java.security.MessageDigest.isEqual(
+                    expected.getBytes(java.nio.charset.StandardCharsets.UTF_8), key.getBytes(java.nio.charset.StandardCharsets.UTF_8))) {
+                return false;
+            }
             return SaveDownload.saveBytes(context, name, mimeType, base64);
         }
 

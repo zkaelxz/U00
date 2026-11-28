@@ -13,6 +13,7 @@ public class SaveDownloadTest {
         assertEquals("hidden.epub", SaveDownload.cleanName("..hidden.epub"));
         assertEquals("baihe-download", SaveDownload.cleanName(null));
         assertEquals("baihe-download", SaveDownload.cleanName("  "));
+        assertEquals("notestrs.apk", SaveDownload.cleanName("notes\u202etrs.apk"));
     }
 
     @Test

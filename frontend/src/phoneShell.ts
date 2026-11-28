@@ -17,7 +17,7 @@ type Bridge = {
   diagnostics?: () => string
   checkForUpdates?: () => void
   setBarsHidden?: (hidden: boolean) => void
-  saveFile?: (name: string, mime: string, base64: string) => boolean
+  saveFile?: (key: string, name: string, mime: string, base64: string) => boolean
 }
 
 const bridge = (): Bridge | null => {
@@ -76,7 +76,7 @@ export function checkForUpdates(): void {
 }
 
 // The app's MAX_FILE_BYTES (SaveDownload.java); a bigger file is left to the browser path, where the app says why.
-const SHELL_SAVE_MAX_BYTES = 50 * 1024 * 1024
+const SHELL_SAVE_MAX_BYTES = 30 * 1024 * 1024
 
 /**
  * Hands a file the page built to the app, which saves it in Downloads: the app's WebView cannot follow a
@@ -85,9 +85,12 @@ const SHELL_SAVE_MAX_BYTES = 50 * 1024 * 1024
 export function saveInShell(blob: Blob, filename: string): boolean {
   const b = bridge()
   if (typeof b?.saveFile !== 'function' || blob.size > SHELL_SAVE_MAX_BYTES) return false
+  // Set by the app on Baihe's own top page only, so a frame inside it cannot save files.
+  const key = (window as unknown as { __baiheSaveKey?: unknown }).__baiheSaveKey
+  if (typeof key !== 'string') return false
   void blob.arrayBuffer().then((buffer) => {
     try {
-      b.saveFile?.(filename, blob.type, toBase64(new Uint8Array(buffer)))
+      b.saveFile?.(key, filename, blob.type, toBase64(new Uint8Array(buffer)))
     } catch {
       // The shell went away with the page.
     }
