@@ -41,6 +41,7 @@ export interface BurnPreviewStart {
   per_speaker_colors?: boolean
   wrap_chars_en?: number
   wrap_chars_source?: number
+  ear_placement?: boolean
 }
 
 export type BurnPreviewStarted = Schemas['BurnPreviewStarted']

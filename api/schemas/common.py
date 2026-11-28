@@ -346,6 +346,7 @@ class AssExportRequest(BaseModel):
     wrap_chars_source: Optional[int] = Field(default=None, ge=0, le=200)
     reading_line: bool = False
     karaoke: bool = False
+    ear_placement: bool = False
 
 
 class BenchmarkJudgeEstimate(BaseModel):

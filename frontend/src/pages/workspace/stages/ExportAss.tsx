@@ -4,19 +4,21 @@ import { Section } from '../../../components/Section'
 import { Toggle } from '../../../components/Toggle'
 import type { AssStyleOptions } from '../../../types/export'
 import { MAX_SPEAKER_COLORS, readingLanguage, resolveAssStyle, type AssForm } from '../exportForm'
-import { useStage } from '../StageContext'
 
 interface Props {
   form: AssForm
   setForm: (f: AssForm) => void
   options: AssStyleOptions
+  /** The title has lines heard mostly in one ear (a stereo title). */
+  earMarks?: boolean
+  /** The title's source language, which picks pinyin or furigana for the reading row. */
+  sourceLanguage?: string | null
 }
 
 // The style form is owned by ExportStage so the ASS file and the burned-in video share it.
-export function ExportAss({ form, setForm, options }: Props) {
+export function ExportAss({ form, setForm, options, earMarks = false, sourceLanguage = null }: Props) {
   const set = <K extends keyof AssForm>(k: K, v: AssForm[K]) => setForm({ ...form, [k]: v })
-  const { drama } = useStage()
-  const reading = form.field !== 'en' ? readingLanguage(drama.source_language) : null
+  const reading = form.field !== 'en' ? readingLanguage(sourceLanguage) : null
 
   const align = (key: 'alignment' | 'sfxAlignment' | 'notesAlignment', label: string) => (
     <Field label={label}>
@@ -109,6 +111,11 @@ export function ExportAss({ form, setForm, options }: Props) {
         <Field label="Colour each speaker">
           <Toggle checked={form.perSpeakerColors} onChange={(v) => set('perSpeakerColors', v)} />
         </Field>
+        {earMarks && (
+          <Field label="Place one-ear lines left or right" help="Lines heard mostly in one ear go to the bottom left or right.">
+            <Toggle checked={form.earPlacement} onChange={(v) => set('earPlacement', v)} />
+          </Field>
+        )}
         <Field label="Notes on own line">
           <Toggle
             checked={form.notesAsSeparateLine}

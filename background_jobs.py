@@ -261,7 +261,13 @@ DRAMA_JOB_PREFIXES = LINE_WRITING_JOB_PREFIXES + (
     "bulk_consistency_", "bulk_emotion_", "bulk_notes_", "bulk_flag_", "resegpreview_", "scanlate_",
     "lncrawl_",
     "comparetx_", "retime_", "speechcov_", "restructure_", "hardsub_reference_",
+    "earmarks_",
 )
+# Drama jobs that start without being asked for, only read the title's media and write
+# their own cache file (ear marks for Watch). Busy checks don't count them, so opening
+# Watch never blocks an edit; whatever removes or replaces the title's files stops them
+# first (stop_side_jobs), and a finished one is not announced.
+SIDE_JOB_PREFIXES = ("earmarks_",)
 
 
 def active_job_ids() -> list:
@@ -284,16 +290,36 @@ def any_job_running_for_drama(drama_id, exclude_job_id=None) -> bool:
     """True if any job scoped to this drama is currently running or
     queued -- for warning before a destructive, whole-drama action (e.g.
     deleting it) rather than letting that job error out against a drama
-    that no longer exists. exclude_job_id: a job checking for others."""
+    that no longer exists. exclude_job_id: a job checking for others.
+    SIDE_JOB_PREFIXES jobs are not counted."""
     with _lock:
         for prefix in DRAMA_JOB_PREFIXES:
-            if f"{prefix}{drama_id}" == exclude_job_id:
+            if f"{prefix}{drama_id}" == exclude_job_id or prefix in SIDE_JOB_PREFIXES:
                 continue
             job = _jobs.get(f"{prefix}{drama_id}")
             if (job and job["status"] in ("running", "queued")
                     ) or job_force_stop.abandoned_alive_locked(f"{prefix}{drama_id}"):
                 return True
         return False
+
+
+SIDE_JOB_STOP_SECONDS = 15.0
+
+
+def stop_side_jobs(drama_id, wait_seconds: float = SIDE_JOB_STOP_SECONDS) -> bool:
+    """Cancels this process's SIDE_JOB_PREFIXES jobs on the title and waits for them to
+    end, for a caller about to remove or replace the title's files. False when one is
+    still running after wait_seconds."""
+    ids = [f"{prefix}{drama_id}" for prefix in SIDE_JOB_PREFIXES]
+    for job_id in ids:
+        if _is_active(job_id):
+            request_cancel(job_id)
+    deadline = time.monotonic() + wait_seconds
+    while any(_is_active(job_id) for job_id in ids):
+        if time.monotonic() >= deadline:
+            return False
+        time.sleep(0.05)
+    return True
 
 
 # A model load or one inference call can't be interrupted, so the job stops at

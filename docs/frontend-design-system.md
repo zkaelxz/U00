@@ -161,7 +161,7 @@ Three layers; all of them run in CI (`frontend` job in `.github/workflows/tests.
 |---|---|---|
 | Types and build | `npx tsc -b` (CI: `npm run build`) | TypeScript, then the bundle. |
 | Unit | `npx vitest run` | `src/**/*.test.ts`, run in a **node** environment (no DOM). So components are tested mainly through their logic files (`*Logic.ts`, `*Form.ts`, `*Model.ts`, `*State.ts`), by reading CSS or source text, and (for the kit, `components/uiKit.test.ts`) by rendering to markup; interaction is Playwright's job. |
-| Lint | `npm run lint` (oxlint) | |
+| Lint | `npm run lint` | oxlint, then a type check of `e2e/`, `smoke/` and the Playwright configs. |
 | Browser | `npm run e2e` | Playwright specs in `e2e/`. |
 
 **Static guards in vitest** worth knowing before you write a screen: `noRawRequests` (HTTP only through `api/`), `copyCase` (sentence case), `typeScale` (type tokens and fonts), `themeContrast` (contrast in all four looks), `uiKit` (kit class contracts), `router.test.ts`.

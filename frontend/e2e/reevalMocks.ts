@@ -105,7 +105,7 @@ export async function mockReeval(page: Page, start: Json = overview()) {
   const state = { overview: structuredClone(start) as Json, decisions: [] as Json[], jobPolls: 0, runStarted: false }
   const calls: Call[] = []
   const unmocked: string[] = []
-  const ov = () => state.overview as { candidates: Json[]; settings: Json; production: Json; report: Json }
+  const ov = () => state.overview as { candidates: Json[]; settings: Json; production: Json; report: Json; next_due_at: string | null }
 
   await page.route('**/api/**', (route) => {
     const r = route.request()
