@@ -1,11 +1,11 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { getDiarizationConfig, getTranscribeConfig } from '../../../api/workspace'
 import { useResetUndo } from '../../../hooks/useResetUndo'
-import { changedKeys, isRecord, pickDraft, useStageDraft } from '../../../hooks/useStageDraft'
+import { isRecord, pickDraft, useStageDraft } from '../../../hooks/useStageDraft'
 import type { DiarizationConfig, TranscribeConfig } from '../../../types/workspace'
 import { mergeRunChoices, runChoicesFromConfig, TRANSCRIBE_DRAFT_SHAPE, TRANSCRIBE_DRAFT_STAGE } from '../sourceForm'
-import { formFromConfig, type ConfigForm } from './transcribeConfigForm'
+import { advancedDraft, defaultSeparateVocals, formFromConfig, sendsSeparateVocals, type ConfigForm } from './transcribeConfigForm'
 
 interface Options {
   dramaId: number
@@ -20,6 +20,9 @@ interface Options {
 export function useTranscribeForm({ dramaId, defaultLanguage, busy, onLoadError, onResetStage }: Options) {
   const [config, setConfig] = useState<TranscribeConfig | null>(null)
   const [cf, setCf] = useState<ConfigForm | null>(null)
+  // Whether the user changed the separate-vocals switch since the options loaded or were saved;
+  // until then a title that never chose follows the model's default (transcribeConfigForm.ts).
+  const [separateTouched, setSeparateTouched] = useState(false)
   // The form as last left for this drama, so a stage-tab switch or a reload keeps it.
   const { draft: restored, raw: rawDraft, save: saveDraft, clear: clearDraft } = useStageDraft(dramaId, TRANSCRIBE_DRAFT_STAGE, TRANSCRIBE_DRAFT_SHAPE)
   const [language, setLanguage] = useState(restored.language ?? defaultLanguage)
@@ -48,7 +51,10 @@ export function useTranscribeForm({ dramaId, defaultLanguage, busy, onLoadError,
         // The Advanced values changed here and not run yet sit on top of the saved options.
         const saved = formFromConfig(c)
         const advanced = rawDraft?.advanced
-        setCf({ ...saved, ...pickDraft(isRecord(advanced) ? advanced : null, saved) })
+        const kept = pickDraft(isRecord(advanced) ? advanced : null, saved)
+        setCf({ ...saved, ...kept })
+        // The draft keeps the switch only once it was touched.
+        setSeparateTouched('separate_vocals_first' in kept)
         // Language, speaker detection, names and prompt are kept on the title; only an edit made here and not run or saved stays on top.
         const start = mergeRunChoices(runChoicesFromConfig(c, defaultLanguage), restored, rawDraft?.base)
         setLanguage(start.language)
@@ -93,18 +99,24 @@ export function useTranscribeForm({ dramaId, defaultLanguage, busy, onLoadError,
     wasBusy.current = busy
   }, [busy])
 
+  const followsDefault = !!config && !sendsSeparateVocals(config, separateTouched)
+  const shownCf = useMemo(
+    () => (cf && config && followsDefault ? { ...cf, separate_vocals_first: defaultSeparateVocals(config, cf) } : cf),
+    [cf, config, followsDefault],
+  )
+
   useEffect(() => {
     // Until the saved options arrive the stored Advanced changes are kept as they are.
-    const advanced = cf && config ? changedKeys(cf, formFromConfig(config)) : rawDraft?.advanced
+    const advanced = (shownCf && config ? advancedDraft(shownCf, config, separateTouched) : null) ?? rawDraft?.advanced
     // `base` is the saved choices written beside the form's, so a later visit can tell an edit from a stale copy.
     const base = config ? runChoicesFromConfig(config, defaultLanguage) : rawDraft?.base
     saveDraft({ language, script, transcriptText, runDiarize, speakers, minSpeakers, maxSpeakers, extraNames, override, advanced, base })
-  }, [saveDraft, rawDraft, cf, config, defaultLanguage, language, script, transcriptText, runDiarize, speakers, minSpeakers, maxSpeakers, extraNames, override])
+  }, [saveDraft, rawDraft, shownCf, config, separateTouched, defaultLanguage, language, script, transcriptText, runDiarize, speakers, minSpeakers, maxSpeakers, extraNames, override])
 
   // Back to the drama's language and the saved options; the draft for this title is dropped.
   const resetUndo = useResetUndo()
   const resetToDefaults = () => {
-    const prev = { language, script, transcriptText, runDiarize, speakers, minSpeakers, maxSpeakers, extraNames, override, cf }
+    const prev = { language, script, transcriptText, runDiarize, speakers, minSpeakers, maxSpeakers, extraNames, override, cf, separateTouched }
     resetUndo.reset(() => {
       clearDraft()
       setLanguage(defaultLanguage)
@@ -118,6 +130,7 @@ export function useTranscribeForm({ dramaId, defaultLanguage, busy, onLoadError,
       setOverride('')
       onResetStage()
       if (config) setCf(formFromConfig(config))
+      setSeparateTouched(false)
     }, () => {
       setLanguage(prev.language)
       setScript(prev.script)
@@ -129,11 +142,12 @@ export function useTranscribeForm({ dramaId, defaultLanguage, busy, onLoadError,
       setExtraNames(prev.extraNames)
       setOverride(prev.override)
       setCf(prev.cf)
+      setSeparateTouched(prev.separateTouched)
     })
   }
 
   return {
-    config, setConfig, cf, setCf,
+    config, setConfig, cf: shownCf, setCf, separateTouched, setSeparateTouched,
     language, setLanguage, script, setScript, transcriptText, setTranscriptText,
     runDiarize, setRunDiarize, speakers, setSpeakers, minSpeakers, setMinSpeakers, maxSpeakers, setMaxSpeakers,
     extraNames, setExtraNames, override, setOverride,

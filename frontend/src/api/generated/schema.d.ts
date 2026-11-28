@@ -23285,6 +23285,11 @@ export interface components {
             count: number;
             /** Items */
             items: components["schemas"]["LibrarySearchHit"][];
+            /**
+             * More
+             * @default false
+             */
+            more: boolean;
         };
         /** LibrarySeries */
         LibrarySeries: {
@@ -34073,8 +34078,18 @@ export interface components {
              * @default normal
              */
             sensitivity_preset: string;
+            /**
+             * Separate Vocals Chosen
+             * @default false
+             */
+            separate_vocals_chosen: boolean;
             /** Separate Vocals First */
             separate_vocals_first: boolean;
+            /**
+             * Separates On Breeze By Default
+             * @default false
+             */
+            separates_on_breeze_by_default: boolean;
             /** Separation Backend */
             separation_backend: string;
             /**
@@ -34161,6 +34176,11 @@ export interface components {
             sensitivity_preset?: string | null;
             /** Separate Vocals First */
             separate_vocals_first?: boolean | null;
+            /**
+             * Separate Vocals Touched
+             * @default false
+             */
+            separate_vocals_touched?: boolean;
             /** Separation Backend */
             separation_backend?: string | null;
             /** Source Language */
