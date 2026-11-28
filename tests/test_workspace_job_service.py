@@ -137,6 +137,14 @@ def test_bulk_cap_engines_match_translate_run(isolated_db, monkeypatch, engine):
 GEMMA_LOCAL = "gemma4:31b-cloud"
 
 
+def test_bulk_novel_keeps_the_character_budget_unless_a_size_was_chosen(isolated_db, monkeypatch):
+    seen, _ = _capture_bulk_start(isolated_db, monkeypatch, "claude", "novel_narration")
+    assert seen["kwargs"]["novel_char_budget"] is True
+    seen, _ = _capture_bulk_start(isolated_db, monkeypatch, "claude", "novel_narration",
+                                  '{"batch_size": 12}')
+    assert seen["kwargs"]["batch_size"] == 12 and seen["kwargs"]["novel_char_budget"] is False
+
+
 def _bulk_sizes(seen):
     return seen["args"][13], seen["kwargs"]["context_window_ahead"], seen["kwargs"]["batch_size"]
 

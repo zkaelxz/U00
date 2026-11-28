@@ -69,7 +69,7 @@ def hear_flagged_worker(audio_path, windows, settings, scratch_dir, result_queue
             result_queue, n / len(windows), f"Hearing flagged line {n + 1} of {len(windows)}")
         try:
             audio_extract.extract_audio_slice(audio_path, start, end, slice_path)
-            segments = whisper_transcribe.transcribe_for_timing(slice_path, **settings)
+            segments = whisper_transcribe.transcribe_for_timing(slice_path, standalone_extra_speech=False, **settings)
             entry = {"idx": idx, "text": " ".join(s["text"] for s in segments).strip()}
         except subprocess.CalledProcessError:
             # str() of it carries the ffmpeg command line, i.e. absolute paths.
