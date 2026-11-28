@@ -49,6 +49,7 @@ describe('translate stage api', () => {
     )
     expect(buildEstimateQuery({ batch_size: 8 })).toBe('?batch_size=8')
     expect(buildEstimateQuery({ line_ids: [3, 5] })).toBe('?line_ids=3&line_ids=5')
+    expect(buildEstimateQuery({ style_preset: 'novel' })).toBe('?style_preset=novel')
   })
 
   it('requests the estimate and posts the run body as JSON', async () => {
