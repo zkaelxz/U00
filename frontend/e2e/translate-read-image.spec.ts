@@ -17,6 +17,12 @@ const ENGINES = {
   ],
 }
 
+// Read from a screenshot is a row of the page's "+ File or screenshot" menu.
+async function openRead(page: Page) {
+  await page.getByText('+ File or screenshot').click()
+  await page.getByRole('button', { name: 'Read from a screenshot…' }).click()
+}
+
 async function mock(page: Page, reads: string[]) {
   await page.route('**/api/translate/engines', (r) => r.fulfill({ json: ENGINES }))
   await page.route('**/api/translate/read-image/estimate', (r) =>
@@ -32,11 +38,11 @@ test('reads a chosen picture into the text box and appends the next one', async 
   const reads: string[] = []
   await mock(page, reads)
   await page.goto('/#/translate')
-  await page.getByRole('button', { name: 'Read from a screenshot…' }).click()
+  await openRead(page)
   const panel = page.getByRole('group', { name: 'Read from a screenshot' })
 
   // DeepSeek takes no pictures, so it is not offered.
-  await expect(panel.getByLabel('Read with', { exact: true }).locator('option')).toHaveText(['Claude', 'Ollama (local)'])
+  await expect(panel.getByLabel('Read with', { exact: true }).locator('option')).toHaveText(['Claude', 'Ollama'])
   await expect(panel.getByRole('button', { name: 'Read the text' })).toBeDisabled()
 
   await panel.locator('input[type=file]').setInputFiles({ name: 'frame.png', mimeType: 'image/png', buffer: PNG })
@@ -53,7 +59,7 @@ test('reads a chosen picture into the text box and appends the next one', async 
 test('a paid engine shows its price before the read', async ({ page }) => {
   await mock(page, [])
   await page.goto('/#/translate')
-  await page.getByRole('button', { name: 'Read from a screenshot…' }).click()
+  await openRead(page)
   const panel = page.getByRole('group', { name: 'Read from a screenshot' })
   await panel.locator('input[type=file]').setInputFiles({ name: 'frame.png', mimeType: 'image/png', buffer: PNG })
   await panel.getByLabel('Read with', { exact: true }).selectOption('claude')
@@ -63,7 +69,7 @@ test('a paid engine shows its price before the read', async ({ page }) => {
 test('something that is not a picture is refused in plain words', async ({ page }) => {
   await mock(page, [])
   await page.goto('/#/translate')
-  await page.getByRole('button', { name: 'Read from a screenshot…' }).click()
+  await openRead(page)
   const panel = page.getByRole('group', { name: 'Read from a screenshot' })
   await panel.locator('input[type=file]').setInputFiles({ name: 'a.gif', mimeType: 'image/gif', buffer: PNG })
   await expect(panel.getByText('not a PNG, JPEG or WebP picture')).toBeVisible()
@@ -79,7 +85,7 @@ for (const [theme, size] of [['light', 'desktop'], ['dark', 'desktop'], ['sepia'
     await page.setViewportSize(size === 'phone' ? { width: 390, height: 844 } : { width: 1280, height: 900 })
     await mock(page, [])
     await page.goto('/#/translate')
-    await page.getByRole('button', { name: 'Read from a screenshot…' }).click()
+    await openRead(page)
     const panel = page.getByRole('group', { name: 'Read from a screenshot' })
     await panel.locator('input[type=file]').setInputFiles({ name: 'frame.png', mimeType: 'image/png', buffer: PICTURE })
     const image = panel.getByAltText('The picture to read')
@@ -106,6 +112,7 @@ test('another device gets the screenshot button too', async ({ page }) => {
     r.fulfill({ json: { app: 'baihe', api_version: '1', environment: 'development', local: false } }))
   await page.goto('/#/translate')
   await expect(page.getByLabel('Text to translate')).toBeVisible()
+  await page.getByText('+ File or screenshot').click()
   await expect(page.getByRole('button', { name: 'Read from a screenshot…' })).toBeVisible()
 })
 
@@ -127,7 +134,7 @@ test('a member gets no engine pickers: the server chooses for the text and the p
   await expect(page.getByLabel('Engine', { exact: true })).toHaveCount(0)
   await expect(page.getByRole('button', { name: 'Show options' })).toHaveCount(0)
 
-  await page.getByRole('button', { name: 'Read from a screenshot…' }).click()
+  await openRead(page)
   const panel = page.getByRole('group', { name: 'Read from a screenshot' })
   await expect(panel.getByLabel('Read with', { exact: true })).toHaveCount(0)
   await expect(panel.getByLabel('Enlarge the text')).toHaveCount(0)

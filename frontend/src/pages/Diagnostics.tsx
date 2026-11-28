@@ -35,7 +35,7 @@ import { PyannoteSection } from './diagnostics/PyannoteSection'
 import { RecommendedInstalls } from './diagnostics/RecommendedInstalls'
 import { RealModelCheck } from './diagnostics/RealModelCheck'
 import { SetupSection } from './diagnostics/SetupSection'
-import { headerBadges, setupRows, type AdminBusy } from './diagnostics/diagnosticsAdmin'
+import { headerBadges, headerLoading, setupRows, type AdminBusy } from './diagnostics/diagnosticsAdmin'
 import {
   CARD_TAB, DIAGNOSTICS_TABS, cardAnchorId, isDiagnosticsTab, type DiagnosticsCard, type DiagnosticsTab,
 } from './diagnostics/diagnosticsTabs'
@@ -214,7 +214,7 @@ function DiagnosticsContent() {
         <p className="page-meta muted" data-testid="diagnostics-summary">
           {badges.length ? badges.map((b, i) => (
             <span key={b.key}>{i > 0 && ' · '}<span className={b.tone === 'warn' ? 'diag-meta-warn' : undefined}>{b.text}</span></span>
-          )) : 'Loading…'}
+          )) : headerLoading(badges, !!(error || jobsError)) && 'Loading…'}
         </p>
       )}
       headExtra={<><AppVersionLine /><RemoteHealthLine /></>}

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { canPopOut, inPhoneShell, popOut, setLiveWatching, setShellSwitch, shellSwitch } from './phoneShell'
+import { canPopOut, inPhoneShell, popOut, setLiveWatching, setShellSwitch, shellNotificationsBlocked, shellSwitch } from './phoneShell'
 
 afterEach(() => { vi.unstubAllGlobals() })
 
@@ -34,6 +34,19 @@ describe('phone shell switches', () => {
     popOut()
     expect(setWatching).toHaveBeenCalledWith(true)
     expect(pop).toHaveBeenCalled()
+  })
+})
+
+describe('notifications blocked', () => {
+  it('asks the app, and says not blocked where nothing can tell', () => {
+    vi.stubGlobal('window', {})
+    expect(shellNotificationsBlocked()).toBe(false)
+    vi.stubGlobal('window', { BaiheShell: { get: () => true, set: vi.fn() } })
+    expect(shellNotificationsBlocked()).toBe(false)
+    vi.stubGlobal('window', { BaiheShell: { get: () => true, set: vi.fn(), notificationsBlocked: () => true } })
+    expect(shellNotificationsBlocked()).toBe(true)
+    vi.stubGlobal('window', { BaiheShell: { get: () => true, set: vi.fn(), notificationsBlocked: () => { throw new Error('gone') } } })
+    expect(shellNotificationsBlocked()).toBe(false)
   })
 })
 

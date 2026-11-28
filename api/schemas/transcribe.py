@@ -28,6 +28,9 @@ __all__ = [
     "LiveSessionStarted",
     "LiveCue",
     "LiveSessionStatus",
+    "LiveNameFix",
+    "LiveNameFixAdd",
+    "LiveNameFixes",
     "LiveStreamRef",
     "LiveSessionSummary",
     "LiveSessionStopped",
@@ -428,6 +431,11 @@ class LiveStreamRef(BaseModel):
     id: str     # the video id, or the Twitch channel name
 
 
+class LiveNameFix(BaseModel):
+    source: str
+    english: str
+
+
 class LiveSessionStatus(BaseModel):
     session_id: str
     status: str   # queued | running | done | error | cancelled
@@ -463,8 +471,24 @@ class LiveSessionStatus(BaseModel):
     chat: bool = False
     # The video the session follows, for another device to show it; never the link itself.
     stream: Optional[LiveStreamRef] = None
+    # Names fixed during the stream (POST .../names), oldest first.
+    name_fixes: List[LiveNameFix] = []
+    can_fix_names: bool = False
+    # Whether this caller may also save a fix into the glossary the session was started with.
+    has_glossary: bool = False
     cues: List[LiveCue]
     next_index: int
+
+
+class LiveNameFixAdd(BaseModel):
+    source: str = Field(min_length=1, max_length=40)
+    english: str = Field(min_length=1, max_length=80)
+    save_to_glossary: bool = False
+
+
+class LiveNameFixes(BaseModel):
+    session_id: str
+    fixes: List[LiveNameFix]
 
 
 class LiveChatMessage(BaseModel):
