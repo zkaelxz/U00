@@ -973,16 +973,23 @@ def _announce_stop(item: dict) -> None:
                                         target={"page": "jobs"})
 
 
-def _may_overlap(running: list, candidate: dict) -> bool:
-    """Whether `candidate` may start beside the running items. Only a transcription (the PC's GPU
-    and CPU) beside one translation, which runs on a hosted engine and never touches this PC's
-    GPU, and never two runs of one title."""
-    if len(running) != 1 or candidate["step"] != "transcribe":
-        return False
+def _overlap_pick(items: list, running: list, ordered: list) -> Optional[dict]:
+    """The first of `ordered` that may start beside the running items, or None. Only a
+    transcription (the PC's GPU and CPU) beside one translation, which runs on a hosted engine and
+    never touches this PC's GPU, and never two runs of one title. It may pass waiting items of other
+    titles (the running title's Export, say), but never a waiting step of its own title: All steps
+    adds a title's steps unchained, so only queue order keeps its Translate after its Transcribe."""
+    if len(running) != 1:
+        return None
     other = running[0]
-    if other["step"] != "translate" or other["drama_id"] == candidate["drama_id"] or other["job_id"] is None:
-        return False
-    return db.get_drama(other["drama_id"]) is not None
+    if other["step"] != "translate" or other["job_id"] is None or db.get_drama(other["drama_id"]) is None:
+        return None
+    first_of_title = {}
+    for i in items:
+        if i["status"] == WAITING:
+            first_of_title.setdefault(i["drama_id"], i["id"])
+    return next((i for i in ordered if i["step"] == "transcribe" and i["drama_id"] != other["drama_id"]
+                 and first_of_title[i["drama_id"]] == i["id"]), None)
 
 
 def _held_for_disk(user_id) -> bool:
@@ -1017,16 +1024,21 @@ def _start_next(now: float, deferred=frozenset()) -> None:
         # Resting items still count as waiting below, so the queue doesn't go idle and forget them.
         ready = [i for i in waiting if (i.get("not_before") or 0) <= now]
         # A start pressed on a page goes ahead of the items waiting for the queue's Start.
-        item = next((i for i in ready if i["now"]), None)
-        if item is None and doc["state"] == ACTIVE:
-            item = next(iter(ready), None)
-        if item is None:
+        ordered = [i for i in ready if i["now"]]
+        if doc["state"] == ACTIVE:
+            ordered += [i for i in ready if not i["now"]]
+        if not ordered:
             if not running and not deferred and doc["state"] == ACTIVE and not waiting:
                 doc["state"] = IDLE
                 _save(doc)
             return
-        if running and not (doc["overlap_online_translate"] and _may_overlap(running, item)):
-            return
+        item = ordered[0]
+        if running:
+            # A page's start must not wait behind a queue item that overtook it.
+            pressed = [i for i in ordered if i["now"]] or ordered
+            item = _overlap_pick(doc["items"], running, pressed) if doc["overlap_online_translate"] else None
+            if item is None:
+                return
         item.update(status=RUNNING, started_at=now, reason="", job_id=None)
         claimed = dict(item)
         _save(doc)

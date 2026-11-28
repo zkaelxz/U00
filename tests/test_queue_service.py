@@ -971,6 +971,64 @@ def test_the_same_title_never_overlaps_itself(jobs, cap, monkeypatch):
     assert jobs.started == [f"translate_{a}"]
 
 
+def _all_steps_queue(on):
+    a = _drama("A", engine="claude")
+    b = _drama("B", engine="claude")
+    q.add_all_steps(None, a, True, at_pc=True)
+    q.add_all_steps(None, b, True, at_pc=True)
+    q.set_policy(None, overlap_online_translate=on)
+    q.start(None)
+    q.tick()
+    return a, b
+
+
+def test_the_next_titles_transcription_starts_beside_a_translation_in_an_all_steps_queue(jobs, cap, monkeypatch):
+    _paid_ready(cap, monkeypatch)
+    a, b = _all_steps_queue(True)
+    jobs.finish(f"transcribe_{a}")
+    q.tick()
+    q.tick()
+    assert jobs.started == [f"transcribe_{a}", f"translate_{a}", f"transcribe_{b}"]
+    assert _status() == [("transcribe", "done"), ("translate", "running"), ("export", "waiting"),
+                         ("transcribe", "running"), ("translate", "waiting"), ("export", "waiting")]
+
+
+def test_an_all_steps_queue_runs_one_at_a_time_with_the_switch_off(jobs, cap, monkeypatch):
+    _paid_ready(cap, monkeypatch)
+    a, _b = _all_steps_queue(False)
+    jobs.finish(f"transcribe_{a}")
+    q.tick()
+    q.tick()
+    assert jobs.started == [f"transcribe_{a}", f"translate_{a}"]
+
+
+def test_a_transcription_never_starts_ahead_of_an_earlier_step_of_its_own_title(jobs, cap, monkeypatch):
+    _paid_ready(cap, monkeypatch)
+    a = _drama("A", engine="claude")
+    b = _drama("B", engine="claude")
+    q.add_item(None, a, "translate", True, at_pc=True)
+    q.add_item(None, b, "translate", True, at_pc=True)
+    q.add_item(None, b, "transcribe", True, at_pc=True)
+    q.set_policy(None, overlap_online_translate=True)
+    q.start(None)
+    q.tick()
+    q.tick()
+    assert jobs.started == [f"translate_{a}"]
+
+
+def test_a_queue_transcription_never_overtakes_a_start_pressed_on_a_page(jobs, cap, monkeypatch):
+    _paid_ready(cap, monkeypatch)
+    a, b, c = (_drama(t, engine="claude") for t in "ABC")
+    q.add_item(None, a, "translate", True, at_pc=True)
+    q.add_item(None, b, "transcribe", True, at_pc=True)
+    q.set_policy(None, overlap_online_translate=True)
+    q.start(None)
+    q.tick()
+    q._append_items(None, c, [("translate", {})], True, now=True)
+    q.tick()
+    assert jobs.started == [f"translate_{a}"]
+
+
 def test_a_policy_call_changes_only_what_it_sends(jobs):
     q.set_policy(None, stop_on_failure=True)
     q.set_policy(None, overlap_online_translate=True)

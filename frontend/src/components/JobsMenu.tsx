@@ -1,7 +1,7 @@
 /*
  * The header Jobs button: a running-count badge (hidden at zero) and a small
  * panel with the active jobs, then the latest finished ones, with Cancel for
- * the jobs the viewer may stop. Permanent delete lives on the Jobs page.
+ * the jobs the viewer may stop, and an admin's GPU line on top. Permanent delete lives on the Jobs page.
  *
  * The list comes from the shared useJobs hook, the same one the Jobs page
  * reads. Errors are quiet: a failed read keeps the last list, and a refusal
@@ -14,9 +14,11 @@ import { cancelJob, forceStopJob } from '../api/jobs'
 import { ConfirmButton } from './ConfirmButton'
 import { usePopoverDismiss } from '../hooks/usePopoverDismiss'
 import { jobsRefusal, useJobs, useNow } from '../hooks/useJobs'
+import { useHolds } from '../hooks/useHolds'
 import { cancelsAnyJob, useSession } from '../hooks/useSession'
 import { isActive, jobDetail, jobStatusLabel, jobTitledName, plainJobText } from '../pages/diagnosticsFormat'
 import { jobLinks } from '../pages/jobs/jobsFilter'
+import { GpuLine } from '../pages/libraryParity/GpuLine'
 import { routeHref, type Route } from '../router'
 import { CANCEL_RULE_NOTE, FORCE_STOP_HINT, cancelHint, offersCancel, offersForceStop, shownStatus, type JobRecord } from '../types/jobs'
 import { Badge } from './Badge'
@@ -43,6 +45,8 @@ function panelFitsLeftwards(el: HTMLElement | null): boolean | null {
 
 export function JobsMenu() {
   const anyJob = cancelsAnyJob(useSession())
+  // GET /api/diagnostics/resources needs admin.diagnostics.read, which an admin keeps away from the PC; members see no GPU line.
+  const canSeeGpu = useHolds('admin.diagnostics.read')
   const { jobs: loaded, error, reload } = useJobs()
   const jobs = loaded ?? []
   const [open, setOpen] = useState(false)
@@ -114,6 +118,7 @@ export function JobsMenu() {
           <p className="jobs-panel-title" id={`${panelId}-title`}>
             Jobs
           </p>
+          {canSeeGpu && <GpuLine />}
           {shown.length === 0 ? (
             <p className="muted jobs-empty">{loaded !== null ? 'No jobs yet.' : error ? 'Could not load jobs.' : 'Loading…'}</p>
           ) : (
