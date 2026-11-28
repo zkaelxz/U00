@@ -59,6 +59,12 @@ def post_settings(body: AutoBackupSettingsUpdate):
                              include_media=body.include_media, folder=body.folder)
 
 
+@router.post("/same-drive-note/dismiss", dependencies=[local_only()], response_model=AutoBackupSettings,
+             summary="Stop showing the note that the copies share the library's drive")
+def post_dismiss_same_drive_note():
+    return abs_.dismiss_same_drive_note()
+
+
 @router.post("/now", dependencies=[local_only()], response_model=BackupJobStarted,
              responses=error_responses(409, 422),
              summary="Back up now: adds a new copy, then rotates the old ones "

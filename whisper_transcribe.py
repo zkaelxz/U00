@@ -493,6 +493,17 @@ def _decode_randomness_kwargs(choice: str) -> dict:
     return {"temperature": 0.0} if choice == DECODE_TEMPERATURE_0 else {}
 
 
+def _transcribe(model, audio, kwargs: dict, standalone_extra_speech: bool):
+    """standalone_extra_speech: the detector also keeps the stand-alone stretches only Silero v6.2
+    hears (vad_model.gated). Live and the one-line re-hears turn it off: it was measured on whole
+    titles, and on a short slice any v6.2 stretch is far from the rest."""
+    if not standalone_extra_speech:
+        return model.transcribe(audio, **kwargs)
+    import vad_model
+    with vad_model.gated():
+        return model.transcribe(audio, **kwargs)
+
+
 def transcribe_for_timing(audio_path: str, model_size: str = "medium", language: str = "zh",
                            use_gpu: bool = False, local_model_path: str | None = None,
                            hf_token: str | None = None, initial_prompt: str = "",
@@ -504,7 +515,7 @@ def transcribe_for_timing(audio_path: str, model_size: str = "medium", language:
                            stock_isolation_sec: float = STOCK_PHRASE_ISOLATION_SEC,
                            difficult_audio: bool = False, no_speech_threshold: float | None = None,
                            log_prob_threshold: float | None = None, speech_pad_ms: int | None = None,
-                           on_notice=None, chinese_script: str | None = None,
+                           on_notice=None, chinese_script: str | None = None, standalone_extra_speech: bool = True,
                            resume_segments=None, on_unit=None, decode_randomness: str = DECODE_DEFAULT):
     """
     speech_pad_ms: padding faster-whisper keeps around each detected speech stretch; None
@@ -590,7 +601,7 @@ def transcribe_for_timing(audio_path: str, model_size: str = "medium", language:
     numbers) so low-confidence screamed or whispered speech is kept. Off, the detector runs
     and neither threshold is passed, so faster-whisper's defaults apply. The hallucination
     filters below still run on what comes back. A long segment with almost no text is heard
-    again on its own (_rehear_sparse).
+    again on its own (_rehear_sparse). standalone_extra_speech: see _transcribe.
     """
     # Imported here: db.py's import check copies core.py alone into a temp folder.
     from sensitivity_preset import decode_kwargs
@@ -646,7 +657,7 @@ def transcribe_for_timing(audio_path: str, model_size: str = "medium", language:
         if fast_mode:
             from faster_whisper import BatchedInferencePipeline
             return BatchedInferencePipeline(model=m).transcribe(whole.decoded(), **kwargs)
-        return m.transcribe(tail or whole.decoded(), **kwargs)
+        return _transcribe(m, tail or whole.decoded(), kwargs, standalone_extra_speech)
 
     try:
         try:
