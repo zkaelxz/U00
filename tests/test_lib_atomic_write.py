@@ -42,6 +42,23 @@ def test_a_filesystem_without_fsync_still_gets_the_write(tmp_path, monkeypatch, 
     assert (tmp_path / "a.txt").read_text() == "x"
 
 
+@pytest.mark.parametrize("windows", [True, False])
+def test_ebadf_from_fsync_means_no_fsync_on_windows_only(tmp_path, monkeypatch, windows):
+    def refused(fd):
+        raise OSError(errno.EBADF, "Bad file descriptor")
+    monkeypatch.setattr(aw, "_ON_WINDOWS", windows)
+    monkeypatch.setattr(aw.os, "fsync", refused)
+    target = tmp_path / "a.txt"
+    target.write_text("old")
+    if windows:
+        aw.atomic_write(str(target), "new")
+        assert target.read_text() == "new"
+    else:
+        with pytest.raises(OSError):
+            aw.atomic_write(str(target), "new")
+        assert target.read_text() == "old"
+
+
 @pytest.mark.parametrize("code", [errno.EIO, errno.ENOSPC])
 def test_a_failed_fsync_keeps_the_old_file(tmp_path, monkeypatch, code):
     def failed(fd):

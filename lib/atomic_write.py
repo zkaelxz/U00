@@ -13,9 +13,12 @@ _HELD_WINERRORS = {5, 32}
 _REPLACE_ATTEMPTS = 10
 _REPLACE_DELAY = 0.02
 # How a filesystem says it cannot fsync at all (some network shares and FUSE
-# mounts; Windows reports ERROR_INVALID_FUNCTION). Anything else, such as EIO
-# or ENOSPC, means the data may not be on disk.
+# mounts). On Windows os.fsync goes through the CRT's _commit, which reports a
+# share or sync drive refusing FlushFileBuffers as EBADF with no winerror; the
+# descriptor was opened just before, so EBADF cannot mean a bad one there.
+# Anything else, such as EIO or ENOSPC, means the data may not be on disk.
 _NO_FSYNC_ERRNOS = {errno.EINVAL, errno.ENOTSUP, errno.EOPNOTSUPP}
+_NO_FSYNC_WINDOWS_ERRNOS = {errno.EBADF}
 _NO_FSYNC_WINERRORS = {1}
 
 
@@ -54,7 +57,10 @@ def _flush_to_disk(f) -> None:
         f.flush()
         os.fsync(f.fileno())
     except OSError as e:
-        if e.errno not in _NO_FSYNC_ERRNOS and getattr(e, "winerror", None) not in _NO_FSYNC_WINERRORS:
+        unsupported = (e.errno in _NO_FSYNC_ERRNOS
+                       or (_ON_WINDOWS and (e.errno in _NO_FSYNC_WINDOWS_ERRNOS
+                                            or getattr(e, "winerror", None) in _NO_FSYNC_WINERRORS)))
+        if not unsupported:
             raise
 
 
