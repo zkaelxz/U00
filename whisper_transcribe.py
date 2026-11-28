@@ -311,7 +311,9 @@ def _rehear_sparse(model, audio, kwargs: dict, segments: list, prompt_keys: set)
     sparse = [s for s in segments if _is_sparse(s)]
     if not sparse or not _accepts_transcribe_kwarg(model, "clip_timestamps"):
         return segments
-    retry = {k: v for k, v in kwargs.items() if k != "vad_parameters"}
+    # No names prompt: it primes only the first stretch heard, whichever that is, and there it
+    # pushed Whisper into its slow low-confidence fallbacks.
+    retry = {k: v for k, v in kwargs.items() if k not in ("vad_parameters", "initial_prompt")}
     retry.update(vad_filter=False, clip_timestamps=[t for s in sparse for t in _span(s)])
     heard, _info = model.transcribe(audio, **retry)
     # Re-decoding without the detector is where Whisper most often writes a credit over

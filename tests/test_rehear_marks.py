@@ -8,8 +8,10 @@ class _Model:
     """Accepts clip_timestamps and returns fixed segments for the re-decode."""
     def __init__(self, heard):
         self.heard = heard
+        self.calls = []
 
     def transcribe(self, audio_path, clip_timestamps=None, vad_filter=None, **kw):
+        self.calls.append(kw)
         return [SimpleNamespace(start=s, end=e, text=t, words=None, avg_logprob=-0.2,
                                 no_speech_prob=0.0, compression_ratio=1.0)
                 for s, e, t in self.heard], None
@@ -37,3 +39,10 @@ def test_other_segments_are_left_unmarked():
     dense = {"start": 11.0, "end": 14.0, "text": "這一句是正常的對話內容"}
     out = _run([(1.0, 4.0, "我今天去了學校")], [thin, dense])
     assert out[0].get("flag") == "text_uncertain" and "flag" not in out[-1]
+
+
+def test_the_rehear_sends_no_names_prompt():
+    model = _Model([(1.0, 4.0, "我今天去了學校")])
+    wt._rehear_sparse(model, "a.wav", {"initial_prompt": "苏杉。", "beam_size": 5},
+                      [{"start": 0.0, "end": 10.0, "text": "嗯"}], set())
+    assert model.calls == [{"beam_size": 5}]
