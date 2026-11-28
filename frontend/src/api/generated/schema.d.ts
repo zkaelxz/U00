@@ -17942,7 +17942,9 @@ export interface components {
         /**
          * ClearReadingSpeedFlagsResult
          * @description flagged_count is the re-check's count (0 unless recheck was asked
-         *     for); history_id is None when no line carried the flag.
+         *     for); history_id is None when no line carried the flag. still_flagged_count
+         *     is the part of cleared_count that was a note hidden under a source-match flag,
+         *     which stays on the line.
          */
         ClearReadingSpeedFlagsResult: {
             /** Cleared Count */
@@ -17951,6 +17953,11 @@ export interface components {
             flagged_count: number;
             /** History Id */
             history_id: number | null;
+            /**
+             * Still Flagged Count
+             * @default 0
+             */
+            still_flagged_count: number;
         };
         /** ComicChapter */
         ComicChapter: {

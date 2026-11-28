@@ -396,7 +396,7 @@ class TestClearReadingSpeedFlags:
         did = _drama(isolated_db)
         isolated_db.save_lines(did, self._lines())
         result = export_service.clear_reading_speed_flags(did)
-        assert result["cleared_count"] == 1 and result["flagged_count"] == 0
+        assert result["cleared_count"] == 1 and result["still_flagged_count"] == 0 and result["flagged_count"] == 0
         rows = isolated_db.load_lines(did)
         assert [(r["flag"], r["flag_note"], r["en"]) for r in rows] == [
             (None, "", "one"), ("uncertain_translation", "check", "two"),
@@ -421,7 +421,8 @@ class TestClearReadingSpeedFlags:
         doubt = "Source match: the English reads unlike its source line (similarity 0.10)"
         isolated_db.save_lines(did, [Line(idx=0, start=0, end=5, zh="明天见面", en="1.0,0.0", flag="source_mismatch",
                                           flag_note=doubt + " Also (too fast to read): fast")])
-        assert export_service.clear_reading_speed_flags(did)["cleared_count"] == 1
+        out = export_service.clear_reading_speed_flags(did)
+        assert (out["cleared_count"], out["still_flagged_count"]) == (1, 1)
         row = isolated_db.load_lines(did)[0]
         assert (row["flag"], row["flag_note"]) == ("source_mismatch", doubt)
         # A later clean source-match check has no reading speed flag left to give back.
@@ -433,7 +434,7 @@ class TestClearReadingSpeedFlags:
         did = _drama(isolated_db)
         isolated_db.save_lines(did, [Line(idx=0, start=0, end=5, zh="a", en="x")])
         assert export_service.clear_reading_speed_flags(did) == {
-            "cleared_count": 0, "flagged_count": 0, "history_id": None}
+            "cleared_count": 0, "still_flagged_count": 0, "flagged_count": 0, "history_id": None}
         assert isolated_db.list_line_history(did) == []
 
     def test_recheck_flags_again_at_the_current_mode(self, isolated_db):
