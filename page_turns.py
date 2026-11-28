@@ -17,8 +17,9 @@ before it is translated. Three rules keep that safe:
   that waits longer than `CHAIN_WAIT_SECONDS` translates with no context
   rather than hold its handler thread behind one slow model call, and a
   capture with neither a drama nor a page URL has no title to chain.
-  Quick read (nothing saved) skips the lock and reads whatever summary the
-  title has when its page starts, trading some continuity for speed.
+  Quick read (nothing saved) skips the lock and asks for no summary: pages
+  in flight together could only read another page's, so each relies on the
+  page before it in the request and the title's names and cast instead.
 - A newly added page is discarded only while the pipeline lock is still
   held (`discard_on_failure`); after release another request may already
   have answered with it, so a later failure keeps it for a re-capture.
@@ -100,9 +101,9 @@ def translate_in_chain(drama_id, source_url, bubbles, engine, drama, glossary, u
     page_image) go to `translate_page_bubbles` as given.
 
     `wait_for_turn=False` (Quick read, which keeps nothing) skips the title's
-    lock: the page reads the summary of whichever page finished last and
-    leaves its own, so pages translate side by side at the cost of a looser
-    story link between pages in flight together."""
+    lock so pages translate side by side. Such a page could only read the
+    summary of whichever page finished last, so it asks for none; the page
+    before it still goes in as its own lines (`previous_lines`)."""
     from scanlate import scanlate_translate
     key = _chain_key(drama_id, source_url)
     if key is not None and not wait_for_turn:
@@ -114,7 +115,8 @@ def translate_in_chain(drama_id, source_url, bubbles, engine, drama, glossary, u
         try:
             new_context = scanlate_translate.translate_page_bubbles(
                 bubbles, engine, drama or {}, previous_context=previous,
-                glossary_terms=glossary, usage_cb=usage_cb, chapter_names=names, cast=cast, **extras)
+                glossary_terms=glossary, usage_cb=usage_cb, chapter_names=names, cast=cast,
+                summary=False, **extras)
         finally:
             # Names from an answer that applied only in part are still the model's spelling.
             with _context_lock:

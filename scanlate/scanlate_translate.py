@@ -87,14 +87,17 @@ CAST_KEY = "\0cast"
 _MAX_NAME_CHARS = 40
 
 
-def _answer_format(collect_names: bool) -> str:
+def _answer_format(collect_names: bool, summary: bool = True) -> str:
     names = (', "names": {"<a person, place or group name exactly as written on this page>": '
              '"<its English spelling>", ...}, "cast": {"<English name of a character on this '
              'page>": "she" or "he", only where the page or the context shows it}'
              if collect_names else "")
-    return ('Return ONLY a JSON object: {"translations": {"<id>": "<English text>", ...}, '
-            '"context_summary": "1-2 sentence summary of what just happened, to carry into the '
-            f'next page"{names}}}. Use every id exactly once, as given. No preamble, no markdown fences.')
+    # The summary is written after every translation and the call is not streamed, so the page
+    # waits for it; pages translated side by side only ever read another page's summary.
+    carry = (', "context_summary": "1-2 sentence summary of what just happened, to carry into '
+             'the next page"' if summary else "")
+    return ('Return ONLY a JSON object: {"translations": {"<id>": "<English text>", ...}'
+            f'{carry}{names}}}. Use every id exactly once, as given. No preamble, no markdown fences.')
 
 
 def chapter_names_block(names: dict | None) -> str:
@@ -166,7 +169,7 @@ def _keep_chapter_names(found: dict, chapter_names: dict, source_texts) -> None:
 def translate_regions_by_id(texts_by_id: dict, engine, drama_meta: dict,
                             previous_context: str = "", usage_cb=None, glossary_terms=None,
                             character_notes: str = "", chapter_brief: str = "",
-                            names_out: dict | None = None):
+                            names_out: dict | None = None, summary: bool = True):
     """Id-keyed page translation: translate_page_bubbles (and so the
     extension bridge) and the API jobs go through this. `texts_by_id` maps
     each region's id to its source text. Returns ({id: translation},
@@ -210,7 +213,7 @@ def translate_regions_by_id(texts_by_id: dict, engine, drama_meta: dict,
     for start in range(0, len(items), REGIONS_PER_CALL):
         chunk_got, context = _translate_region_chunk(
             items[start:start + REGIONS_PER_CALL], engine, drama_meta, context,
-            usage_cb, glossary_terms, character_notes, chapter_brief, names_out)
+            usage_cb, glossary_terms, character_notes, chapter_brief, names_out, summary)
         got.update(chunk_got or {})
     if not got:
         return None, previous_context
@@ -219,7 +222,8 @@ def translate_regions_by_id(texts_by_id: dict, engine, drama_meta: dict,
 
 def _translate_region_chunk(items: list, engine, drama_meta: dict, previous_context: str,
                             usage_cb, glossary_terms, character_notes: str = "",
-                            chapter_brief: str = "", names_out: dict | None = None):
+                            chapter_brief: str = "", names_out: dict | None = None,
+                            summary: bool = True):
     """One LLM call for [(id, text), ...]. Returns ({id: translation},
     new_context), or (None, previous_context) when the answer doesn't name
     exactly the ids sent, each with a string."""
@@ -255,7 +259,7 @@ def _translate_region_chunk(items: list, engine, drama_meta: dict, previous_cont
         "order; each has an id." + _NAMES_NOTE + _ENGLISH_ONLY_NOTE + _BLIND_NOTE + _FLOW_NOTE + _TONE_NOTE
         + ocr_note
         + glossary_block + context_block + f"\n\nRegions on this page (JSON):\n{payload}\n\n"
-        + _answer_format(names_out is not None)
+        + _answer_format(names_out is not None, summary)
     )
     max_tokens = min(max(1500, 200 * len(ids)), _MAX_TOKENS_PER_CALL)
     text = call_llm_json(engine, prompt, max_tokens=max_tokens, fallback=None, usage_cb=usage_cb)
@@ -338,7 +342,7 @@ def retry_missing_regions(texts_by_id: dict, got: dict, engine, drama_meta: dict
 def translate_regions_with_image(regions: list, image: bytes, mime: str, engine, drama_meta: dict,
                                  previous_context: str = "", usage_cb=None, glossary_terms=None,
                                  character_notes: str = "", chapter_brief: str = "",
-                                 names_out: dict | None = None):
+                                 names_out: dict | None = None, summary: bool = True):
     """The id-keyed page translation of translate_regions_by_id, with the page
     itself sent along. `regions` is [{"id", "text", "box": {x, y, w, h}}] with
     the boxes in the pixels of `image`. The model reads the picture to correct
@@ -388,7 +392,7 @@ def translate_regions_with_image(regions: list, image: bytes, mime: str, engine,
         "it, never a note about it, because your answer is typeset onto the page as written."
         + _NAMES_NOTE + _ENGLISH_ONLY_NOTE + _SEEN_NOTE + _FLOW_NOTE + _TONE_NOTE + reference + context_block
         + f"\n\nRegions on this page (JSON):\n{payload}\n\n"
-        + _answer_format(names_out is not None))
+        + _answer_format(names_out is not None, summary))
     max_tokens = min(max(1500, 200 * len(ids)), _MAX_TOKENS_PER_CALL)
     text, usage = ask_about_image(engine, prompt, image, mime, max_tokens=max_tokens)
     if usage_cb:
@@ -464,7 +468,8 @@ def previous_page_block(lines) -> str:
 def translate_page_bubbles(bubbles: list, engine, drama_meta: dict, previous_context: str = "",
                            glossary_terms=None, usage_cb=None, character_notes: str = "",
                            page_image: dict | None = None, previous_lines=None,
-                           chapter_names: dict | None = None, cast: dict | None = None) -> str:
+                           chapter_names: dict | None = None, cast: dict | None = None,
+                           summary: bool = True) -> str:
     """Translates a page's bubbles from their CURRENT source_text -- so an
     OCR mistake fixed by hand in the review step is what
     reaches the translation call, not the raw OCR output. Skipped regions
@@ -489,7 +494,8 @@ def translate_page_bubbles(bubbles: list, engine, drama_meta: dict, previous_con
     `chapter_names` ({source spelling: English}) is sent as names to keep and gets the names
     this page's answer reports, so the next page of the chapter spells them the same. `cast`
     ({English name: {"she": votes, "he": votes}}) is sent as the characters' pronouns and gets
-    this page's votes; it is only collected alongside `chapter_names`."""
+    this page's votes; it is only collected alongside `chapter_names`. `summary=False` asks for
+    no context summary, so the context returned is `previous_context` unchanged."""
     eligible = [b for b in bubbles
                 if not b.get("skip") and not region_excluded_from_auto(b)
                 and (b.get("source_text") or "").strip()]
@@ -521,7 +527,7 @@ def translate_page_bubbles(bubbles: list, engine, drama_meta: dict, previous_con
                     regions, page_image["data"], page_image["mime"],
                     reader.get("engine") or engine, drama_meta, previous_context=previous_context,
                     usage_cb=reader.get("usage_cb") or usage_cb, glossary_terms=glossary_terms,
-                    character_notes=character_notes, names_out=found_names)
+                    character_notes=character_notes, names_out=found_names, summary=summary)
             except Exception as exc:
                 on_failure = reader.get("on_failure")
                 if on_failure is not None:
@@ -533,7 +539,7 @@ def translate_page_bubbles(bubbles: list, engine, drama_meta: dict, previous_con
         result, new_context = translate_regions_by_id(
             {k: b["source_text"] for k, b in by_key.items()}, engine, drama_meta,
             previous_context=previous_context, usage_cb=usage_cb, glossary_terms=glossary_terms,
-            character_notes=character_notes, names_out=found_names)
+            character_notes=character_notes, names_out=found_names, summary=summary)
     found_cast = (found_names or {}).pop(CAST_KEY, None)
     if result is not None:
         result, _ = recheck_source_script(
