@@ -17,6 +17,7 @@ import { DEFAULT_DELAY, autoDelay, canDelay, sessionStream, steadyDelay } from '
 import { LinesPane } from './LinesPane'
 import { LiveCaptions } from './LiveCaptions'
 import { LiveChatSection } from './LiveChat'
+import { canSpeak } from './newestLine'
 import { NameFix } from './NameFix'
 import { SaveSession } from './SaveSession'
 import { StreamEmbed } from './StreamEmbed'
@@ -64,6 +65,7 @@ export function LiveWatch({ session, stopping, joined, onStop, onClear, onSwitch
   const [tvSplit, setTvSplit] = usePersistedState<TvSplit>('live.tvSplit', 'wide')
   const [tvTextSize, setTvTextSize] = usePersistedState<TvTextSize>('live.tvTextSize', 'l')
   const [showOriginal, setShowOriginal] = usePersistedState<boolean>('live.showOriginal', true)
+  const [speak, setSpeak] = usePersistedState<boolean>('live.speak', false)
   const [tab, setTab] = useState<'lines' | 'chat'>('lines')
 
   // The picture exists only while the session runs and Stop has not been
@@ -110,6 +112,7 @@ export function LiveWatch({ session, stopping, joined, onStop, onClear, onSwitch
   // Beside the picture when there is one; above the lines otherwise, so the text options never depend on a video.
   const options = (
     <ViewingOptions textSize={textSize} onTextSize={setTextSize} showOriginal={showOriginal} onShowOriginal={setShowOriginal}
+      speak={canSpeak() ? { on: speak, onChange: setSpeak } : null}
       captionsOn={captionsOn} onCaptions={setCaptionsOn} showVideo={showVideo} onShowVideo={(v) => (v && held ? setForced(true) : setShowVideo(v))} dataSaver={dataSaver} onDataSaver={setDataSaver} hasPicture={videoLive} onTv={tv.enter}
       onFloat={pictureShown && canPopOut() ? popOut : null}
       delay={delayable ? {
@@ -163,7 +166,7 @@ export function LiveWatch({ session, stopping, joined, onStop, onClear, onSwitch
       )}
       {!(videoLive && !(tv.on && !pictureShown)) && stopBar}
       <div className="live-feed">
-        {/* Only the status line is announced: the lines below change every chunk. */}
+        {/* The status line is announced, and LinesPane announces the newest English only: the list changes every chunk. */}
         <p className={session.status ? statusTone(session.status) : 'muted'} data-testid="live-status" role="status" hidden={focused}>
           {session.status ? statusLine(session.status, total) : 'Connecting…'}
         </p>
@@ -186,7 +189,7 @@ export function LiveWatch({ session, stopping, joined, onStop, onClear, onSwitch
           </div>
         )}
         <div className="live-pane" hidden={hasChat && tab === 'chat' && !tv.on}>
-          {feed.length > 0 && <LinesPane cues={feed} total={total} lang={lang} waiting={active} size={tv.on ? 'xl' : textSize} tvSize={tv.on ? tvTextSize : undefined} showOriginal={showOriginal} />}
+          {feed.length > 0 && <LinesPane cues={feed} total={total} lang={lang} waiting={active} size={tv.on ? 'xl' : textSize} tvSize={tv.on ? tvTextSize : undefined} showOriginal={showOriginal} speak={speak && canSpeak()} />}
           {total > feed.length && <p className="muted">Showing the newest {feed.length} of {total} lines.</p>}
         </div>
         {/* Mounted while hidden: the chat keeps reading, and its messages keep their timing. */}
