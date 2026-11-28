@@ -25,6 +25,7 @@ from services import job_stage_service, ownership_service, run_settings_service
 import diagnostics_report
 import background_jobs
 from jobs import gpu_guard, gpu_queue, job_table
+from engine_backends import fallback as engine_fallback
 import job_force_stop
 from jobs import job_store
 from lib.errors import ConflictError, InvalidInputError, NotFoundError
@@ -138,8 +139,9 @@ def _int_id(value):
 def _project_fallbacks(events):
     """A FallbackEngine's switch events ({"from", "to", "reason", "detail"})
     as [{"from", "to", "count"}]: engine names and how often each switch
-    happened, never error text. Also accepts its own output (re-projection)."""
-    counts = {}
+    happened, never error text. Also accepts its own output (re-projection).
+    A switch for lack of credit keeps its fixed reason code, so the outcome can say so."""
+    counts, no_credit = {}, set()
     for ev in events if isinstance(events, (list, tuple)) else []:
         if not isinstance(ev, dict):
             continue
@@ -147,7 +149,11 @@ def _project_fallbacks(events):
                 (_safe_scalar(str(ev.get("to") or "")) or "")[:40])
         n = _int_id(ev.get("count")) or 1
         counts[pair] = counts.get(pair, 0) + max(1, n)
-    return [{"from": a, "to": b, "count": n} for (a, b), n in list(counts.items())[:_MAX_LIST]]
+        if ev.get("reason") == engine_fallback.OUT_OF_CREDIT:
+            no_credit.add(pair)
+    return [{"from": a, "to": b, "count": n,
+             **({"reason": engine_fallback.OUT_OF_CREDIT} if (a, b) in no_credit else {})}
+            for (a, b), n in list(counts.items())[:_MAX_LIST]]
 
 
 def _cap_bytes(text: str, limit: int) -> str:
@@ -538,6 +544,8 @@ def _summary_outcome(result: dict) -> tuple:
     if fallbacks:
         parts.append("Switched engine: " + ", ".join(
             f"{f.get('from')} to {f.get('to')}" for f in fallbacks) + ".")
+        if any(f.get("reason") == engine_fallback.OUT_OF_CREDIT for f in fallbacks):
+            parts.append(engine_fallback.OUT_OF_CREDIT_NOTICE)
     if cap is not None or errors or stopped or result.get("partial") or warnings:
         return "partial", " ".join(parts)
     return "ok", (" ".join(parts) or "Finished.")

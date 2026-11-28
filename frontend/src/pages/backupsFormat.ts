@@ -30,6 +30,7 @@ export const SAME_DRIVE_NOTE =
 export const BACKUP_PROBLEM_TEXT: Record<NonNullable<AutoBackupSettings['problem']>, string> = {
   failing: 'The last automatic backup failed, so the newest copy is older than it should be.',
   stale: 'No automatic backup has succeeded for a while.',
+  same_drive: 'Your automatic backups are on the same drive as your library, so if that drive fails you lose both. Choose a folder on another drive in Backups.',
 }
 export const DEFAULT_FOLDER_TEXT = 'Default: backups\\auto in your library'
 
