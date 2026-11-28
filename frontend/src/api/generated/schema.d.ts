@@ -779,6 +779,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/backups/same-drive-note/dismiss": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Stop showing the note that the copies share the library's drive */
+        post: operations["post_dismiss_same_drive_note_api_backups_same_drive_note_dismiss_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/backups/settings": {
         parameters: {
             query?: never;
@@ -15042,9 +15059,9 @@ export interface components {
             next_run_at: string | null;
             /**
              * Problem
-             * @description Why the owner should look: the last run failed, or no success for a long while. Never set while backups are off.
+             * @description Why the owner should look: the last run failed, no success for a long while, or (until dismissed, once the library has a few titles) the copies share the library's drive. Never set while backups are off.
              */
-            problem: ("failing" | "stale") | null;
+            problem: ("failing" | "stale" | "same_drive") | null;
             /** Running */
             running: boolean;
             /**
@@ -24642,6 +24659,7 @@ export interface components {
         MeResponse: {
             /** Auth Enabled */
             auth_enabled: boolean;
+            limits: components["schemas"]["MemberLimits"] | null;
             /**
              * Own Ollama Key
              * @default false
@@ -24962,6 +24980,24 @@ export interface components {
             last4: string | null;
             /** Unreadable */
             unreadable: boolean;
+        };
+        /**
+         * MemberLimits
+         * @description A member's own limits and how much of each is used; a limit is None when none is set.
+         */
+        MemberLimits: {
+            /** Daily Job Limit */
+            daily_job_limit: number | null;
+            /** Jobs Today */
+            jobs_today: number;
+            /** Month Paid Spend Usd */
+            month_paid_spend_usd: number;
+            /** Monthly Paid Cap Usd */
+            monthly_paid_cap_usd: number | null;
+            /** Title Limit */
+            title_limit: number;
+            /** Titles Owned */
+            titles_owned: number;
         };
         /**
          * MemberPaidLimitRequest
@@ -37676,6 +37712,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    post_dismiss_same_drive_note_api_backups_same_drive_note_dismiss_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AutoBackupSettings"];
                 };
             };
         };
