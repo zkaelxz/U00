@@ -283,6 +283,14 @@ def _bundle_secrets() -> list:
     return [v for v in (settings_service.resolve_key(k) for k in names) if v]
 
 
+def _bundle_hosts() -> list:
+    """The configured endpoints' host names: a PC on the network can have
+    any name, not only one the [LAN] patterns know."""
+    from urllib.parse import urlsplit
+    from services import settings_service
+    return [urlsplit(u).hostname for u in settings_service.endpoint_values().values() if u]
+
+
 def _bundle_jobs(scrub) -> list:
     # No message: it carries progress text with the title in it. The error
     # stays, scrubbed and short, since it is what the bundle is for.
@@ -370,7 +378,7 @@ def build_support_bundle() -> bytes:
     if not _BUNDLE_LOCK.acquire(blocking=False):
         raise ConflictError("A logs file is already being made. Try again in a moment.")
     try:
-        scrub = diagnostics_report.bundle_redactor(_bundle_titles(), _bundle_secrets())
+        scrub = diagnostics_report.bundle_redactor(_bundle_titles(), _bundle_secrets(), _bundle_hosts())
         buf = io.BytesIO()
         with diagnostics_report.reusing_account_names(), \
                 zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:

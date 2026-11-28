@@ -211,10 +211,12 @@ def check_engine_reachable(engine_name: str, api_key: str | None = None, model: 
 _PATH_CHARS = r'[^\s\\/:*?"<>|]'
 _PATH_WORD = (rf'(?!{_PATH_CHARS}*(?:\.[A-Za-z0-9]{{1,5}}|[,;])(?:\s|$))'
               rf'{_PATH_CHARS}+')
+_PATH_LAST = (rf'((?:{_PATH_WORD}(?: {_PATH_WORD}){{0,4}} '
+              rf'{_PATH_CHARS}+\.[A-Za-z0-9]{{1,5}}(?![A-Za-z0-9])|{_PATH_CHARS}+))')
 PATH_PATTERN = re.compile(
-    rf'(?:[A-Za-z]:)?[\\/]+(?:{_PATH_CHARS}+(?: {_PATH_CHARS}+)*[\\/]+)+'
-    rf'((?:{_PATH_WORD}(?: {_PATH_WORD}){{0,4}} '
-    rf'{_PATH_CHARS}+\.[A-Za-z0-9]{{1,5}}(?![A-Za-z0-9])|{_PATH_CHARS}+))')
+    rf'(?:[A-Za-z]:)?[\\/]+(?:{_PATH_CHARS}+(?: {_PATH_CHARS}+)*[\\/]+)+' + _PATH_LAST)
+# A path redact_for_support already cut to its last part (the support report).
+_CUT_PATH = re.compile(r'\.\.\./' + _PATH_LAST)
 
 # ANSI escape sequences (CSI: colours, cursor moves), e.g. yt-dlp's
 # "\x1b[0;31mERROR:\x1b[0m" -- unreadable noise in a report or log view.
@@ -321,7 +323,7 @@ def redact_for_support(text) -> str:
 # Any scheme, and anything up to whitespace or a quote: a "]" or ")" inside a
 # query must not end the match and leave the rest of the query behind.
 _BUNDLE_URL = re.compile(r"(?i)\b[a-z][a-z0-9+.-]{1,15}://[^\s\"'<>`]+")
-_LAN_NAME = re.compile(r"(?i)^(?:localhost|.+\.(?:local|lan|home|internal|ts\.net))$")
+_LAN_NAME = re.compile(r"(?i)^(?:localhost|.+\.(?:local|lan|home|internal|ts\.net|home\.arpa|localdomain|fritz\.box))$")
 # A request path written without its scheme and host, as urllib3 does in
 # "Max retries exceeded with url: /book/<slug>?page=2": the path is a title's
 # slug as often as not, and the query its search words.
@@ -335,7 +337,7 @@ _LAN_IN_TEXT = re.compile(
     r"(?i)(?<![\w.])(?:10\.\d{1,3}\.\d{1,3}\.\d{1,3}|192\.168\.\d{1,3}\.\d{1,3}"
     r"|172\.(?:1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}|169\.254\.\d{1,3}\.\d{1,3}"
     r"|100\.(?:6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.\d{1,3}\.\d{1,3}"
-    r"|[a-z0-9-]+(?:\.[a-z0-9-]+)*\.(?:local|lan|home|internal|ts\.net))(?![\w.])")
+    r"|[a-z0-9-]+(?:\.[a-z0-9-]+)*\.(?:local|lan|home|internal|ts\.net|home\.arpa|localdomain|fritz\.box))(?![\w.])")
 _BUNDLE_PATTERNS = [
     (re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}"), "[EMAIL]"),
     (re.compile(r"(?i)((?:set-)?cookie[\"']?\s*[:=]\s*)[^\r\n]*"), r"\1[REDACTED]"),
@@ -381,16 +383,23 @@ def _terms_pattern(terms, min_length: int):
     return re.compile("|".join(parts), re.IGNORECASE)
 
 
-def bundle_redactor(titles=(), secrets=()):
+def _path_extension(name: str) -> str:
+    m = re.search(r"\.[A-Za-z0-9]{1,5}$", name)
+    return m.group(0) if m else ""
+
+
+def bundle_redactor(titles=(), secrets=(), hosts=()):
     """The Send logs scrubber: every URL cut to scheme and host (a private
     host to [LAN]), the exact configured secret values, the library's titles
-    ([TITLE]), emails, cookie headers, passwords, bearer tokens and JWTs, then
-    redact_for_support. URLs go first, while nothing has put a placeholder in
-    one yet; emails before redact_for_support, so an email's user name is gone
-    before account names become [USER] inside it."""
+    ([TITLE]), the configured endpoints' hosts ([LAN]), emails, cookie
+    headers, passwords, bearer tokens and JWTs, every path down to [PATH] and
+    its extension, then redact_for_support. URLs go first, while nothing has
+    put a placeholder in one yet; emails before redact_for_support, so an
+    email's user name is gone before account names become [USER] inside it."""
     secret_re = _terms_pattern(secrets, 8)
     title_re = _terms_pattern(titles, 2)
     pc_re = _terms_pattern([platform.node()], 2)
+    host_re = _terms_pattern(hosts, 2)
 
     def redact(text) -> str:
         text = _ANSI_PATTERN.sub("", "" if text is None else str(text))
@@ -404,9 +413,15 @@ def bundle_redactor(titles=(), secrets=()):
             text = secret_re.sub("[REDACTED]", text)
         if title_re:
             text = title_re.sub("[TITLE]", text)
+        if host_re:
+            text = host_re.sub("[LAN]", text)
         text = _LAN_IN_TEXT.sub("[LAN]", text)
         for pattern, repl in _BUNDLE_PATTERNS:
             text = pattern.sub(repl, text)
+        # redact_for_support keeps a path's last part, which here is a media
+        # file or a title's folder; the extension alone still tells what failed.
+        text = PATH_PATTERN.sub(lambda m: "[PATH]" + _path_extension(m.group(1)), text)
+        text = _CUT_PATH.sub(lambda m: "[PATH]" + _path_extension(m.group(1)), text)
         return redact_for_support(text)
     return redact
 

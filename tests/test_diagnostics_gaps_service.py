@@ -1028,12 +1028,21 @@ _BUNDLE_SECRETS = {
     "bare_query": "GET /search?q=PRIVATEWORDS 404",
     "dotless_host": "HTTPConnectionPool(host='nas', port=80) and http://DESKTOP-EXAMPLE:11434/api/tags",
     "pc_name": "running on DESKTOP-EXAMPLE",
+    "home_net": "HTTPConnectionPool(host='alex-desktop.fritz.box', port=11434) via router.home.arpa "
+                "or nas-box.localdomain",
+    "endpoint_host": "ollama refused at gpu-example-box.example.net:11434",
+    "media_path": "Could not remove /srv/media/Moonlit Folder Example/moonlit_example_garden_01.mkv",
+    "media_win_path": r"saved D:\Shows\Starlit_Example_Show\starlit_example_pond_02.mp4 ok",
+    "folder_path": "scanning /srv/media/Starlit_Example_Folder",
 }
 _BUNDLE_LEAKS = ("alex.example", "alexuser", "pwvalue123", "PRIVATEQUERY", "PLAINCOOKIEVALUE",
                  "hunter2hunter2", "hunter3hunter3", "PLAINBEARERVALUE123", "eyJhbGciOiJIUzI1NiJ9",
                  "SIGNEDVALUE", "Expires=1", "moonlit-example-garden", "/book/", "172.20.9.77",
                  "nas-example", _TITLE, _TITLE.lower(), _TITLE_ZH, _ODD_KEY, "/api/chat",
-                 "PRIVATENEXT", "PRIVATESEARCH", "PRIVATEWORDS", "host='nas'", "DESKTOP-EXAMPLE")
+                 "PRIVATENEXT", "PRIVATESEARCH", "PRIVATEWORDS", "host='nas'", "DESKTOP-EXAMPLE",
+                 "alex-desktop", "fritz.box", "home.arpa", "nas-box", "gpu-example-box",
+                 "Moonlit Folder Example", "moonlit_example_garden_01", "Starlit_Example",
+                 "starlit_example_pond")
 
 
 def _bundle(monkeypatch):
@@ -1042,6 +1051,8 @@ def _bundle(monkeypatch):
     import zipfile
     monkeypatch.setattr(platform, "node", lambda: "DESKTOP-EXAMPLE")
     monkeypatch.setattr(settings_service, "key_status", lambda env_path=None: {"claude": True})
+    monkeypatch.setattr(settings_service, "endpoint_values",
+                        lambda env_path=None: {"ollama_url": "http://gpu-example-box.example.net:11434"})
     monkeypatch.setattr(settings_service, "resolve_key",
                         lambda name, env_path=None: _ODD_KEY if name == "openai" else None)
     monkeypatch.setattr(diagnostics, "scan_hf_cache", lambda d=None: [])
@@ -1079,7 +1090,8 @@ def test_support_bundle_scrubs_planted_secrets(isolated_db, monkeypatch):
         assert leak.lower() not in everything.lower(), leak
     log = files["logs/app.log"]
     for kept in ("INFO started", "[EMAIL] done", "[TITLE] (0%)", "[LAN] done", "https://site.example done",
-                 "https://novels.example done", "Cookie: [REDACTED]"):
+                 "https://novels.example done", "Cookie: [REDACTED]", "remove [PATH].mkv", "saved [PATH].mp4 ok",
+                 "scanning [PATH] done"):
         assert kept in log, kept
     job = json.loads(files["jobs.json"])[0]
     assert "message" not in job and job["job_id"] == "translate_7" and job["status"] == "error"
