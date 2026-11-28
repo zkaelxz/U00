@@ -58,6 +58,11 @@ final class GrabQueue {
         return out;
     }
 
+    /** A token the server refused, or a spent limit, would refuse every later batch and chapter too. */
+    static boolean refusesTheRest(int status) {
+        return status == 401 || status == 403 || status == 429;
+    }
+
     /** Any count above the pick-a-number cap means the run was asked to go to the last chapter. */
     static boolean untilEnd(int chapters) {
         return chapters > MAX_CHAPTERS;

@@ -12,6 +12,17 @@ import java.util.List;
 
 public class GrabQueueTest {
     @Test
+    public void aSpentCapOrARefusedTokenStopsTheRun() {
+        assertTrue(GrabQueue.refusesTheRest(401));
+        assertTrue(GrabQueue.refusesTheRest(403));
+        assertTrue(GrabQueue.refusesTheRest(429));
+        assertFalse(GrabQueue.refusesTheRest(0));
+        assertFalse(GrabQueue.refusesTheRest(409));
+        assertFalse(GrabQueue.refusesTheRest(422));
+        assertFalse(GrabQueue.refusesTheRest(503));
+    }
+
+    @Test
     public void nameFallsBackToTheHostAndStaysShort() {
         assertEquals("My Comic", GrabQueue.nameFor("  My Comic ", "https://a.example/x"));
         assertEquals("a.example", GrabQueue.nameFor("", "https://a.example/x"));
