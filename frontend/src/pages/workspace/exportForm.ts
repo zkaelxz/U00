@@ -33,6 +33,7 @@ export interface AssForm {
   notesAsSeparateLine: boolean
   readingLine: boolean
   karaoke: boolean
+  earPlacement: boolean
   wrapEn: string
   wrapSource: string
   baseName: string
@@ -42,7 +43,7 @@ export const emptyAssForm = (preset: string): AssForm => ({
   field: 'en', preset, font: '', size: '', outlineWidth: '', shadow: '', primary: '', outline: '',
   bold: '', italic: '', alignment: '', sfxAlignment: '', notesAlignment: '', speakerColors: '',
   perSpeakerColors: true, includeNotes: false, tidyTiming: false, speakerNames: false, notesAsSeparateLine: false,
-  readingLine: false, karaoke: false, wrapEn: '', wrapSource: '', baseName: '',
+  earPlacement: false, readingLine: false, karaoke: false, wrapEn: '', wrapSource: '', baseName: '',
 })
 
 const HEX = /^#[0-9A-Fa-f]{6}$/
@@ -162,6 +163,7 @@ export function buildAssRequest(
   if (colors.colors) request.speaker_colors = colors.colors
   if (wrapEn.value !== undefined) request.wrap_chars_en = wrapEn.value
   if (wrapSource.value !== undefined) request.wrap_chars_source = wrapSource.value
+  if (form.earPlacement) request.ear_placement = true
   if (form.field !== 'en') {
     if (form.readingLine) request.reading_line = true
     if (form.karaoke) request.karaoke = true

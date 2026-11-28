@@ -299,6 +299,18 @@ def _echo_engine_off_after_each_test():
 
 
 @pytest.fixture(autouse=True)
+def _faster_whisper_stub_forgotten():
+    """Many tests put a plain-module faster_whisper stub straight into sys.modules;
+    left there, a later test's `import faster_whisper.vad` fails with "not a package"."""
+    before = sys.modules.get("faster_whisper")
+    yield
+    if before is None:
+        sys.modules.pop("faster_whisper", None)
+    else:
+        sys.modules["faster_whisper"] = before
+
+
+@pytest.fixture(autouse=True)
 def _home_addresses_forgotten():
     """url_guard refuses the home's own public addresses process-wide; one
     test's remote-health check must not make the next test's fetch refused."""

@@ -45,7 +45,7 @@ from api import llm_slots
 from api.auth import engine_for_caller, principal_user_id, require_engines_allowed, require_permission
 from api.security_headers import READER_PAGE_HEADERS
 from api.llm_slots import LLM_MAX_IN_FLIGHT, ACTIVE_CALLERS, ACTIVE_LOCK, SLOTS  # noqa: F401 -- re-exported for tests
-from api.schemas import (ErrorResponse, ReaderAnswer, ReaderAskRequest, ReaderExplainRequest,
+from api.schemas import (EarMarks, EarMarksStarted, ErrorResponse, ReaderAnswer, ReaderAskRequest, ReaderExplainRequest,
                          ReaderLookupRequest, ReaderLookupResult, ReaderMediaAvailability,
                          ReaderNotes, ReaderNotesRequest, ReaderOverview, ReaderPageResponse,
                          ReaderProgress, ReaderProgressRequest, ReaderRecap, ReaderWatchPosition,
@@ -55,7 +55,7 @@ from api.schemas import (ErrorResponse, ReaderAnswer, ReaderAskRequest, ReaderEx
                          ReaderWikiList, ReaderWikiUpdateRequest, ReaderWikiUpdateResult, StudyLine, WatchBookmark,
                          WatchBookmarkDeleted, WatchBookmarkNoteRequest, WatchBookmarkRequest,
                          WatchBookmarks, error_responses)
-from services import export_service, reader_service, study_service, watch_bookmark_service
+from services import ear_marks_service, export_service, reader_service, study_service, watch_bookmark_service
 from lib.errors import ForbiddenError, NotFoundError
 
 router = APIRouter(prefix="/api/reader", tags=["reader"])
@@ -212,6 +212,21 @@ def get_caption_track(track: Track, drama_id: int = Path(ge=1)):
         raise NotFoundError(f"This title has no {track} caption track.")
     return Response(content=tracks[track], media_type="text/vtt; charset=utf-8",
                     headers={"X-Content-Type-Options": "nosniff"})
+
+
+# --- ear marks: display-only, from the title's own stereo file -------------------
+
+@router.get("/dramas/{drama_id}/ear-marks", dependencies=[require_permission("lines.read")], response_model=EarMarks,
+            summary="Lines heard mostly in the left or right ear, by line id", responses=_READ_ERRS)
+def get_ear_marks(drama_id: int = Path(ge=1)):
+    return ear_marks_service.get_ear_marks(drama_id)
+
+
+@router.post("/dramas/{drama_id}/ear-marks", dependencies=[require_permission("jobs.start")],
+             response_model=EarMarksStarted, summary="Work out the ear marks (poll the GET)",
+             responses=error_responses(400, 404, 409, 422, 429))
+def post_ear_marks(drama_id: int = Path(ge=1)):
+    return ear_marks_service.start_ear_marks(drama_id)
 
 
 # --- bookmarks: the caller's own, so one account's never show to another ----------
