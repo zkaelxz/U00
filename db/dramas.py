@@ -210,6 +210,12 @@ def count_dramas_owned_by(user_id: int) -> int:
         return conn.execute("SELECT COUNT(*) FROM dramas WHERE owner_user_id = ?", (user_id,)).fetchone()[0]
 
 
+def has_at_least_dramas(n: int) -> bool:
+    """Stops counting at n, so a large library costs no more than a small one."""
+    with contextlib.closing(db.get_conn()) as conn:
+        return conn.execute("SELECT COUNT(*) FROM (SELECT 1 FROM dramas LIMIT ?)", (n,)).fetchone()[0] >= n
+
+
 def earlier_episode_summaries(drama_id: int) -> list:
     """[(episode_number, summary)] of the episodes of this drama's series that come
     before it, oldest first, leaving out the one just before it (that one reaches
@@ -264,6 +270,14 @@ def _fold_if_needed(conn, term: str) -> tuple:
     return term.casefold(), "baihe_casefold({})"
 
 
+# Only what every viewer of a title already sees on it: never personal_notes (old private
+# notes, moved per profile but left in the column) or anything kept per account.
+_TITLE_SEARCH_COLUMNS = (
+    "title_zh", "title_en", "summary", "author", "author_romanized", "studio",
+    "studio_romanized", "voice_actors", "voice_actors_romanized", "custom_tags",
+    "(SELECT series.name FROM series WHERE series.id = dramas.series_id)")
+
+
 def list_dramas(search: str = "", studio: str = "", author: str = "",
                  voice_actor: str = "", status: str = "", source_language: str = "",
                  media_type: str = "", visible_to: int | None = None):
@@ -282,9 +296,8 @@ def list_dramas(search: str = "", studio: str = "", author: str = "",
         if search:
             search, col = _fold_if_needed(conn, search)
             query += " AND (" + " OR ".join(
-                f"{col.format(c)} LIKE ? ESCAPE '\\'" for c in ("title_zh", "title_en", "summary")) + ")"
-            like = _contains_pattern(search)
-            params += [like, like, like]
+                f"{col.format(c)} LIKE ? ESCAPE '\\'" for c in _TITLE_SEARCH_COLUMNS) + ")"
+            params += [_contains_pattern(search)] * len(_TITLE_SEARCH_COLUMNS)
         if studio:
             query += " AND studio = ?"
             params.append(studio)
