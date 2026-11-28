@@ -125,9 +125,12 @@ neighbouring line" or "...doesn't match its line". These requests count toward t
 monthly cap: one that would pass either is not sent, and the finished job says "The engine check in Source
 match was skipped because the cost cap was reached." While the check runs, the job shows "Checking source
 match: N of M lines"; Cancel then ends the job as cancelled with the translation saved and the check
-unfinished. It changes no text, skips lines whose source is under three characters, never replaces another
-flag, and does nothing if Ollama or the model is missing. It does not catch small meaning errors such as a
-flipped negation. It runs after Translate from the Workspace, not after the off-peak bulk run.
+unfinished. It changes no text, skips lines whose source is under three characters, also checks a line already
+flagged as too fast to read: its doubt takes that flag's place, the reading speed note stays under
+**Details**, and the reading speed flag comes back if a later run finds the English fine (**Clear
+reading-speed flags** clears that kept note too, and dismissing the Source match flag drops it); any other
+flag stays as it is; it does nothing if Ollama or the model is missing. It does not catch small meaning errors
+such as a flipped negation. It runs after Translate from the Workspace, not after the off-peak bulk run.
 
 **Source match model.** Under Settings > Translation style, a line says whether `bge-m3` is installed on your
 Ollama server, and on the PC itself a Download button installs it through Ollama (about 1.2 GB; Ollama must be
