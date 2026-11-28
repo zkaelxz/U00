@@ -92,6 +92,16 @@ final class ShellSettings {
             }
         }
 
+        /** True when Android itself blocks the alerts, whatever the switch says, so Settings can say so. */
+        @JavascriptInterface
+        public boolean notificationsBlocked() {
+            android.app.NotificationManager manager = context.getSystemService(android.app.NotificationManager.class);
+            if (manager == null) return false;
+            if (!manager.areNotificationsEnabled()) return true;
+            android.app.NotificationChannel channel = manager.getNotificationChannel(AlertPoller.CHANNEL);
+            return channel != null && channel.getImportance() == android.app.NotificationManager.IMPORTANCE_NONE;
+        }
+
         @JavascriptInterface
         public void checkForUpdates() {
             host.checkForUpdates();
