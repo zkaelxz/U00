@@ -85,3 +85,20 @@ def test_a_module_loggers_warning_reaches_the_app_log(isolated_db):
     lines = "\n".join(applog.tail(50))
     assert "module warning reaches the file" in lines
     assert "module info stays out" not in lines
+
+
+def test_a_library_that_sets_its_own_debug_level_stays_out_below_warning(isolated_db):
+    import logging
+    import applog
+    applog.get_logger()
+    chatty = logging.getLogger("chatty_library_example")
+    chatty.setLevel(logging.DEBUG)
+    try:
+        chatty.debug("library debug line")
+        chatty.info("library info line")
+        chatty.warning("library warning line")
+    finally:
+        chatty.setLevel(logging.NOTSET)
+    lines = "\n".join(applog.tail(50))
+    assert "library warning line" in lines
+    assert "library debug line" not in lines and "library info line" not in lines

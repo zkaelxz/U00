@@ -22,6 +22,16 @@ import db
 _LOGGER_NAME = "baihe"
 
 
+class _OwnOrWarning(logging.Filter):
+    """The app's own "baihe" lines at any level; anything else only from WARNING up.
+    A record passing up to the root logger is checked against its own logger's
+    level, not root's, so a library that sets DEBUG would otherwise fill the file."""
+
+    def filter(self, record):
+        return record.levelno >= logging.WARNING or record.name == _LOGGER_NAME \
+            or record.name.startswith(_LOGGER_NAME + ".")
+
+
 class _RedactSecretsFilter(logging.Filter):
     """Runs engine_backends.shared.redact_secrets over every record before it's
     written: the formatted message and any traceback text. A caller that
@@ -68,11 +78,12 @@ def get_logger():
             log_path, maxBytes=5_000_000, backupCount=3, encoding="utf-8")
         handler.setFormatter(logging.Formatter(
             "%(asctime)s %(levelname)s %(name)s: %(message)s"))
+        handler.addFilter(_OwnOrWarning())
         handler.addFilter(_RedactSecretsFilter())
         logger.addHandler(handler)
         # Most modules log through logging.getLogger(__name__), which reaches no
-        # handler of ours; the root logger's WARNING level lets their warnings and
-        # errors into app.log too, without their INFO chatter.
+        # handler of ours without this; _OwnOrWarning keeps what they send at
+        # INFO or DEBUG (some libraries set their own level) out of the file.
         logging.getLogger().addHandler(handler)
         logger.setLevel(logging.INFO)
         logger.propagate = False
