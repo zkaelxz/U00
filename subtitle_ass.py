@@ -63,14 +63,15 @@ def colors_by_label(colors: dict, speaker_names: dict) -> dict:
     label with that name, and any other key is kept as a label."""
     labels_by_name: dict = {}
     for label, name in speaker_names.items():
-        labels_by_name.setdefault(name.strip().casefold(), []).append(label)
+        if str(name or "").strip():
+            labels_by_name.setdefault(str(name).strip().casefold(), []).append(label)
     out = {}
     for key, color in colors.items():
         for label in labels_by_name.get(key.strip().casefold(), ()):
             out[label] = color
-    # A key typed as the label itself wins over a name that maps to the same label.
+    # A key typed as a known label (or matching no name) is that label, and wins over a name mapped to it.
     out.update({key: color for key, color in colors.items()
-                if key.strip().casefold() not in labels_by_name})
+                if key in speaker_names or key.strip().casefold() not in labels_by_name})
     return out
 
 
