@@ -5,6 +5,10 @@ transcription, speaker detection and translation code on this PC, and writes one
 table plus a JSON file. A transcription clip with "title_settings" runs the app's whole
 transcription pipeline with those stored title settings; one without runs plain Whisper.
 "fixed_decoding": true on such a clip pins Whisper's temperature at 0, so its score repeats exactly.
+A translation clip with "title_settings" (and optionally a "glossary" of {"original", "translation"}) runs
+the app's own translate path: id-keyed batches with retry, the reply guard, context lines, the glossary
+and the style block; one without calls the bare engine. Each translation clip runs 3 times
+(--translation-repeats) and scores the median, and its row counts the lines that came back blank.
 Each transcription clip runs 5 times (--repeats) and scores the median, because Whisper's
 default decoding differs from run to run (one title has scored 0.23 and 0.72 on the same audio). Scores: 1 - CER (1 - WER for spaced languages), diarization error rate,
 translation chrF against a reference, speed as a multiple of real time, and peak GPU memory.
@@ -60,6 +64,9 @@ REGRESSION_MARGIN = 0.02
 # One default-decoding run can land anywhere in its spread, so it can't pass the gate.
 GATE_MIN_REPEATS = 5
 DEFAULT_REPEATS = GATE_MIN_REPEATS
+# The same build's translation has scored 0.9 to 4 chrF points apart, more than the margin, so one
+# run can pass or fail by luck; a median of three is not moved by one odd run.
+TRANSLATION_GATE_MIN_REPEATS = 3
 BASELINE_METRICS = frozenset(("cer", "wer", "der", "chrf"))
 RESULT_PREFIX = quality_check_service.RESULT_PREFIX
 GATE_MAX_AGE_DAYS = quality_check_service.GATE_MAX_AGE_DAYS
@@ -74,6 +81,11 @@ TITLE_SETTING_KEYS = frozenset((
     "vad_threshold", "sensitivity_preset", "difficult_audio", "hallucination_silence_sec",
     "min_pause_sec", "separation_backend", "separate_vocals_first", "realign_long_segments",
     "whisper_fast_mode", "whisper_repeat_guard", "split_by_sentences", "use_groq"))
+# What a translation clip's "title_settings" may set: the title fields the prompt reads, and the run's
+# own knobs (style preset, batch size, context lines, English locale).
+TRANSLATION_SETTING_KEYS = frozenset((
+    "content_mode", "media_type", "genre", "series_note", "style_preset", "batch_size",
+    "context_window", "context_window_ahead", "locale"))
 
 
 # ---------------------------------------------------------------------------
@@ -116,8 +128,14 @@ def load_manifest(path: str) -> dict:
         if clip["kind"] == "transcription" and not (clip.get("reference_srt") or clip.get("reference_text")):
             raise Refusal(f'Clip "{cid}" needs "reference_srt" or "reference_text".')
         settings = clip.get("title_settings")
-        if settings is not None and (not isinstance(settings, dict) or set(settings) - TITLE_SETTING_KEYS):
-            raise Refusal(f'Clip "{cid}": "title_settings" may only hold {", ".join(sorted(TITLE_SETTING_KEYS))}.')
+        allowed = TRANSLATION_SETTING_KEYS if clip["kind"] == "translation" else TITLE_SETTING_KEYS
+        if settings is not None and (not isinstance(settings, dict) or set(settings) - allowed):
+            raise Refusal(f'Clip "{cid}": "title_settings" may only hold {", ".join(sorted(allowed))}.')
+        glossary = clip.get("glossary")
+        if glossary is not None and not (isinstance(glossary, list) and all(
+                isinstance(t, dict) and isinstance(t.get("original"), str) and isinstance(t.get("translation"), str)
+                for t in glossary)):
+            raise Refusal(f'Clip "{cid}": "glossary" must be a list of {{"original", "translation"}}.')
         if clip.get("fixed_decoding") is not None and (
                 not isinstance(clip["fixed_decoding"], bool) or not (clip["kind"] == "transcription" and settings is not None)):
             raise Refusal(f'Clip "{cid}": "fixed_decoding" is true or false, and only a transcription clip with "title_settings" takes it.')
@@ -131,13 +149,18 @@ def load_manifest(path: str) -> dict:
 
 
 def read_cues(path: str, language: str) -> list:
+    return [c.text.strip() for c in read_timed_cues(path, language)]
+
+
+def read_timed_cues(path: str, language: str) -> list:
+    """The file's non-empty cues with their times, which the app path's scene breaks come from."""
     try:
         with open(path, "rb") as fh:
             data = fh.read(subtitle_parse.MAX_FILE_BYTES + 1)
         parsed = subtitle_parse.parse_subtitle(data, os.path.basename(path), language=language)
     except (subtitle_parse.SubtitleParseError, OSError):
         raise Refusal("Can't read a subtitle file named in the manifest.") from None
-    return [c.text.strip() for c in parsed.cues if c.text.strip()]
+    return [c for c in parsed.cues if c.text.strip()]
 
 
 # ---------------------------------------------------------------------------
@@ -370,20 +393,42 @@ class Spend:
         self.cap, self.used = cap, 0.0
 
 
-def run_translation(clip: dict, opts, spend: Spend) -> dict:
+def _translation_engine(clip: dict, opts):
+    """(engine name, engine, paid) for a translation clip, refusing a paid engine without --allow-paid."""
     engine_name = clip.get("engine") or opts.engine or translate_service.default_hosted_engine()
-    sources = read_cues(clip["source_srt"], clip["language"])
-    references = read_cues(clip["reference_srt"], clip["language"])
-    if len(sources) != len(references):
-        raise ValueError(f"The source has {len(sources)} lines but the reference {len(references)}; "
-                         "they must match line for line.")
     paid = engine_name not in engine_registry.FREE_ENGINES
     if paid and not opts.allow_paid:
         raise RuntimeError(f"{engine_name} is a paid engine; add --allow-paid to use it.")
     key = translate_service.resolve_api_key(engine_name)
     if not key:
         raise RuntimeError(f"No key is set up for {engine_name}.")
-    engine = engine_registry.get_engine(engine_name, key, clip.get("model"))
+    return engine_name, engine_registry.get_engine(engine_name, key, clip.get("model")), paid
+
+
+def _translation_pair(clip: dict):
+    sources = read_timed_cues(clip["source_srt"], clip["language"])
+    references = read_cues(clip["reference_srt"], clip["language"])
+    if len(sources) != len(references):
+        raise ValueError(f"The source has {len(sources)} lines but the reference {len(references)}; "
+                         "they must match line for line.")
+    return sources, references
+
+
+def _translation_row(outputs: list, references: list, wall: float, detail: str) -> dict:
+    score, metric = chrf_score(outputs, references)
+    blank = sum(1 for out in outputs if not (out or "").strip())
+    per_100 = f"; {100 * wall / len(outputs):.1f} s per 100 lines" if outputs and wall else ""
+    return {"score": score, "metric": metric, "speed_x": len(outputs) / wall if wall else None,
+            "vram_mb": None, "blank_lines": blank,
+            "detail": f"{detail}; {blank} of {len(outputs)} lines blank{per_100}; speed is lines/s"}
+
+
+def run_translation(clip: dict, opts, spend: Spend) -> dict:
+    if clip.get("title_settings") is not None:
+        return run_app_translation(clip, opts, spend)
+    cues, references = _translation_pair(clip)
+    sources = [c.text.strip() for c in cues]
+    engine_name, engine, paid = _translation_engine(clip, opts)
     outputs, started = [], time.monotonic()
     for i in range(0, len(sources), TRANSLATE_BATCH):
         if paid and spend.used >= spend.cap:
@@ -395,9 +440,46 @@ def run_translation(clip: dict, opts, spend: Spend) -> dict:
         spend.used += pricing.estimate_cost_for_engine(engine, usage.get("input_tokens", 0),
                                                     usage.get("output_tokens", 0)) or 0.0
     wall = time.monotonic() - started
-    score, metric = chrf_score(outputs, references)
-    return {"score": score, "metric": metric, "speed_x": len(sources) / wall if wall else None,
-            "vram_mb": None, "detail": f"{len(sources)} lines via {engine_name}; speed is lines/s"}
+    return _translation_row(outputs, references, wall, f"{len(sources)} lines via {engine_name}, bare engine")
+
+
+def run_app_translation(clip: dict, opts, spend: Spend) -> dict:
+    """The clip through translate_pipeline as a Workspace run sends it, on lines held in memory."""
+    import translation_guide
+    from core import Line
+    from engine_backends import translate_pipeline
+    from services import timing_settings_service
+
+    settings = clip["title_settings"]
+    cues, references = _translation_pair(clip)
+    engine_name, engine, paid = _translation_engine(clip, opts)
+    if paid and spend.used >= spend.cap:
+        raise RuntimeError(f"Stopped at the --max-usd cap (${spend.cap:.2f}) before this clip.")
+    lines = [Line(idx=i, start=c.start, end=c.end, zh=c.text.strip(), id=i + 1) for i, c in enumerate(cues)]
+    glossary = [{"term_original": t["original"], "term_translation": t["translation"]}
+                for t in clip.get("glossary") or []] or None
+    style_guidelines = translation_guide.build_style_guidelines(
+        settings.get("style_preset") or "audio_drama", glossary_terms=glossary, include_genre_notes=True)
+    drama_meta = {"source_language": clip["language"],
+                  **{k: settings[k] for k in ("content_mode", "media_type", "genre", "series_note") if k in settings}}
+
+    def usage_cb(inp, out, cache_read=0, cache_write=0):
+        spend.used += pricing.estimate_cost_for_engine(engine, inp, out, cache_read, cache_write) or 0.0
+
+    started = time.monotonic()
+    _, errors = translate_pipeline.translate_lines_with_engine(
+        lines, engine, drama_meta=drama_meta, batch_size=settings.get("batch_size"),
+        locale=settings.get("locale") or "en-US", glossary_terms=glossary, style_guidelines=style_guidelines,
+        context_window=settings.get("context_window", 6), context_window_ahead=settings.get("context_window_ahead", 3),
+        scene_aware_batches=bool(settings_service.get("scene_aware_batches")),
+        **timing_settings_service.translate_limits(), usage_cb=usage_cb,
+        cost_cap_usd=spend.cap - spend.used if paid else None)
+    wall = time.monotonic() - started
+    english = {ln.id: ln.en or "" for ln in lines}
+    # Matched back by id, so a line the engine skipped scores as missing rather than shifting the rest.
+    outputs = [english.get(i + 1, "") for i in range(len(lines))]
+    failed = f"; {len(errors)} batch errors" if errors else ""
+    return _translation_row(outputs, references, wall, f"{len(lines)} lines via {engine_name}, app path{failed}")
 
 
 # ---------------------------------------------------------------------------
@@ -434,14 +516,20 @@ def baseline_status(row: dict) -> str:
     return "pass"
 
 
+def _ran_enough(row: dict) -> bool:
+    runs = len(row.get("scores") or [row.get("score")])
+    if row.get("kind") == "transcription":
+        return bool(row.get("fixed_decoding")) or runs >= GATE_MIN_REPEATS
+    return row.get("kind") != "translation" or runs >= TRANSLATION_GATE_MIN_REPEATS
+
+
 def gate_passed(run: dict) -> bool:
     """The release gate: something was compared with a baseline, nothing failed or fell below one,
-    and every default-decoding clip ran often enough for its median to mean something."""
+    and every default-decoding and translation clip ran often enough for its median to mean something."""
     rows = run.get("results") or []
     if not any(r.get("baseline") is not None for r in rows) or any(baseline_status(r) == "fail" for r in rows):
         return False
-    return all(r.get("kind") != "transcription" or r.get("fixed_decoding")
-               or len(r.get("scores") or [r.get("score")]) >= GATE_MIN_REPEATS for r in rows)
+    return all(_ran_enough(r) for r in rows)
 
 
 def _fmt(value, digits=3) -> str:
@@ -492,7 +580,8 @@ def format_report(run: dict, previous: dict | None) -> str:
                   f"for {GATE_MAX_AGE_DAYS} days.", ""]
     else:
         lines += ["Release gate: not passed (a clip failed or fell below its baseline, no clip has a baseline, "
-                  f"or a clip without fixed decoding ran fewer than {GATE_MIN_REPEATS} times).", ""]
+                  f"a transcription clip without fixed decoding ran fewer than {GATE_MIN_REPEATS} times, "
+                  f"or a translation clip fewer than {TRANSLATION_GATE_MIN_REPEATS}).", ""]
     notes = [f"- {_cell(r['id'])}: {_cell(r['detail'])}" for r in run["results"] if r.get("detail")]
     return "\n".join(lines + (["Details", ""] + notes + [""] if notes else []))
 
@@ -516,9 +605,15 @@ def run_repeated(run, clip: dict, opts, times: int) -> dict:
     speeds = [r["speed_x"] for r in rows if r.get("speed_x") is not None]
     vrams = [r["vram_mb"] for r in rows if r.get("vram_mb") is not None]
     spread = f"; {times} runs, scores {min(known):.3f} to {max(known):.3f}" if known else f"; {times} runs"
-    return {"score": statistics.median(known) if known else None, "metric": rows[0]["metric"], "scores": scores,
-            "speed_x": statistics.median(speeds) if speeds else None, "vram_mb": max(vrams) if vrams else None,
-            "detail": (rows[0].get("detail") or "") + spread}
+    out = {"score": statistics.median(known) if known else None, "metric": rows[0]["metric"], "scores": scores,
+           "speed_x": statistics.median(speeds) if speeds else None, "vram_mb": max(vrams) if vrams else None,
+           "detail": (rows[0].get("detail") or "") + spread}
+    blanks = [r["blank_lines"] for r in rows if r.get("blank_lines") is not None]
+    if blanks:
+        # The worst run: one run that drops lines is the slip the gate is for.
+        out["blank_lines"] = max(blanks)
+        out["detail"] += f"; most blank lines in one run {max(blanks)}"
+    return out
 
 
 def run_all(manifest: dict, opts) -> dict:
@@ -537,7 +632,8 @@ def run_all(manifest: dict, opts) -> dict:
                 elif clip["kind"] == "diarization":
                     row.update(run_diarization(clip, opts))
                 else:
-                    row.update(run_translation(clip, opts, spend))
+                    row.update(run_repeated(lambda c, o: run_translation(c, o, spend), clip, opts,
+                                            getattr(opts, "translation_repeats", TRANSLATION_GATE_MIN_REPEATS)))
             except Exception as exc:
                 # One broken clip must not cost the rest of a long GPU run.
                 row.update({"score": None, "metric": None, "error": _clean(f"{type(exc).__name__}: {exc}")})
@@ -562,6 +658,8 @@ def main(argv=None) -> int:
                         help=f"run each transcription clip this many times and score the median (default {DEFAULT_REPEATS}; "
                              f"the release gate needs {GATE_MIN_REPEATS} unless the clip has fixed decoding)")
     parser.add_argument("--cpu", action="store_true", help="run on the CPU instead of the GPU")
+    parser.add_argument("--translation-repeats", type=int, default=TRANSLATION_GATE_MIN_REPEATS,
+                        help=f"runs of each translation clip, scored by the median (default {TRANSLATION_GATE_MIN_REPEATS})")
     parser.add_argument("--allow-paid", action="store_true", help="let translation use a paid engine")
     parser.add_argument("--max-usd", type=float, default=1.0, help="stop paid translation past this spend (default 1.00)")
     parser.add_argument("--yes", action="store_true", help="run the clips (default: dry run)")
@@ -570,6 +668,8 @@ def main(argv=None) -> int:
     opts.use_gpu = not opts.cpu
     if opts.repeats < 1:
         parser.error("--repeats must be 1 or more")
+    if opts.translation_repeats < 1:
+        parser.error("--translation-repeats must be 1 or more")
     self_test._console_safe()
     try:
         manifest = load_manifest(opts.manifest)
