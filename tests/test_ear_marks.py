@@ -419,6 +419,25 @@ class TestBusy:
         ears._run_job("earmarks_test", title, path, timed, stamp, ears._folder(title))
         assert not os.path.exists(folder)
 
+    def test_only_a_few_run_at_once_across_titles(self, title, slow_decoder, monkeypatch):
+        monkeypatch.setattr(ears, "MAX_CONCURRENT_JOBS", 1)
+        other = db.create_drama(title_en="Second Example", source_language="ja")
+        with open(os.path.join(db.drama_dir(other), "source.flac"), "wb") as f:
+            f.write(b"fLaC")
+        db.update_drama(other, audio_filename="source.flac")
+        db.save_lines(other, [Line(idx=0, start=0.0, end=1.0, zh="台词", en="Line")])
+        job_id = ears.start_ear_marks(title)["job_id"]
+        assert slow_decoder.wait(5)
+        try:
+            assert ears.start_ear_marks(other)["started"] is False
+            assert ears.get_ear_marks(other)["state"] == "needed"
+        finally:
+            background_jobs.request_cancel(job_id)
+            wait_for_job(job_id)
+        assert ears.start_ear_marks(other)["started"] is True
+        background_jobs.request_cancel(ears._job_id(other))
+        wait_for_job(ears._job_id(other))
+
     def test_nothing_to_stop_is_at_once(self):
         assert background_jobs.stop_side_jobs(987654, wait_seconds=0) is True
 
@@ -538,6 +557,18 @@ class TestRoutes:
         job = wait_for_job(r.json()["job_id"])
         assert job["status"] == "done" and job.get("owner_user_id") is None
         assert user_caps.jobs_today(m_id) == 0
+
+    def test_a_member_starts_none_while_the_disk_is_nearly_full(self, title, decoder, monkeypatch):
+        from jobs import user_caps
+        m_id, m = self._login("member@example.com")
+        monkeypatch.setattr(user_caps.shutil, "disk_usage",
+                            lambda path: types.SimpleNamespace(free=1024 ** 3))
+        url = f"/api/reader/dramas/{title}/ear-marks"
+        r = self._member_client().post(url, headers=m)
+        assert r.status_code == 200 and r.json()["started"] is False, r.text
+        assert decoder.calls == [] and ears.get_ear_marks(title)["state"] == "needed"
+        # The PC owner's own visit is never held back for space, as for any job of theirs.
+        assert _run(title)["started"] is True
 
     def test_other_members_private_title_is_404_and_post_needs_jobs_start(self, isolated_db, decoder):
         a_id, a = self._login("a@example.com")

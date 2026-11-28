@@ -17,7 +17,7 @@ import media_inspect
 import storage
 import video_export
 from engine_backends.shared import redact_secrets
-from jobs import job_launch
+from jobs import job_launch, user_caps
 from lib import acting
 from lib.atomic_write import atomic_write
 from lib.errors import NotFoundError, UnsupportedOperationError
@@ -57,6 +57,11 @@ MIN_LINE_RMS = 1e-3
 
 SIDES = ("left", "right")
 
+# Server-wide, since the jobs have no starter for the per-member caps to count: a member
+# opening many titles can't run a decode (and a window file) for each at once.
+MAX_CONCURRENT_JOBS = 2
+
+_start_lock = threading.Lock()   # the count and the start, together
 _failed_at = {}   # drama id -> (stamp, time.monotonic()) of its last run that could not finish
 _failed_lock = threading.Lock()
 
@@ -164,7 +169,9 @@ def _note_failure(drama_id: int, stamp: str) -> None:
 
 def start_ear_marks(drama_id: int) -> dict:
     """Starts working out the marks unless they are current, already being worked out,
-    or the same file and timings failed lately."""
+    the same file and timings failed lately, MAX_CONCURRENT_JOBS run already, or a member
+    asks while the library drive is nearly full. A start not made leaves the state
+    "needed" for a later visit, with no error."""
     ownership_service.require_drama(drama_id)
     data, timed, path, stamp = _fresh(drama_id)
     if path is None or not timed:
@@ -173,17 +180,25 @@ def start_ear_marks(drama_id: int) -> dict:
     # Without ffmpeg the marks wait, unasked for, until it is installed. While another job or an
     # upload may be replacing the file they wait for a later visit: reading it then would keep
     # it open (on Windows the replace fails) and measure a file about to go.
+    not_started = {"job_id": job_id, "drama_id": drama_id, "started": False}
     if (data is not None or not _tools_present() or _failed_lately(drama_id, stamp)
             or drama_service.job_running_for_drama(drama_id)
             or media_upload_service.upload_in_progress(drama_id)):
-        return {"job_id": job_id, "drama_id": drama_id, "started": False}
-    # Started as the app's own job, not the viewer's: Watch starts it unasked, so it must not
-    # use up a member's daily jobs or running-jobs cap (jobs/user_caps.py counts by starter).
-    with acting.as_app():
-        started = job_launch.start_job(
-            job_id, _run_job, job_id, drama_id, path, timed, stamp, _folder(drama_id),
-            description=f"Ear marks (title #{drama_id})", line_fields=())
-    return {"job_id": job_id, "drama_id": drama_id, "started": bool(started)}
+        return not_started
+    try:
+        user_caps.refuse_if_disk_low(acting.acting_user_id())
+    except user_caps.DiskLowError:
+        return not_started
+    with _start_lock:
+        if background_jobs.count_active_jobs(JOB_PREFIX) >= MAX_CONCURRENT_JOBS:
+            return not_started
+        # Started as the app's own job, not the viewer's: Watch starts it unasked, so it must
+        # not use up a member's daily jobs or running-jobs cap (user_caps counts by starter).
+        with acting.as_app():
+            started = job_launch.start_job(
+                job_id, _run_job, job_id, drama_id, path, timed, stamp, _folder(drama_id),
+                description=f"Ear marks (title #{drama_id})", line_fields=())
+    return {**not_started, "started": bool(started)}
 
 
 def _tools_present() -> bool:
