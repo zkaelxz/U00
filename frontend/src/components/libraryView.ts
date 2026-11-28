@@ -16,6 +16,8 @@ const CJK = /[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uac00-\ud7af]/
 
 // No stage by default: the workspace opens on the drama's current stage.
 export const workspaceHref = (id: number, stage: string | null = null) => routeHref({ name: 'drama', id, stage })
+/** Review searched for the same words, as the top-bar search opens a line: Review has no line-jump URL. */
+export const lineHitHref = (dramaId: number, term: string) => routeHref({ name: 'drama', id: dramaId, stage: 'review', find: term })
 export const readHref = (d: { id: number; media_type: string | null }) =>
   routeHref({ name: isComicType(d.media_type) ? 'comic' : 'read', id: d.id, page: null })
 
@@ -205,4 +207,10 @@ export function continueAction(x: ContinueItem, row: ShelfRow | undefined, riskC
     case 'done':
       return readAction({ id, media_type: row?.media_type ?? null, content_mode: row?.content_mode })
   }
+}
+
+/** The server stops at its cap and says so (`more`); the count must not read as the total. */
+export function lineHitCount({ count, more }: { count: number; more: boolean }): string {
+  if (more) return `First ${count} matches, newest titles first. Add words to narrow the search.`
+  return `${count} ${count === 1 ? 'match' : 'matches'}`
 }
