@@ -16,6 +16,7 @@ import threading
 import time
 
 import db
+from lib import acting
 from lib.errors import ConflictError, RateLimitedError
 
 MAX_RUNNING_JOBS_PER_USER = 2
@@ -96,14 +97,17 @@ def refund_daily_start(owner_user_id, day: str | None) -> None:
 MEMBER_MIN_FREE_GB = 10
 
 
+def _is_admin_account(user_id) -> bool:
+    """Read now, so a demotion or a deactivation applies at once."""
+    user = db.auth_get_user(user_id)
+    return bool(user and user["is_admin"] and user["is_active"])
+
+
 def held_back_by_low_disk(owner_user_id) -> bool:
-    """Whether this starter's jobs wait for disk space: members only. With sign-in on, the PC
-    owner's own account has a user id like everyone else's, so the admin flag (read now, so a
-    demotion applies at once) is what tells them apart."""
-    if owner_user_id is None:
-        return False
-    user = db.auth_get_user(owner_user_id)
-    return not (user and user["is_admin"])
+    """Whether this account's queue items wait for disk space: members only. With sign-in on,
+    the PC owner's own account has a user id like everyone else's, so the admin flag is what
+    tells them apart."""
+    return owner_user_id is not None and not _is_admin_account(owner_user_id)
 
 
 def refuse_if_disk_low(owner_user_id) -> None:
@@ -115,8 +119,13 @@ def refuse_if_disk_low(owner_user_id) -> None:
         free_gb = shutil.disk_usage(db.LIBRARY_DIR).free / 1024 ** 3
     except OSError:
         return
-    # The account is looked up only once the drive is low, so a normal start reads nothing more.
-    if free_gb < MEMBER_MIN_FREE_GB and held_back_by_low_disk(owner_user_id):
+    if free_gb >= MEMBER_MIN_FREE_GB:
+        return
+    # The request's own principal must be an admin's too: a device token or scheduled work acts
+    # for an admin account with member rights only, so it is held like a member's.
+    principal = acting.acting_principal() or {}
+    if not (principal.get("user_id") == owner_user_id and principal.get("is_admin")
+            and _is_admin_account(owner_user_id)):
         raise DiskLowError("This PC is almost out of disk space, so new jobs can't start right now. "
                             "Try again later, or ask the PC owner to free some space.")
 

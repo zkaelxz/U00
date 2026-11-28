@@ -486,16 +486,35 @@ class TestPerUserJobCaps:
         assert job_launch.start_job("owner_low", lambda: None) is True
         _wait("owner_low")
 
-    def test_an_admin_account_can_start_a_job_when_the_drive_is_nearly_full(self, monkeypatch):
+    def test_an_admin_session_can_start_a_job_when_the_drive_is_nearly_full_but_its_device_token_cannot(
+            self, monkeypatch):
         # With sign-in on, the PC owner's own requests carry their admin account's user id.
         from collections import namedtuple
+        from lib import acting
+        from lib.errors import ConflictError
         usage = namedtuple("usage", "total used free")
         monkeypatch.setattr(user_caps.shutil, "disk_usage", lambda _p: usage(100 << 30, 95 << 30, 5 << 30))
         admin_id = db.auth_create_user("admin@example.com", is_admin=True)
         self._as(monkeypatch, admin_id)
-        assert job_launch.start_job("admin_low", lambda: None) is True
-        _wait("admin_low")
-        assert bg.get_status("admin_low")["status"] == "done"
+        token = acting.bind_request()
+        try:
+            # A device token (or member_principal) acts for the admin account with member rights only.
+            acting.note_acting_principal({"user_id": admin_id, "is_admin": False, "device_token_id": 1})
+            with pytest.raises(ConflictError) as err:
+                job_launch.start_job("admin_token_low", lambda: None)
+            assert "out of disk space" in err.value.message
+            assert bg.get_status("admin_token_low") is None
+
+            acting.note_acting_principal({"user_id": admin_id, "is_admin": True})
+            assert job_launch.start_job("admin_low", lambda: None) is True
+            _wait("admin_low")
+            assert bg.get_status("admin_low")["status"] == "done"
+
+            db.auth_update_user(admin_id, is_active=0)
+            with pytest.raises(ConflictError):
+                job_launch.start_job("admin_inactive_low", lambda: None)
+        finally:
+            acting.unbind_request(token)
 
     def test_a_gpu_job_at_the_running_cap_waits_without_holding_up_others_then_starts(
             self, monkeypatch):

@@ -752,6 +752,28 @@ def test_a_nearly_full_drive_holds_back_only_members_not_an_admins_items(jobs, m
     assert rests[theirs] == t0 + q.DISK_LOW_RETRY_SECONDS and not rests[admins]
 
 
+def test_a_failed_account_read_for_the_disk_hold_rests_the_item_instead_of_leaving_it_running(
+        jobs, monkeypatch):
+    from collections import namedtuple
+    from jobs import user_caps
+    usage = namedtuple("usage", "total used free")
+    monkeypatch.setattr(user_caps.shutil, "disk_usage", lambda _p: usage(100 << 30, 0, 5 << 30))
+
+    def unreadable(_uid):
+        raise RuntimeError("database is locked")
+    monkeypatch.setattr(user_caps, "held_back_by_low_disk", unreadable)
+    member = _member()
+    q.add_item(member, _drama("A", owner_user_id=member["user_id"], is_private=1), "transcribe", False,
+               at_pc=True)
+    q.start(None)
+    t0 = q._clock()
+    q.tick(now=t0)
+    with q._lock:
+        item = q._load()["items"][0]
+    assert item["status"] == "waiting" and "almost out of disk space" in item["reason"]
+    assert item["not_before"] == t0 + q.DISK_LOW_RETRY_SECONDS
+
+
 def test_a_full_drive_does_not_cut_short_a_members_daily_limit_rest(jobs, monkeypatch):
     from collections import namedtuple
     from jobs import user_caps

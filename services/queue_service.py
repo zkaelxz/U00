@@ -985,6 +985,17 @@ def _may_overlap(running: list, candidate: dict) -> bool:
     return db.get_drama(other["drama_id"]) is not None
 
 
+def _held_for_disk(user_id) -> bool:
+    """Fails closed: this runs under _lock after an item was claimed, and an error escaping
+    there would leave that item RUNNING with no job."""
+    try:
+        return user_caps.held_back_by_low_disk(user_id)
+    except Exception as exc:
+        _log.warning("Could not read an account for the low-disk hold: %s",
+                     engine_shared.redact_secrets(str(exc)))
+        return True
+
+
 def _start_next(now: float, deferred=frozenset()) -> None:
     """Starts the first waiting item not in `deferred`. An item whose adder
     is at their running cap (jobs/user_caps.py), or that a nearly full drive
@@ -1032,7 +1043,7 @@ def _start_next(now: float, deferred=frozenset()) -> None:
         rest = (lambda other: other["user_id"] == claimed["user_id"], DAILY_LIMIT_RETRY_SECONDS)
     except user_caps.DiskLowError:
         status, wait_reason = WAITING, _WAITING_FOR_DISK
-        rest = (lambda other: user_caps.held_back_by_low_disk(other["user_id"]), DISK_LOW_RETRY_SECONDS)
+        rest = (lambda other: _held_for_disk(other["user_id"]), DISK_LOW_RETRY_SECONDS)
     except RateLimitedError:
         status = WAITING
     except ServiceError as exc:
