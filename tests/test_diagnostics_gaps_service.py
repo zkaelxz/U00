@@ -1005,16 +1005,29 @@ def test_log_filter_looks_past_the_lines_a_plain_view_shows(isolated_db):
 
 
 # Planted in the Send logs bundle; none may come out.
+_TITLE = "Moonlit Example Garden"
+_TITLE_ZH = "月光示例花园"
+_ODD_KEY = "zz-custom-provider-key-0123456789"      # a format redact_secrets doesn't know
 _BUNDLE_SECRETS = {
     "email": "alex.example@example.com",
+    "email_in_query": "https://site.example/api?user=alex.example@example.com&q=PRIVATEQUERY&lang=ja",
+    "userinfo": "https://alexuser:pwvalue123@cdn.example.com/a.mp4",
     "cookie": "Cookie: sid=PLAINCOOKIEVALUE; theme=dark",
     "password": 'password: "hunter2hunter2"',
+    "password_in_query": "login?password=hunter3hunter3&next=PRIVATENEXT",
     "bearer": "Bearer PLAINBEARERVALUE123",
     "jwt": "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJhbGV4In0.c2lnbmF0dXJlc2ln",
     "signed": "https://cdn.example.com/a.mp4?X-Amz-Signature=SIGNEDVALUE&Expires=1",
+    "source_path": "https://novels.example/book/moonlit-example-garden/ch-1",
+    "lan_url": "http://192.168.1.77:11434/api/chat",
+    "lan_bare": "ollama at 192.168.1.77:11434 or nas-example.local",
+    "title": f"Translating 1/3 -- {_TITLE} (0%) and {_TITLE_ZH.upper()}",
+    "odd_key": f"rejected key {_ODD_KEY}",
 }
-_BUNDLE_LEAKS = ("alex.example", "PLAINCOOKIEVALUE", "hunter2hunter2", "PLAINBEARERVALUE123",
-                 "eyJhbGciOiJIUzI1NiJ9", "SIGNEDVALUE", "Expires=1")
+_BUNDLE_LEAKS = ("alex.example", "alexuser", "pwvalue123", "PRIVATEQUERY", "PLAINCOOKIEVALUE",
+                 "hunter2hunter2", "hunter3hunter3", "PLAINBEARERVALUE123", "eyJhbGciOiJIUzI1NiJ9",
+                 "SIGNEDVALUE", "Expires=1", "moonlit-example-garden", "/book/", "192.168.1.77",
+                 "nas-example", _TITLE, _TITLE.lower(), _TITLE_ZH, _ODD_KEY, "/api/chat")
 
 
 def _bundle(monkeypatch):
@@ -1022,6 +1035,8 @@ def _bundle(monkeypatch):
     import zipfile
     from services import diagnostics_service
     monkeypatch.setattr(settings_service, "key_status", lambda env_path=None: {"claude": True})
+    monkeypatch.setattr(settings_service, "resolve_key",
+                        lambda name, env_path=None: _ODD_KEY if name == "openai" else None)
     monkeypatch.setattr(diagnostics, "scan_hf_cache", lambda d=None: [])
     monkeypatch.setattr(diagnostics, "check_dependency", lambda name: name != "pydub")
     monkeypatch.setattr(diagnostics_service, "get_gpu_reading", lambda: {
@@ -1038,10 +1053,14 @@ def _write_log(name, lines):
 
 
 def test_support_bundle_scrubs_planted_secrets(isolated_db, monkeypatch):
+    db.create_drama(title_en=_TITLE, title_zh=_TITLE_ZH)
+    db.set_app_setting("pref.default_style_note", f"keep {_TITLE} formal")
     home = os.path.expanduser("~")
     dirty = " ".join([DIRTY, *_BUNDLE_SECRETS.values(), f"saved {home}/Videos/clip.mp4"])
-    _write_log("app.log", ["INFO started", f"ERROR {dirty}"])
-    _write_log("app.log.1", [f"ERROR older {dirty}"])
+    # One per line as well: a cookie header hides the rest of its line.
+    per_line = [f"ERROR {v} done" for v in _BUNDLE_SECRETS.values()]
+    _write_log("app.log", ["INFO started", f"ERROR {dirty}", *per_line])
+    _write_log("app.log.1", [f"ERROR older {dirty}", *per_line])
     db.save_job_record("translate_7", "error", message=dirty, error=dirty,
                        started_at=10.0, finished_at=14.0)
     files = _bundle(monkeypatch)
@@ -1050,16 +1069,29 @@ def test_support_bundle_scrubs_planted_secrets(isolated_db, monkeypatch):
     everything = "\n".join(files.values())
     _assert_clean(everything)
     for leak in _BUNDLE_LEAKS + (home, db.LIBRARY_DIR):
-        assert leak not in everything, leak
-    assert "[EMAIL]" in files["logs/app.log"] and "INFO started" in files["logs/app.log"]
+        assert leak.lower() not in everything.lower(), leak
+    log = files["logs/app.log"]
+    for kept in ("INFO started", "[EMAIL] done", "[TITLE] (0%)", "[LAN] done", "https://site.example done",
+                 "https://novels.example done", "Cookie: [REDACTED]"):
+        assert kept in log, kept
     job = json.loads(files["jobs.json"])[0]
-    assert job["job_id"] == "translate_7" and job["status"] == "error"
-    assert job["duration_seconds"] == 4.0 and "[REDACTED]" in job["error"]
+    assert "message" not in job and job["job_id"] == "translate_7" and job["status"] == "error"
+    assert job["duration_seconds"] == 4.0 and len(job["error"]) <= svc.BUNDLE_ERROR_CHARS
     system = json.loads(files["system.json"])
     assert system["gpu"] == {"found": True, "name": "NVIDIA GeForce RTX 3080", "vram_total_gb": 12.0}
     assert system["optional_dependencies"]["pydub"] is False
-    assert "choices" not in system["settings"]
-    assert all(isinstance(v, bool) for v in system["settings"]["endpoints"].values())
+    settings = system["settings"]
+    assert "choices" not in settings
+    assert all(isinstance(v, bool) for v in settings["endpoints"].values())
+    assert settings["preferences"]["default_style_note"] is True     # free text: set or not
+    assert settings["preferences"]["default_locale"] == "en-US"      # a fixed choice stays
+
+
+def test_support_bundle_keeps_cjk_readable(isolated_db, monkeypatch):
+    _write_log("app.log", ["INFO 字幕を保存しました"])
+    files = _bundle(monkeypatch)
+    assert files["logs/app.log"] == "INFO 字幕を保存しました\n"
+    assert "\\u" not in files["system.json"]
 
 
 def test_support_bundle_caps_the_logs_newest_first(isolated_db, monkeypatch):
@@ -1074,7 +1106,29 @@ def test_support_bundle_caps_the_logs_newest_first(isolated_db, monkeypatch):
     assert log.splitlines()[0].startswith("INFO new line ")    # no half line at the cut
 
 
+def test_support_bundle_skips_a_log_rotated_away_and_keeps_an_empty_one_empty(isolated_db, monkeypatch):
+    _write_log("app.log", [])
+    _write_log("app.log.1", ["INFO old line"])
+    gone = os.path.join(db.LIBRARY_DIR, "logs", "app.log.1")
+    real = svc._log_files
+    monkeypatch.setattr(svc, "_log_files", lambda: (os.remove(gone), real())[1] + [gone])
+    files = _bundle(monkeypatch)
+    assert files["logs/app.log"] == ""
+    assert "logs/app.log.1" not in files
+
+
+def test_support_bundle_one_at_a_time(isolated_db, monkeypatch):
+    from lib.errors import ConflictError
+    assert svc._BUNDLE_LOCK.acquire(blocking=False)
+    try:
+        with pytest.raises(ConflictError):
+            svc.build_support_bundle()
+    finally:
+        svc._BUNDLE_LOCK.release()
+    assert _bundle(monkeypatch)["jobs.json"] == "[]"
+
+
 def test_bundle_redaction_keeps_ordinary_text():
     import diagnostics_report
-    text = "INFO translated 12 lines with claude in 3.2s (cookie browser: none, 2 GB free)"
-    assert diagnostics_report.redact_for_bundle(text) == text
+    text = "INFO translated 12 lines with claude in 3.2s (cookie browser: none, 2 GB free) via https://api.example.com"
+    assert diagnostics_report.bundle_redactor(titles=["Go"])(text) == text

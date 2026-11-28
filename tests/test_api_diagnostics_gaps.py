@@ -171,9 +171,19 @@ def test_support_bundle_is_a_scrubbed_zip(client, monkeypatch):
     os.makedirs(log_dir, exist_ok=True)
     with open(os.path.join(log_dir, "app.log"), "w", encoding="utf-8") as f:
         f.write(f"ERROR {DIRTY} for alex.example@example.com\n")
-    r = client.get("/api/diagnostics/support-bundle")
+    url = "/api/diagnostics/support-bundle"
+    assert client.get(url, headers={"Sec-Fetch-Site": "cross-site"}).status_code == 403
+    assert client.get(url, headers={"Sec-Fetch-Site": "same-site"}).status_code == 403
+    assert svc._BUNDLE_LOCK.acquire(blocking=False)
+    try:
+        busy = client.get(url)
+    finally:
+        svc._BUNDLE_LOCK.release()
+    assert busy.status_code == 409 and "already being made" in busy.text
+    r = client.get(url, headers={"Sec-Fetch-Site": "same-origin"})
     assert r.status_code == 200 and r.headers["content-type"] == "application/zip"
     assert r.headers["content-disposition"].startswith('attachment; filename="baihe-logs-')
+    assert r.headers["cache-control"] == "no-store"
     with zipfile.ZipFile(io.BytesIO(r.content)) as zf:
         text = "\n".join(zf.read(n).decode("utf-8") for n in zf.namelist())
     assert "[EMAIL]" in text and '"ollama_url": true' in text

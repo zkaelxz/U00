@@ -7,8 +7,10 @@ import contextlib
 import contextvars
 import getpass
 import importlib.metadata
+import ipaddress
 import os
 import re
+from urllib.parse import urlsplit
 
 import diagnostics
 import diarize
@@ -308,28 +310,90 @@ def redact_for_support(text) -> str:
     return text
 
 
-# Only for the Send logs bundle, which carries whole log files rather than the
-# error lines the rest of Diagnostics shows: those can hold sign-in traffic
-# (cookie headers, a password typed into a source's sign-in form, a session
-# JWT) and account emails. Kept out of redact_for_support so job messages and
-# install output shown elsewhere don't change.
+# Only for the Send logs bundle, which carries whole log files (third-party
+# warnings included) rather than the error lines the rest of Diagnostics shows:
+# those can hold sign-in traffic (cookie headers, a password typed into a
+# source's sign-in form, a session JWT), account emails, title names in source
+# links and addresses on the home network. Kept out of redact_for_support so
+# job messages and install output shown elsewhere don't change.
+#
+# Any scheme, and anything up to whitespace or a quote: a "]" or ")" inside a
+# query must not end the match and leave the rest of the query behind.
+_BUNDLE_URL = re.compile(r"(?i)\b[a-z][a-z0-9+.-]{1,15}://[^\s\"'<>`]+")
+_LAN_NAME = re.compile(r"(?i)^(?:localhost|.+\.(?:local|lan|home|internal|ts\.net))$")
+# The same private hosts written without a scheme ("192.168.1.5:11434", "nas.local").
+_LAN_IN_TEXT = re.compile(
+    r"(?i)(?<![\w.])(?:10\.\d{1,3}\.\d{1,3}\.\d{1,3}|192\.168\.\d{1,3}\.\d{1,3}"
+    r"|172\.(?:1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}|169\.254\.\d{1,3}\.\d{1,3}"
+    r"|100\.(?:6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.\d{1,3}\.\d{1,3}"
+    r"|[a-z0-9-]+(?:\.[a-z0-9-]+)*\.(?:local|lan|ts\.net))(?![\w.])")
 _BUNDLE_PATTERNS = [
     (re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}"), "[EMAIL]"),
     (re.compile(r"(?i)((?:set-)?cookie[\"']?\s*[:=]\s*)[^\r\n]*"), r"\1[REDACTED]"),
-    (re.compile(r"(?i)(passw(?:or)?d[\"']?\s*[:=]\s*[\"']?)[^\s\"',;}]+"), r"\1[REDACTED]"),
+    (re.compile(r"(?i)(passw(?:or)?d[\"']?\s*[:=]\s*[\"']?)[^\s\"',;}&]+"), r"\1[REDACTED]"),
     (re.compile(r"(?i)(\bbearer\s+)[A-Za-z0-9_\-.=+/]{8,}"), r"\1[REDACTED]"),
     (re.compile(r"\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]*"), "[REDACTED]"),
 ]
 
 
-def redact_for_bundle(text) -> str:
-    """redact_for_support plus emails, cookie headers, passwords, bearer
-    tokens and JWTs. Runs these first so an email's user name is gone before
-    redact_for_support swaps account names for [USER] inside it."""
-    text = _ANSI_PATTERN.sub("", "" if text is None else str(text))
-    for pattern, repl in _BUNDLE_PATTERNS:
-        text = pattern.sub(repl, text)
-    return redact_for_support(text)
+def _non_global_ip(host: str) -> bool:
+    try:
+        return not ipaddress.ip_address(host).is_global
+    except ValueError:
+        return False
+
+
+def _url_host_only(m) -> str:
+    try:
+        parts = urlsplit(m.group(0))
+        host = parts.hostname or ""
+    except ValueError:
+        return "[URL]"
+    if not host:
+        return "[URL]"
+    if _LAN_NAME.match(host) or _non_global_ip(host):
+        return "[LAN]"
+    return f"{parts.scheme.lower()}://{host}"
+
+
+def _terms_pattern(terms, min_length: int):
+    """One case-insensitive alternation, longest first so a title that
+    contains another is replaced whole. An ASCII letter or digit at either
+    end must not touch another one, so a short title doesn't eat the middle
+    of a word."""
+    words = sorted({t.strip() for t in terms if t and len(t.strip()) >= min_length},
+                   key=len, reverse=True)
+    if not words:
+        return None
+    parts = [(r"(?<![A-Za-z0-9])" if w[0].isascii() and w[0].isalnum() else "")
+             + re.escape(w)
+             + (r"(?![A-Za-z0-9])" if w[-1].isascii() and w[-1].isalnum() else "")
+             for w in words]
+    return re.compile("|".join(parts), re.IGNORECASE)
+
+
+def bundle_redactor(titles=(), secrets=()):
+    """The Send logs scrubber: every URL cut to scheme and host (a private
+    host to [LAN]), the exact configured secret values, the library's titles
+    ([TITLE]), emails, cookie headers, passwords, bearer tokens and JWTs, then
+    redact_for_support. URLs go first, while nothing has put a placeholder in
+    one yet; emails before redact_for_support, so an email's user name is gone
+    before account names become [USER] inside it."""
+    secret_re = _terms_pattern(secrets, 8)
+    title_re = _terms_pattern(titles, 2)
+
+    def redact(text) -> str:
+        text = _ANSI_PATTERN.sub("", "" if text is None else str(text))
+        text = _BUNDLE_URL.sub(_url_host_only, text)
+        if secret_re:
+            text = secret_re.sub("[REDACTED]", text)
+        if title_re:
+            text = title_re.sub("[TITLE]", text)
+        text = _LAN_IN_TEXT.sub("[LAN]", text)
+        for pattern, repl in _BUNDLE_PATTERNS:
+            text = pattern.sub(repl, text)
+        return redact_for_support(text)
+    return redact
 
 
 def format_diagnostics_report(results: dict, hf_cache: list | None = None,
