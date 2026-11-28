@@ -257,3 +257,38 @@ def test_the_refresh_route_answers_with_the_outcome(isolated_db, monkeypatch):
     assert r.status_code == 200, r.text
     assert r.json() == {"drama_id": did, "outcome": "fetched"}
     assert api.post("/api/dramas/9999/cover/from-site").status_code == 404
+
+
+def _vod(cover=True):
+    did = db.create_drama(title_en="V", media_type="video")
+    db.update_drama(did, source_url="https://www.youtube.example/watch")
+    if cover:
+        cover_art_service.save_cover(did, io.BytesIO(_png("white", (40, 60))))
+    return did
+
+
+def test_a_video_takes_the_platform_thumbnail_even_when_wide(isolated_db, monkeypatch):
+    did = _vod()
+    monkeypatch.setattr(cover_art_service, "_video_thumbnail_url", lambda link: "https://i.example/t.jpg")
+    client = _FakeClient(_png("yellow", (160, 90)))
+    assert cover_art_service.refresh_site_cover(did, client) == "fetched"
+    from PIL import Image
+    assert Image.open(cover_art_service.cover_file(did)[0]).size == (160, 90)
+    assert client.requests == ["https://i.example/t.jpg"]
+
+
+def test_a_video_falls_back_to_the_page_picture(isolated_db, monkeypatch):
+    did = _vod(cover=False)
+    monkeypatch.setattr(cover_art_service, "_video_thumbnail_url", lambda link: "")
+    client = _FakeClient(_png("yellow", (160, 90)), _PAGE)
+    assert cover_art_service.refresh_site_cover(did, client) == "fetched"
+    assert client.requests == ["https://www.youtube.example/watch", "https://cdn.example/c.png"]
+
+
+def test_a_video_with_no_picture_anywhere_keeps_its_cover(isolated_db, monkeypatch):
+    did = _vod()
+    before = cover_art_service.cover_stamp(did)
+    monkeypatch.setattr(cover_art_service, "_video_thumbnail_url", lambda link: "")
+    assert cover_art_service.refresh_site_cover(did, _FakeClient(page="<p>x</p>")) == "kept"
+    assert cover_art_service.refresh_site_cover(did, _FakeClient(fail=True)) == "unreachable"
+    assert cover_art_service.cover_stamp(did) == before

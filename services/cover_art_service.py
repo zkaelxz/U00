@@ -364,8 +364,8 @@ def _download_cover(cover_url: str, page_url: str, client=None) -> bytes | None:
         return None
 
 
-def _store_site_cover(drama_id: int, data: bytes, replace: bool) -> bool:
-    if replace and not _is_portrait(data):
+def _store_site_cover(drama_id: int, data: bytes, replace: bool, portrait_only: bool = True) -> bool:
+    if replace and portrait_only and not _is_portrait(data):
         # A page's og:image is often a site logo or banner; only a cover-shaped picture may displace page one.
         return False
     try:
@@ -496,24 +496,49 @@ def fill_missing_cover(drama_id: int, cover_url: str = "", page_url: str = "",
     return False
 
 
+def _log_press(kind: str, client, outcome: str) -> None:
+    import applog
+    applog.get_logger().info(f"site cover press ({kind}): 1 tried, outcome {outcome}, source {client.source}")
+
+
 def refresh_site_cover(drama_id: int, client=None, only_first_page: bool = False) -> str:
-    """Replaces the cover with the picture the title's stored link names for the series. Returns
-    "fetched"; "kept" when the page names no cover-shaped picture (the cover stays); "unreachable"
-    when the page couldn't be read; "skipped" when `only_first_page` and the cover is one the person
-    chose; "no_link" when the title has no stored link."""
+    """Replaces the cover with the picture the title's stored link names. A comic takes the series
+    picture from its page and needs it cover-shaped; a video takes the platform's own thumbnail
+    (yt-dlp's address, else the page's og:image), wide or not. Returns "fetched"; "kept" when the
+    site gave nothing usable (the cover stays); "unreachable" when the page or picture couldn't be
+    read; "skipped" when `only_first_page` and the cover is one the person chose; "no_link" when
+    the title has no stored link."""
     drama = _require_drama(drama_id)
     link = (drama.get("source_url_full") or drama.get("source_url") or "").strip()
     if not link.startswith(("http://", "https://")):
         return "no_link"
+    comic = (drama.get("media_type") or "").lower() in ("manga", "manhwa", "manhua")
     if only_first_page and drama.get("cover_art_filename") and not cover_is_first_page(drama_id):
         return "skipped"
     client = client or paced_client(link)
-    picture = site_cover_url(link, client)
-    if picture is None:
-        return "unreachable"
+    picture = _video_thumbnail_url(link) if not comic else ""
     if not picture:
-        return "kept"
-    data = _download_cover(picture, link, client)
-    if data is None:
-        return "unreachable"
-    return "fetched" if _store_site_cover(drama_id, data, replace=True) else "kept"
+        picture = site_cover_url(link, client)
+    if picture is None:
+        outcome = "unreachable"
+    elif not picture:
+        outcome = "kept"
+    else:
+        data = _download_cover(picture, link, client)
+        if data is None:
+            outcome = "unreachable"
+        else:
+            outcome = "fetched" if _store_site_cover(drama_id, data, True, portrait_only=comic) else "kept"
+    if not only_first_page:
+        _log_press("comic" if comic else "video", client, outcome)
+    return outcome
+
+
+def _video_thumbnail_url(link: str) -> str:
+    """The thumbnail address yt-dlp reports for the link ("" when it reports none or the read
+    fails; the page's og:image is then tried)."""
+    from services import link_details_service
+    try:
+        return str(link_details_service.video_link_fields(link, lambda: False).get("thumbnail_url") or "")
+    except Exception:
+        return ""
