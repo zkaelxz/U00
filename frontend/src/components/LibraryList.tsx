@@ -368,8 +368,8 @@ export function LibraryList({
         <div className="toolbar-search">
           <input
             type="search"
-            placeholder={scope === 'titles' ? 'Search titles and summaries' : 'Search every line, then press Enter'}
-            aria-label={scope === 'titles' ? 'Search title or summary' : 'Search all lines'}
+            placeholder={scope === 'titles' ? 'Search titles, people, tags and series' : 'Search every line, then press Enter'}
+            aria-label={scope === 'titles' ? 'Search titles, people, tags and series' : 'Search all lines'}
             maxLength={200}
             value={search}
             onChange={(e) => setSearch(e.target.value)}
