@@ -4,101 +4,496 @@ Part of the [user guide](user-guide.md).
 
 ## One-click translate
 
-In the Add box, a pasted video link and **Make English subtitles** (One-click translate) make a new title and run Download, Transcribe, Translate and Export subtitles for it through the Queue, with the profile chosen in Settings > One-click translate (each admin account chooses its own; an account that has not chosen uses the PC's), shown under **Change options** as "Profile: <name>". A ready-made profile named **Default** is chosen until you pick another: Chinese audio, the app's default recognizer, translation engine and model, and English SRT. With the choice set to None the button stays off and the Add box's sentence links to that Settings card. Hover the button, or press the (i) button under Change options (for touch and keyboard), to see the settings the run will use: profile, recognizer, engine and model, batch size, glossary and export. They are read-only there; change them in Settings > One-click translate. A profile is a saved translation profile; its One-click translate section sets the source language the title is made in, the export format and language, and the language packs. The video is downloaded at 1080p at most, the From a URL picker's default. It works from a phone or another computer too, for an admin and for anyone given **Import from a link** in People and access (with Start jobs, on by default); the download and the work still run on the main PC, and a model that isn't downloaded yet has to be downloaded at the PC first. Without that right the Add box says so and offers Add only. **Done watching, delete** is at the PC only; a watch-once title is removed on its own after 48 hours anyway. From any device, the person who made a title (and still owns it) can delete it themselves: Library > the title's Details > **Delete title…** (type DELETE); titles made at the PC or by someone else are deleted at the PC, and each delete goes in the Activity log. A member account can have at most 100 titles; at 100, One-click translate says so until one is deleted. Progress shows on the Add page and in the Queue; if a step fails the later steps are skipped and the reason is shown. When the profile translates with a paid engine and no monthly spending cap is set, the Add box says so with a link to Settings > Spending and the button stays off until a cap is set, since the Queue runs paid translation only under a cap. A request that is refused (no profile, no source language in it, a paid engine your account can't use, a paid engine with no monthly cap, a link that isn't public) makes no title. Before you press Make English subtitles, a short list shows what the run will use: the video's length (from the link), the source language, the speech recognizer, the translation engine and model, and whether it costs money. A profile with no source language says it is worked out from the speech when the run starts; no time estimate is shown.
+In the Add box, a pasted video link and **Make English subtitles** (One-click translate) make a new title and
+run Download, Transcribe, Translate and Export subtitles for it through the Queue, with the profile chosen in
+Settings > One-click translate (each admin account chooses its own; an account that has not chosen uses the
+PC's), shown under **Change options** as "Profile: <name>". A ready-made profile named **Default** is chosen
+until you pick another: Chinese audio, the app's default recognizer, translation engine and model, and English
+SRT. With the choice set to None the button stays off and the Add box's sentence links to that Settings card.
+Hover the button, or press the (i) button under Change options (for touch and keyboard), to see the settings
+the run will use: profile, recognizer, engine and model, batch size, glossary and export. They are read-only
+there; change them in Settings > One-click translate. A profile is a saved translation profile; its One-click
+translate section sets the source language the title is made in, the export format and language, and the
+language packs. The video is downloaded at 1080p at most, the From a URL picker's default. It works from a
+phone or another computer too, for an admin and for anyone given **Import from a link** in People and access
+(with Start jobs, on by default); the download and the work still run on the main PC, and a model that isn't
+downloaded yet has to be downloaded at the PC first. Without that right the Add box says so and offers Add
+only. **Done watching, delete** is at the PC only; a watch-once title is removed on its own after 48 hours
+anyway. From any device, the person who made a title (and still owns it) can delete it themselves: Library >
+the title's Details > **Delete title…** (type DELETE); titles made at the PC or by someone else are deleted at
+the PC, and each delete goes in the Activity log. A member account can have at most 100 titles; at 100,
+One-click translate says so until one is deleted. Progress shows on the Add page and in the Queue; if a step
+fails the later steps are skipped and the reason is shown. When the profile translates with a paid engine and
+no monthly spending cap is set, the Add box says so with a link to Settings > Spending and the button stays
+off until a cap is set, since the Queue runs paid translation only under a cap. A request that is refused (no
+profile, no source language in it, a paid engine your account can't use, a paid engine with no monthly cap, a
+link that isn't public) makes no title. Before you press Make English subtitles, a short list shows what the
+run will use: the video's length (from the link), the source language, the speech recognizer, the translation
+engine and model, and whether it costs money. A profile with no source language says it is worked out from the
+speech when the run starts; no time estimate is shown.
 
-"Watch once" marks the title as temporary. When the run is done, Open shows it in Review with the video, and "Done watching, delete" removes that title with its files; it is offered only for runs that finished. The card lists the newest three runs and Show more lists the rest. Only a title made that way can be removed there, and one nobody removed goes after 48 hours, when the app starts.
+"Watch once" marks the title as temporary. When the run is done, Open shows it in Review with the video, and
+"Done watching, delete" removes that title with its files; it is offered only for runs that finished. The card
+lists the newest three runs and Show more lists the rest. Only a title made that way can be removed there, and
+one nobody removed goes after 48 hours, when the app starts.
 
 ## The job queue
 
-The Jobs page has a Queue row under the job list (folded while nothing is queued; **+ Add to queue** at the top right opens it on its add form) for lining up work and letting it run hands-off, for example overnight. Pick a title and a step (Transcribe, Translate or Export subtitles) and add it; reorder with Move up and Move down, remove an item, or press Retry on one that failed, was skipped or was interrupted. The Queue row opens on its own when the queue has items or a run starts; click its heading to fold it to one line (state and how many wait). The job table's sort (Started or Duration, either way) is remembered in the browser like its filters. An error that has no next step of its own now links to where the detail is: **Open the log** for an internal error (admins), and members are told to ask the PC owner.
+The Jobs page has a Queue row under the job list (folded while nothing is queued; **+ Add to queue** at the
+top right opens it on its add form) for lining up work and letting it run hands-off, for example overnight.
+Pick a title and a step (Transcribe, Translate or Export subtitles) and add it; reorder with Move up and Move
+down, remove an item, or press Retry on one that failed, was skipped or was interrupted. The Queue row opens
+on its own when the queue has items or a run starts; click its heading to fold it to one line (state and how
+many wait). The job table's sort (Started or Duration, either way) is remembered in the browser like its
+filters. An error that has no next step of its own now links to where the detail is: **Open the log** for an
+internal error (admins), and members are told to ask the PC owner.
 
-Jobs that need the GPU wait in one line and start in turns between people: each person's first waiting job goes before anyone's second, and the owner's job goes first within a turn. Live streams still go ahead of everything.
+Jobs that need the GPU wait in one line and start in turns between people: each person's first waiting job
+goes before anyone's second, and the owner's job goes first within a turn. Live streams still go ahead of
+everything.
 
-When the drive that holds the library has under 10 GB free (or under your own free disk space alert limit while that alert is on and set lower, but never under 5 GB), a member can't start a new job: they see "This PC is almost out of disk space" until space is freed. The owner's and admins' own jobs are never held back, except jobs sent from the browser extension, which are held like a member's.
+When the drive that holds the library has under 10 GB free (or under your own free disk space alert limit
+while that alert is on and set lower, but never under 5 GB), a member can't start a new job: they see "This PC
+is almost out of disk space" until space is freed. The owner's and admins' own jobs are never held back,
+except jobs sent from the browser extension, which are held like a member's.
 
-- Items run one at a time, in order, through the same path as the stage's Run button, with the title's saved options. Transcribe replaces the title's lines (the old ones stay in line History); a title that transcribes from a pasted transcript can't be queued. Export subtitles saves English SRT as the title's subtitle download. Open "Saved settings for this step" to change a step's settings (Transcribe, Translate or Export) for that queued item only; the title keeps its own.
-- **Translate items spend money.** On a paid engine a Translate item costs money; the card says which engine before you add it. The queue respects the Spending caps in Settings: before each Translate item it checks this month's cap and skips the item ("Skipped: ...") when the cap is used up or the estimate is above what is left, and the run itself still stops at the cap. With no monthly cap set, paid Translate items are skipped: unattended paid work always has a ceiling.
-- The queue starts by itself when you add an item, unless it is paused, has a start time set, or stopped after a failure (then "Start queue now" goes on). "Start at" runs it once at that time on the PC's clock, then the schedule clears. Pause starts no new item; the running one finishes. Each item also has its own Pause (the queue skips it, and that title's later steps, until you press Resume) and Cancel… (a waiting item shows as cancelled, a running one has its job cancelled), for the account that added it. "Stop the queue when an item fails" is off by default, so a failed item is marked and the next one starts. "Run a transcription beside an online translation" is off by default; when on, a waiting transcription starts beside a running translation that uses a paid or Ollama cloud engine (never one that uses this PC's GPU, never the same title, never ahead of a waiting step of its own title; the source-match check, which loads bge-m3 on this PC's Ollama after the translation, waits until the transcription has finished before it starts), so the PC works while the online engine waits. In an All steps queue of several titles, the next title transcribes while the current one translates; the current title's export then waits until that transcription finishes.
-- **Tonight** (a switch beside Add to queue, a tick box on the Library's selection bar, or **Run tonight** on a waiting item, except a step of a run started on a title's page) makes an item wait for the night hours (1:00 to 7:00 on the PC's clock by default; an admin or the PC owner changes them under "Night from"), and on Windows also until no one has used the PC's keyboard or mouse for 10 minutes; the rest of the queue runs as usual, except that title's later steps, which wait behind it. **Run now** puts it back in line at once; on a later step it is refused until that title's earlier Tonight step is put back first. The morning after, one alert (in-app, and Discord/ntfy when set up) says how many Tonight items finished, failed or still run. **Nightly self-check** (on by default, beside the night hours) runs once a night when nothing else runs and Tonight's items are through: a short transcription of a built-in test clip, a comic-text read, and one short test call to the default translation engine, its only translation call (a tiny cost on a paid or hosted engine, counted in the monthly cap and skipped with no cap set or once it is spent; it updates that engine's Test badge in Settings). You get an alert only when the same part fails two nights in a row.
-- If the queue can't be read, the Jobs page shows the error in the card's place; it goes away by itself once the queue answers again.
-- **Quick read tab** (on the Jobs page, next to Jobs): the Quick reads from the phone or the extension that are still working on the PC, each with its site, chapter and pages left, and **Drop** (or **Drop all**), which stops the pages that have not started. Starting a new Quick read on a phone also drops that phone's older ones (another phone of the same person is left alone), and a stopped read says on the phone that it was stopped on the PC. A Quick read the phone stops listening to (the app swiped away, Wi-Fi lost) and does not come back to within 90 seconds is dropped the same way; the page being worked on still finishes and is remembered. A page the phone asks for again while the PC is still working on it (after a dropped connection) is translated once, not twice. Members see and drop only their own; the PC owner and admins see everyone's.
-- **Activity log and GPU time** (the folded card at the bottom of the Jobs page): every job that ends, finished, failed or cancelled, with when, how long it ran and a GPU tag, kept for a year even after you delete jobs from the list above, plus a bar chart of GPU time per day for the last 30 days. Members see only their own jobs; the PC owner and admins see everyone's. Nothing to maintain: old rows drop out by themselves. A transcription expected to take 2 hours or more asks "Start it anyway?" before it starts.
-- An item that can't start (the spending cap, a job already running on that title, a deleted title, a missing key) is marked "Skipped" with the reason, and the queue moves on. A member's item held back by the nearly full drive, or by their jobs-a-day limit, stays waiting with that reason instead and starts once there is space, or the next day (the queue tries again every 15 minutes, so a raised limit applies too).
-- While any job runs (a queue item, a Live session or a phone run included), Baihe keeps Windows from going to sleep on its own; the screen may still turn off, and once the last job ends the PC sleeps as its power plan says.
-- After a restart nothing runs on its own: an item that was running shows "Interrupted", and a start time that passed while Baihe was off shows "Missed: start now?" until you start or dismiss it. The bell (and Discord or ntfy, when set up) then says which jobs the restart cut off and how many queue items it stopped; on that entry **Run them again** puts every interrupted queue item back, as Retry does, and starts the queue. An item that may use an engine your account can't use (a paid engine, or an Ollama hosted model other than the members' one) is left for someone whose account may, and one whose saved settings no longer apply is left for its own Retry to explain.
-- A title page's **Transcribe and build glossary** adds its steps here too (Transcribe, then Find names), so does a novel's **Import from link** (Import chapters, Prepare the text, Make lines, Find names), and so does a file's **Make English subtitles** after its upload (Transcribe, which follows the transcription the upload started, then Translate). A paid engine there translates even with no monthly cap set, as it did before it moved here; a cap that is set still stops it. They start at once without Start queue, ahead of items waiting for it, after the one item running; they start nothing else, a failure in them doesn't stop the queue, and after a restart they show "Not started" until pressed again on the title.
-- With sign-in on, each account sees and changes only the items for its own titles (at most 100 items per account, and 150 for all members together, so the PC owner always has room); only an admin (from any device) or the PC owner starts, pauses or schedules the whole queue. A queue restored from a backup is stopped, like after a restart.
+- Items run one at a time, in order, through the same path as the stage's Run button, with the title's saved
+  options. Transcribe replaces the title's lines (the old ones stay in line History); a title that transcribes
+  from a pasted transcript can't be queued. Export subtitles saves English SRT as the title's subtitle
+  download. Open "Saved settings for this step" to change a step's settings (Transcribe, Translate or Export)
+  for that queued item only; the title keeps its own.
+- **Translate items spend money.** On a paid engine a Translate item costs money; the card says which engine
+  before you add it. The queue respects the Spending caps in Settings: before each Translate item it checks
+  this month's cap and skips the item ("Skipped: ...") when the cap is used up or the estimate is above what
+  is left, and the run itself still stops at the cap. With no monthly cap set, paid Translate items are
+  skipped: unattended paid work always has a ceiling.
+- The queue starts by itself when you add an item, unless it is paused, has a start time set, or stopped after
+  a failure (then "Start queue now" goes on). "Start at" runs it once at that time on the PC's clock, then the
+  schedule clears. Pause starts no new item; the running one finishes. Each item also has its own Pause (the
+  queue skips it, and that title's later steps, until you press Resume) and Cancel… (a waiting item shows as
+  cancelled, a running one has its job cancelled), for the account that added it. "Stop the queue when an item
+  fails" is off by default, so a failed item is marked and the next one starts. "Run a transcription beside an
+  online translation" is off by default; when on, a waiting transcription starts beside a running translation
+  that uses a paid or Ollama cloud engine (never one that uses this PC's GPU, never the same title, never
+  ahead of a waiting step of its own title; the source-match check, which loads bge-m3 on this PC's Ollama
+  after the translation, waits until the transcription has finished before it starts), so the PC works while
+  the online engine waits. In an All steps queue of several titles, the next title transcribes while the
+  current one translates; the current title's export then waits until that transcription finishes.
+- **Tonight** (a switch beside Add to queue, a tick box on the Library's selection bar, or **Run tonight** on
+  a waiting item, except a step of a run started on a title's page) makes an item wait for the night hours
+  (1:00 to 7:00 on the PC's clock by default; an admin or the PC owner changes them under "Night from"), and
+  on Windows also until no one has used the PC's keyboard or mouse for 10 minutes; the rest of the queue runs
+  as usual, except that title's later steps, which wait behind it. **Run now** puts it back in line at once;
+  on a later step it is refused until that title's earlier Tonight step is put back first. The morning after,
+  one alert (in-app, and Discord/ntfy when set up) says how many Tonight items finished, failed or still run.
+  **Nightly self-check** (on by default, beside the night hours) runs once a night when nothing else runs and
+  Tonight's items are through: a short transcription of a built-in test clip, a comic-text read, and one short
+  test call to the default translation engine, its only translation call (a tiny cost on a paid or hosted
+  engine, counted in the monthly cap and skipped with no cap set or once it is spent; it updates that engine's
+  Test badge in Settings). You get an alert only when the same part fails two nights in a row.
+- If the queue can't be read, the Jobs page shows the error in the card's place; it goes away by itself once
+  the queue answers again.
+- **Quick read tab** (on the Jobs page, next to Jobs): the Quick reads from the phone or the extension that
+  are still working on the PC, each with its site, chapter and pages left, and **Drop** (or **Drop all**),
+  which stops the pages that have not started. Starting a new Quick read on a phone also drops that phone's
+  older ones (another phone of the same person is left alone), and a stopped read says on the phone that it
+  was stopped on the PC. A Quick read the phone stops listening to (the app swiped away, Wi-Fi lost) and does
+  not come back to within 90 seconds is dropped the same way; the page being worked on still finishes and is
+  remembered. A page the phone asks for again while the PC is still working on it (after a dropped connection)
+  is translated once, not twice. Members see and drop only their own; the PC owner and admins see everyone's.
+- **Activity log and GPU time** (the folded card at the bottom of the Jobs page): every job that ends,
+  finished, failed or cancelled, with when, how long it ran and a GPU tag, kept for a year even after you
+  delete jobs from the list above, plus a bar chart of GPU time per day for the last 30 days. Members see only
+  their own jobs; the PC owner and admins see everyone's. Nothing to maintain: old rows drop out by
+  themselves. A transcription expected to take 2 hours or more asks "Start it anyway?" before it starts.
+- An item that can't start (the spending cap, a job already running on that title, a deleted title, a missing
+  key) is marked "Skipped" with the reason, and the queue moves on. A member's item held back by the nearly
+  full drive, or by their jobs-a-day limit, stays waiting with that reason instead and starts once there is
+  space, or the next day (the queue tries again every 15 minutes, so a raised limit applies too).
+- While any job runs (a queue item, a Live session or a phone run included), Baihe keeps Windows from going to
+  sleep on its own; the screen may still turn off, and once the last job ends the PC sleeps as its power plan
+  says.
+- After a restart nothing runs on its own: an item that was running shows "Interrupted", and a start time that
+  passed while Baihe was off shows "Missed: start now?" until you start or dismiss it. The bell (and Discord
+  or ntfy, when set up) then says which jobs the restart cut off and how many queue items it stopped; on that
+  entry **Run them again** puts every interrupted queue item back, as Retry does, and starts the queue. An
+  item that may use an engine your account can't use (a paid engine, or an Ollama hosted model other than the
+  members' one) is left for someone whose account may, and one whose saved settings no longer apply is left
+  for its own Retry to explain.
+- A title page's **Transcribe and build glossary** adds its steps here too (Transcribe, then Find names), so
+  does a novel's **Import from link** (Import chapters, Prepare the text, Make lines, Find names), and so does
+  a file's **Make English subtitles** after its upload (Transcribe, which follows the transcription the upload
+  started, then Translate). A paid engine there translates even with no monthly cap set, as it did before it
+  moved here; a cap that is set still stops it. They start at once without Start queue, ahead of items waiting
+  for it, after the one item running; they start nothing else, a failure in them doesn't stop the queue, and
+  after a restart they show "Not started" until pressed again on the title.
+- With sign-in on, each account sees and changes only the items for its own titles (at most 100 items per
+  account, and 150 for all members together, so the PC owner always has room); only an admin (from any device)
+  or the PC owner starts, pauses or schedules the whole queue. A queue restored from a backup is stopped, like
+  after a restart.
 
 ## Reliability
 
-- One failure breaks only that thing: each React page has an error boundary, database connections are reclaimed after errors, destructive writes (`save_lines`, `save_bubbles`, history snapshots) run in transactions with rollback, and optional packages are imported lazily so a missing one disables only its feature.
-- Batch work isolates failures: one failed TTS line leaves only that line silent; one failed page doesn't stop a bulk scanlate job; diarization failure keeps the alignment already saved.
+- One failure breaks only that thing: each React page has an error boundary, database connections are
+  reclaimed after errors, destructive writes (`save_lines`, `save_bubbles`, history snapshots) run in
+  transactions with rollback, and optional packages are imported lazily so a missing one disables only its
+  feature.
+- Batch work isolates failures: one failed TTS line leaves only that line silent; one failed page doesn't stop
+  a bulk scanlate job; diarization failure keeps the alignment already saved.
 - API calls back off exponentially on rate limits (up to 5 attempts) and fail fast on real errors.
-- When the server gives a reason for a failed action, the reason is the heading of the error ("The title was not restored, but some files are still in the dramas folder.") instead of a general "The action failed." with the reason underneath. Without a reason, or if it would show a file path or key, the general text stays.
-- A disk or file problem names its cause instead of "The action failed": a full disk, a read-only library folder, a damaged or busy library database, a file Baihe's account may not open ("Permission denied", for example when the boot service's account cannot read the library folder; the app log names the file), and a file another program holds open. Removing a title's raw novel text tells these apart too: a file Baihe may not change says "Permission denied", not that it is in use.
-- Translation saves after every batch and skips already-translated lines on re-run; use "force re-translate everything" for a full redo.
-- A **Simple / Advanced** switch (in the **You** menu at the top right on a wide screen, the Menu on a phone) decides what the menu lists. Simple, the default, leaves out Library tools, People and access, Diagnostics, Benchmark Lab and Assistant; Advanced lists them. In Advanced they sit together under System, between Jobs and Settings, which is last. The choice is remembered in this browser and only changes the menu and the Ctrl+K search: those pages still open from a link, and what a person may do is unchanged.
-- **GPU line** (admin accounts only): at the top of the header's Jobs panel (the list icon), a small line such as "GPU memory 62% · 71 °C" from the PC's resource monitor. It refreshes itself every 30 seconds while the panel is open, and the **↻** button beside it reads again at once. It is hidden when the PC has no readable NVIDIA GPU or has not been sampled yet, and members never see it.
-- Settings holds each API key once; keys are never shown back by the API. When Settings can't load (Baihe stopped, say), it says so in one banner with Retry, which reloads the settings and their list together. Settings has seven sections (Engines and keys, Costs, Transcription and jobs, Connections, Updates, My account and look, Advanced), listed down the left with the one you pick shown on the right (on a phone, one row of tabs that scrolls sideways, one tap each), and a search box that opens the tab and card it finds; a search for something kept on Diagnostics, Library tools or People and access (models, packages, backup now, storage, sign-in accounts, activity log, address check) also lists links to it under "On other pages". Every card folds; the app remembers which are open, and one button, "Expand all" or "Collapse all", acts on the tab you are on. The first time you open a tab only its first card is open; after that the app keeps the cards as you left them, and a closed card shows its current value in one line. A card an update added, or moved to another tab, since this browser last opened Settings carries a small **New** or **Moved** tag until you click it; the first time a browser opens Settings nothing is tagged, and a setting added inside an existing card is not tagged. Someone without the settings permission (or an admin on the household address) sees only the My account and look cards (plus Update Baihe for someone who may update), with no search, and away from the PC the cards that only work on the PC are left out. A signed-in member can save their own Ollama key under My account and look > "Your Ollama key", so their Ollama cloud runs use their own account; it is never shown back. An admin's cloud runs always use the PC's own sign-in, so a key saved before the account was made an admin is ignored until it is a member again. The People and access page also has "Set up remote access" under Remote access (at the PC only): the setup steps in order, each marked Done, To do, Needs a fix or Yours to check (the router forward can't be seen from the PC, so the last step asks you to open the public name on a phone on mobile data; the public name's DNS record and, once remote access is on, the firewall rule are checked for you), with the next one flagged, and a write-only form for the public name and the Google client id and secret (saved in the PC's .env, never shown back; Baihe says when it must be restarted to load them). The public address check and the sign-in accounts are on the People and access page (with a tunnel or CDN in front of the app, set the address check anyway: it is how link imports learn the home's address and refuse it), and ports are on Diagnostics > System.
-- The top of Settings, and of Diagnostics, shows this copy's version and release date in one line on every device ("Baihe 0.1.6 · released 22 Nov 2026"; a source copy shows "source copy" and its commit date). Settings cards by tab. **Engines and keys:** Which engine does what (with no key saved yet, its Engines and keys list comes first and each missing key is noted once), Server addresses (Ollama URL, where "localhost:11434" or "http://localhost:11434/api" is saved as "http://localhost:11434"), Translation style, Comic glossary (Quick read and Scanlate always carry a built-in glossary of forms of address, ranks and titles, fantasy and martial arts terms and sound effects for Japanese, Korean and Chinese comics, sending only the entries that appear on a page; write `source = English` lines there to change one, leave the English empty to drop it; a series or title glossary term always wins), Language packs. **Costs:** Spending (monthly cap), Past costs, Spend history. **Transcription and jobs:** Jobs and GPU (GPU use, a limit on GPU jobs at once, Keep free memory, Resume interrupted batches, on by default: after a restart only batches on a free engine restart by themselves, and a paid engine's batches wait until you press Resume, with one notification saying so), Timing and splitting, Blocked phrases, Advanced transcription (only while Developer Mode is on; the values you saved keep applying to new transcriptions while it is hidden). **Connections:** Notifications (the Windows pop-up, "Pop-up on this PC when a job finishes", is on by default; when Baihe runs as the Windows boot service, which has no desktop, the card says pop-ups can't show and Discord and ntfy still work, and its summary leaves the pop-up out; otherwise the card's summary counts it with Discord and ntfy, and the notes about the ntfy address and where secrets are saved sit inside the channel form they belong to), Jellyfin, Web search, Watch folder (off by default: audio and video files dropped into one folder on the PC become titles, once they have stopped changing, and their Transcribe goes on the Jobs queue, or the series' own auto-run takes over when you pick a series; the originals are never deleted, and only moved into a Done folder if you tick that), Browser extension. **Updates:** one Updates card with everything that updates: App updates or Update Baihe (whichever this copy uses), Phone app ("Get the newest phone app"; the phone's app info shows the installed build as "build <number>", and in the phone app the version line at the top of Settings adds "Phone app build <number> · built <date>"), Packages (how many have updates, with a link to Diagnostics > Packages) and Browser extension (how to refresh a copy loaded from a folder). App updates (the card shows the new version's release notes; a once-a-day check (on by default; "Check once a day for updates" turns it off) and an "Include pre-releases" switch, off by default, that also offers newer betas and each new release while it is still being tested, before it reaches everyone; an update that changes the library database (or, for the full installer, one whose release doesn't say whether it does in a note signed with the release key) first asks for a library backup from the last day, so going back stays possible; the full installer and the app-only update wait for each other: one is refused while the other is starting or Setup is still open; on a PC where Baihe runs as the background service, "Update app only" works once the full installer has been run after this version (which also makes the install folder administrator-owned, readable by everyone, so changing files in it needs an administrator prompt); an "Install app updates automatically" switch, on by default (a choice saved before stays), downloads and signature-checks each app update after the daily check and restarts Baihe on it between 3 and 6 AM when no job is running, or after the update has waited a day if the PC is off then, without opening a window; an unsigned update never goes in on its own, and one that changes the library database first starts a database backup; an app update brings changed Python packages with it (installed as it switches, and put back on a rollback), so only a new Python, Caddy or WinSW needs the full installer, and on the background service only once the full installer of this version has run; if the new version runs but its version couldn't be recorded (a full disk), the card says "Updated to <version>, but the version could not be recorded" and the window still opens; if an app update failed and Baihe went back to the older version after the newer one had already changed the library, the card says so, names when the newest backup from before the update was taken, and links to Library tools > Backup to restore it; if backups made since have replaced that copy, it says none is left; when it can't tell, for example after an update from a version without this check, it says so rather than staying silent). Update Baihe (an admin on a copy started with start.bat: Check for updates, then Update and restart; works from a phone too, and says why when it can't; if the package install after an update fails, Baihe still starts with the packages it has and tries the install again next start; if start.bat can't start Baihe again, start it by hand and the card names `restart_after_update.log` in the Baihe folder). **My account and look:** Sharing, Your limits (a member sees AI spending this month, jobs started today and titles owned against the limits the PC owner set, marked "Almost used up" from 80% and "Used up" once reached), Display, Menu items, Signed-in devices, Remote access keys, Your Ollama key. **Advanced:** Offline, paths and limits (context window, offline Whisper model folder, OCR backend, Downloads, Program locations, Upload size limit), Keys file and environment (a read-only list of where each setting is saved, each shown as set or not set, never with its value; most are changed only in the `.env` file or in Windows, while the Jellyfin key, the Discord and ntfy addresses, the public address, Google sign-in and the address check are saved there by their own forms; PC only), Developer Mode (while it is on, **Keep Quick read pages for debugging**, off by default, keeps each Quick read page's original picture and what the reader found, the last 300 pages for 3 days, on this PC only and in no backup; PC profiles and the uploads-from-away switch are on People and access; automatic backups are on Library tools > Backup, and the comic Save folder is on Library tools > Organize beside Saved manga; a Settings search for any of these links to its card).
-- **Alerts** at the top of the page lists recent finished and failed jobs, new chapters, and runs that stopped to wait for you: glossary names to review ("Waiting for you: 12 glossary names to review - <title>"), a series auto-run that stopped for you, the queue stopping because an item failed, a job stopped at a spending cap, and this PC running hot or short of room: the GPU too hot or slowing itself down, its memory 85% full for 15 minutes (a Jellyfin stream needs about 1.2 GB, so four streams need about 5 GB free), RAM nearly full, or little free disk space ("This PC: GPU temperature is 88 °C, at or above 85 °C for 5 min."), with a second entry when it is back to normal. A low disk space entry also says how much a cleanup in Library tools > Storage would free, when that is at least 0.1 GB. Members' jobs wait for disk space under 10 GB free, or under your own free disk space limit while that alert is on and set lower, but never under 5 GB. Those entries show for the PC owner and admins only, and go to Discord or ntfy whenever one is set up, whatever the category switches say. The limits are in Settings > Connections > **PC alerts**: for each of the seven (GPU temperature, GPU throttling, RAM, free disk space, GPU memory nearly full, GPU memory full, CPU use) one row each ("Alert at 85 % for 15 min"; the limit and minutes show only while the rule is on) that saves as soon as you flip the switch, leave a field or press Enter (a value out of range stays as typed and is not saved until fixed). GPU memory full (100%) and CPU use start off. A saved change applies at the next check, within 30 seconds; the timers start over when Baihe restarts. A waiting entry has an **Open** button that goes to the place: the title's Glossary tab, its Review step, the series page or the Jobs page. With Discord or ntfy set up in Settings > Notifications, the same "Waiting for you" message goes there too, under **Jobs finished, failed or waiting for you**. Those messages never carry a link. A job message names its title and series, but leaves out any that not everyone in the household can see, unless you turn on **This channel is only mine: show private titles** under Settings > Notifications (off by default; turn it on only if nobody else can read the Discord channel or ntfy topic). They never quote an error either: a stopped job's message gives its reason only when it is one of Baihe's own sentences ("3 requests failed in a row", or that the provider keeps rate-limiting you), and Alerts shows the full reason. A job that finished cleanly goes to Discord or ntfy only if it ran 2 minutes or more; shorter ones (a single-line re-transcribe or re-time, for instance) stay in Alerts. A failure, a finish with errors, "Waiting for you" and events such as new chapters always go, even when many messages go out in a minute, and a failure is never folded into a count. Repeats of the same job on the same title within about a minute arrive as one message, for example "14 × Re-transcribe line · Title · all finished"; a failure still goes out within seconds. In Discord each message is a coloured card: green Finished, amber Finished with errors or Waiting for you, red Failed. A job's card shows its title and series, how long it ran, the counts it reports (lines translated, skipped, pages), one plain sentence of the reason for a failure, a link to the title when a remote address is set up, and who ran it when more than one person has an account (display name only, never an email; an account with no name set in People shows "A member (no name in People)"). Cards never carry line text. Every Discord message names the PC that sent it (its Windows computer name, in the card footer as "Sent from <PC>" or after "Baihe Studio"), which is not who ran the job, so one channel shared by several PCs shows which one it came from. A job's card instead names the device it was requested from when that is known, such as "Chrome on Android" for a phone or "Browser extension"; a job started on the PC itself, or with sign-in off, shows the PC. Set **PC name** under Settings > Notifications (for example "V100" or "3080") to use your own name instead; leave it empty for the Windows name. ntfy keeps plain text. While the PC is on its Guest profile, a "Waiting for you" pop-up on the desktop leaves out the name of a private title.
-- SQLite runs in WAL mode; the review table is paginated; real token usage is logged per drama (estimates only, since prices change).
-- GPU acceleration (Whisper, diarization, local cloning) is on by default, including on a fresh data folder, and falls back to CPU if CUDA isn't available. Whisper picks the fastest number format the card supports, so older cards without float16 (GTX 10xx) still transcribe on the GPU.
-- The novel reference is sent as a prompt-cached block per drama. A very long novel (200k+ Chinese characters) may not fit; trim to the relevant arc or compress it into a glossary.
+- When the server gives a reason for a failed action, the reason is the heading of the error ("The title was
+  not restored, but some files are still in the dramas folder.") instead of a general "The action failed."
+  with the reason underneath. Without a reason, or if it would show a file path or key, the general text
+  stays.
+- A disk or file problem names its cause instead of "The action failed": a full disk, a read-only library
+  folder, a damaged or busy library database, a file Baihe's account may not open ("Permission denied", for
+  example when the boot service's account cannot read the library folder; the app log names the file), and a
+  file another program holds open. Removing a title's raw novel text tells these apart too: a file Baihe may
+  not change says "Permission denied", not that it is in use.
+- Translation saves after every batch and skips already-translated lines on re-run; use "force re-translate
+  everything" for a full redo.
+- A **Simple / Advanced** switch (in the **You** menu at the top right on a wide screen, the Menu on a phone)
+  decides what the menu lists. Simple, the default, leaves out Library tools, People and access, Diagnostics,
+  Benchmark Lab and Assistant; Advanced lists them. In Advanced they sit together under System, between Jobs
+  and Settings, which is last. The choice is remembered in this browser and only changes the menu and the
+  Ctrl+K search: those pages still open from a link, and what a person may do is unchanged.
+- **GPU line** (admin accounts only): at the top of the header's Jobs panel (the list icon), a small line such
+  as "GPU memory 62% · 71 °C" from the PC's resource monitor. It refreshes itself every 30 seconds while the
+  panel is open, and the **↻** button beside it reads again at once. It is hidden when the PC has no readable
+  NVIDIA GPU or has not been sampled yet, and members never see it.
+- Settings holds each API key once; keys are never shown back by the API. When Settings can't load (Baihe
+  stopped, say), it says so in one banner with Retry, which reloads the settings and their list together.
+  Settings has seven sections (Engines and keys, Costs, Transcription and jobs, Connections, Updates, My
+  account and look, Advanced), listed down the left with the one you pick shown on the right (on a phone, one
+  row of tabs that scrolls sideways, one tap each), and a search box that opens the tab and card it finds; a
+  search for something kept on Diagnostics, Library tools or People and access (models, packages, backup now,
+  storage, sign-in accounts, activity log, address check) also lists links to it under "On other pages". Every
+  card folds; the app remembers which are open, and one button, "Expand all" or "Collapse all", acts on the
+  tab you are on. The first time you open a tab only its first card is open; after that the app keeps the
+  cards as you left them, and a closed card shows its current value in one line. A card an update added, or
+  moved to another tab, since this browser last opened Settings carries a small **New** or **Moved** tag until
+  you click it; the first time a browser opens Settings nothing is tagged, and a setting added inside an
+  existing card is not tagged. Someone without the settings permission (or an admin on the household address)
+  sees only the My account and look cards (plus Update Baihe for someone who may update), with no search, and
+  away from the PC the cards that only work on the PC are left out. A signed-in member can save their own
+  Ollama key under My account and look > "Your Ollama key", so their Ollama cloud runs use their own account;
+  it is never shown back. An admin's cloud runs always use the PC's own sign-in, so a key saved before the
+  account was made an admin is ignored until it is a member again. The People and access page also has "Set up
+  remote access" under Remote access (at the PC only): the setup steps in order, each marked Done, To do,
+  Needs a fix or Yours to check (the router forward can't be seen from the PC, so the last step asks you to
+  open the public name on a phone on mobile data; the public name's DNS record and, once remote access is on,
+  the firewall rule are checked for you), with the next one flagged, and a write-only form for the public name
+  and the Google client id and secret (saved in the PC's .env, never shown back; Baihe says when it must be
+  restarted to load them). The public address check and the sign-in accounts are on the People and access page
+  (with a tunnel or CDN in front of the app, set the address check anyway: it is how link imports learn the
+  home's address and refuse it), and ports are on Diagnostics > System.
+- The top of Settings, and of Diagnostics, shows this copy's version and release date in one line on every
+  device ("Baihe 0.1.6 · released 22 Nov 2026"; a source copy shows "source copy" and its commit date).
+  Settings cards by tab. **Engines and keys:** Which engine does what (with no key saved yet, its Engines and
+  keys list comes first and each missing key is noted once), Server addresses (Ollama URL, where
+  "localhost:11434" or "http://localhost:11434/api" is saved as "http://localhost:11434"), Translation style,
+  Comic glossary (Quick read and Scanlate always carry a built-in glossary of forms of address, ranks and
+  titles, fantasy and martial arts terms and sound effects for Japanese, Korean and Chinese comics, sending
+  only the entries that appear on a page; write `source = English` lines there to change one, leave the
+  English empty to drop it; a series or title glossary term always wins), Language packs. **Costs:** Spending
+  (monthly cap), Past costs, Spend history. **Transcription and jobs:** Jobs and GPU (GPU use, a limit on GPU
+  jobs at once, Keep free memory, Resume interrupted batches, on by default: after a restart only batches on a
+  free engine restart by themselves, and a paid engine's batches wait until you press Resume, with one
+  notification saying so), Timing and splitting, Blocked phrases, Advanced transcription (only while Developer
+  Mode is on; the values you saved keep applying to new transcriptions while it is hidden). **Connections:**
+  Notifications (the Windows pop-up, "Pop-up on this PC when a job finishes", is on by default; when Baihe
+  runs as the Windows boot service, which has no desktop, the card says pop-ups can't show and Discord and
+  ntfy still work, and its summary leaves the pop-up out; otherwise the card's summary counts it with Discord
+  and ntfy, and the notes about the ntfy address and where secrets are saved sit inside the channel form they
+  belong to), Jellyfin, Web search, Watch folder (off by default: audio and video files dropped into one
+  folder on the PC become titles, once they have stopped changing, and their Transcribe goes on the Jobs
+  queue, or the series' own auto-run takes over when you pick a series; the originals are never deleted, and
+  only moved into a Done folder if you tick that), Browser extension. **Updates:** one Updates card with
+  everything that updates: App updates or Update Baihe (whichever this copy uses), Phone app ("Get the newest
+  phone app"; the phone's app info shows the installed build as "build <number>", and in the phone app the
+  version line at the top of Settings adds "Phone app build <number> · built <date>"), Packages (how many have
+  updates, with a link to Diagnostics > Packages) and Browser extension (how to refresh a copy loaded from a
+  folder). App updates (the card shows the new version's release notes; a once-a-day check (on by default;
+  "Check once a day for updates" turns it off) and an "Include pre-releases" switch, off by default, that also
+  offers newer betas and each new release while it is still being tested, before it reaches everyone; an
+  update that changes the library database (or, for the full installer, one whose release doesn't say whether
+  it does in a note signed with the release key) first asks for a library backup from the last day, so going
+  back stays possible; the full installer and the app-only update wait for each other: one is refused while
+  the other is starting or Setup is still open; on a PC where Baihe runs as the background service, "Update
+  app only" works once the full installer has been run after this version (which also makes the install folder
+  administrator-owned, readable by everyone, so changing files in it needs an administrator prompt); an
+  "Install app updates automatically" switch, on by default (a choice saved before stays), downloads and
+  signature-checks each app update after the daily check and restarts Baihe on it between 3 and 6 AM when no
+  job is running, or after the update has waited a day if the PC is off then, without opening a window; an
+  unsigned update never goes in on its own, and one that changes the library database first starts a database
+  backup; an app update brings changed Python packages with it (installed as it switches, and put back on a
+  rollback), so only a new Python, Caddy or WinSW needs the full installer, and on the background service only
+  once the full installer of this version has run; if the new version runs but its version couldn't be
+  recorded (a full disk), the card says "Updated to <version>, but the version could not be recorded" and the
+  window still opens; if an app update failed and Baihe went back to the older version after the newer one had
+  already changed the library, the card says so, names when the newest backup from before the update was
+  taken, and links to Library tools > Backup to restore it; if backups made since have replaced that copy, it
+  says none is left; when it can't tell, for example after an update from a version without this check, it
+  says so rather than staying silent). Update Baihe (an admin on a copy started with start.bat: Check for
+  updates, then Update and restart; works from a phone too, and says why when it can't; if the package install
+  after an update fails, Baihe still starts with the packages it has and tries the install again next start;
+  if start.bat can't start Baihe again, start it by hand and the card names `restart_after_update.log` in the
+  Baihe folder). **My account and look:** Sharing, Your limits (a member sees AI spending this month, jobs
+  started today and titles owned against the limits the PC owner set, marked "Almost used up" from 80% and
+  "Used up" once reached), Display, Menu items, Signed-in devices, Remote access keys, Your Ollama key.
+  **Advanced:** Offline, paths and limits (context window, offline Whisper model folder, OCR backend,
+  Downloads, Program locations, Upload size limit), Keys file and environment (a read-only list of where each
+  setting is saved, each shown as set or not set, never with its value; most are changed only in the `.env`
+  file or in Windows, while the Jellyfin key, the Discord and ntfy addresses, the public address, Google
+  sign-in and the address check are saved there by their own forms; PC only), Developer Mode (while it is on,
+  **Keep Quick read pages for debugging**, off by default, keeps each Quick read page's original picture and
+  what the reader found, the last 300 pages for 3 days, on this PC only and in no backup; PC profiles and the
+  uploads-from-away switch are on People and access; automatic backups are on Library tools > Backup, and the
+  comic Save folder is on Library tools > Organize beside Saved manga; a Settings search for any of these
+  links to its card).
+- **Alerts** at the top of the page lists recent finished and failed jobs, new chapters, and runs that stopped
+  to wait for you: glossary names to review ("Waiting for you: 12 glossary names to review - <title>"), a
+  series auto-run that stopped for you, the queue stopping because an item failed, a job stopped at a spending
+  cap, and this PC running hot or short of room: the GPU too hot or slowing itself down, its memory 85% full
+  for 15 minutes (a Jellyfin stream needs about 1.2 GB, so four streams need about 5 GB free), RAM nearly
+  full, or little free disk space ("This PC: GPU temperature is 88 °C, at or above 85 °C for 5 min."), with a
+  second entry when it is back to normal. A low disk space entry also says how much a cleanup in Library tools >
+  Storage would free, when that is at least 0.1 GB. Members' jobs wait for disk space under 10 GB free, or
+  under your own free disk space limit while that alert is on and set lower, but never under 5 GB. Those
+  entries show for the PC owner and admins only, and go to Discord or ntfy whenever one is set up, whatever
+  the category switches say. The limits are in Settings > Connections > **PC alerts**: for each of the seven
+  (GPU temperature, GPU throttling, RAM, free disk space, GPU memory nearly full, GPU memory full, CPU use)
+  one row each ("Alert at 85 % for 15 min"; the limit and minutes show only while the rule is on) that saves
+  as soon as you flip the switch, leave a field or press Enter (a value out of range stays as typed and is not
+  saved until fixed). GPU memory full (100%) and CPU use start off. A saved change applies at the next check,
+  within 30 seconds; the timers start over when Baihe restarts. A waiting entry has an **Open** button that
+  goes to the place: the title's Glossary tab, its Review step, the series page or the Jobs page. With Discord
+  or ntfy set up in Settings > Notifications, the same "Waiting for you" message goes there too, under **Jobs
+  finished, failed or waiting for you**. Those messages never carry a link. A job message names its title and
+  series, but leaves out any that not everyone in the household can see, unless you turn on **This channel is
+  only mine: show private titles** under Settings > Notifications (off by default; turn it on only if nobody
+  else can read the Discord channel or ntfy topic). They never quote an error either: a stopped job's message
+  gives its reason only when it is one of Baihe's own sentences ("3 requests failed in a row", or that the
+  provider keeps rate-limiting you), and Alerts shows the full reason. A job that finished cleanly goes to
+  Discord or ntfy only if it ran 2 minutes or more; shorter ones (a single-line re-transcribe or re-time, for
+  instance) stay in Alerts. A failure, a finish with errors, "Waiting for you" and events such as new chapters
+  always go, even when many messages go out in a minute, and a failure is never folded into a count. Repeats
+  of the same job on the same title within about a minute arrive as one message, for example "14 ×
+  Re-transcribe line · Title · all finished"; a failure still goes out within seconds. In Discord each message
+  is a coloured card: green Finished, amber Finished with errors or Waiting for you, red Failed. A job's card
+  shows its title and series, how long it ran, the counts it reports (lines translated, skipped, pages), one
+  plain sentence of the reason for a failure, a link to the title when a remote address is set up, and who ran
+  it when more than one person has an account (display name only, never an email; an account with no name set
+  in People shows "A member (no name in People)"). Cards never carry line text. Every Discord message names
+  the PC that sent it (its Windows computer name, in the card footer as "Sent from <PC>" or after "Baihe
+  Studio"), which is not who ran the job, so one channel shared by several PCs shows which one it came from. A
+  job's card instead names the device it was requested from when that is known, such as "Chrome on Android"
+  for a phone or "Browser extension"; a job started on the PC itself, or with sign-in off, shows the PC. Set
+  **PC name** under Settings > Notifications (for example "V100" or "3080") to use your own name instead;
+  leave it empty for the Windows name. ntfy keeps plain text. While the PC is on its Guest profile, a "Waiting
+  for you" pop-up on the desktop leaves out the name of a private title.
+- SQLite runs in WAL mode; the review table is paginated; real token usage is logged per drama (estimates
+  only, since prices change).
+- GPU acceleration (Whisper, diarization, local cloning) is on by default, including on a fresh data folder,
+  and falls back to CPU if CUDA isn't available. Whisper picks the fastest number format the card supports, so
+  older cards without float16 (GTX 10xx) still transcribe on the GPU.
+- The novel reference is sent as a prompt-cached block per drama. A very long novel (200k+ Chinese characters)
+  may not fit; trim to the relevant arc or compress it into a glossary.
 - For 50-100+ dramas: filter the Library by status and line the work up in the Queue on the Jobs page.
 
 ## Troubleshooting
 
 ### If Hugging Face is unreachable
 
-If Whisper's first download fails with `getaddrinfo failed` or `LocalEntryNotFoundError`, it is a network problem. Likely causes on Windows, in order:
+If Whisper's first download fails with `getaddrinfo failed` or `LocalEntryNotFoundError`, it is a network
+problem. Likely causes on Windows, in order:
 1. Antivirus or firewall blocking `python.exe`: allow it.
 2. A VPN that is connected but not routing.
 3. DNS: `ipconfig /flushdns`, then try `1.1.1.1` and `8.8.8.8`.
-4. A DNS blocker (Pi-hole, AdGuard, corporate filter) answering `0.0.0.0`. Check with `nslookup huggingface.co`; if it answers `0.0.0.0` or `::`, allow `huggingface.co`, `cdn-lfs.huggingface.co`, `cdn-lfs-us-1.hf.co` and `hf.co` (the `cdn-lfs` hosts serve the model files), then flush DNS. The app names this case itself.
-5. Blocked by your ISP or region: set a mirror, e.g. `$env:HF_ENDPOINT="https://hf-mirror.com"` (PowerShell) before `python -m api`.
+4. A DNS blocker (Pi-hole, AdGuard, corporate filter) answering `0.0.0.0`. Check with
+   `nslookup huggingface.co`; if it answers `0.0.0.0` or `::`, allow `huggingface.co`,
+   `cdn-lfs.huggingface.co`, `cdn-lfs-us-1.hf.co` and `hf.co` (the `cdn-lfs` hosts serve the model files),
+   then flush DNS. The app names this case itself.
+5. Blocked by your ISP or region: set a mirror, e.g. `$env:HF_ENDPOINT="https://hf-mirror.com"` (PowerShell)
+   before `python -m api`.
 
-Fully offline: download a `faster-whisper` model elsewhere and point Settings > Advanced > "Offline, paths and limits" > "Offline models" > "Offline Whisper model folder" at it.
+Fully offline: download a `faster-whisper` model elsewhere and point Settings > Advanced > "Offline, paths and
+limits" > "Offline models" > "Offline Whisper model folder" at it.
 
 ### GPU transcription failures ("cublas64_12.dll is not found")
 
-The app already retries on CPU, and says so in the run summary ("ran on the CPU because the GPU couldn't be used"). The cause is that Whisper's engine (CTranslate2) looks for the CUDA 12 libraries (cuBLAS and cuDNN 9) on the Windows search path, and they are not on it. The GPU PyTorch install carries those libraries in its own folder, so Baihe now finds them there by itself when it starts and before each Whisper run; you do nothing. If you still see the message, open Diagnostics > Setup: when the libraries are found nowhere, a "CUDA runtime for GPU Whisper" row (Recommended) appears with an "Install…" button (PC only). It installs NVIDIA's cuBLAS 12 and cuDNN 9 packages (about 1.2 GB) and needs no restart. Where the libraries are already found (GPU PyTorch supplies them), the Whisper task under Install by task shows "Not needed on this PC" instead of Install buttons for those two packages. The Transcribe tab's line reads "GPU unavailable: ..." while they are missing. Turn "Use the GPU" off (Settings > Transcription and jobs > Jobs and GPU) to silence it.
+The app already retries on CPU, and says so in the run summary ("ran on the CPU because the GPU couldn't be
+used"). The cause is that Whisper's engine (CTranslate2) looks for the CUDA 12 libraries (cuBLAS and cuDNN 9)
+on the Windows search path, and they are not on it. The GPU PyTorch install carries those libraries in its own
+folder, so Baihe now finds them there by itself when it starts and before each Whisper run; you do nothing. If
+you still see the message, open Diagnostics > Setup: when the libraries are found nowhere, a "CUDA runtime for
+GPU Whisper" row (Recommended) appears with an "Install…" button (PC only). It installs NVIDIA's cuBLAS 12 and
+cuDNN 9 packages (about 1.2 GB) and needs no restart. Where the libraries are already found (GPU PyTorch
+supplies them), the Whisper task under Install by task shows "Not needed on this PC" instead of Install
+buttons for those two packages. The Transcribe tab's line reads "GPU unavailable: ..." while they are missing.
+Turn "Use the GPU" off (Settings > Transcription and jobs > Jobs and GPU) to silence it.
 
 ### Sharing the PC with other programs (Keep free memory)
 
-If this PC also runs something else that needs the GPU or RAM (a media server doing hardware transcoding, say), set Settings > Transcription and jobs > Jobs and GPU > "Keep free memory" > "Keep free graphics memory" and "Keep free RAM". Before a local model loads (Whisper, Qwen3-ASR, the aligner, vocal separation, the dub voices), Baihe compares the model's estimated size and the memory that is free right now with that reserve. If loading would break it, the job stops at once with a message saying what is needed, what is free and what is kept free, instead of running out of memory halfway. Then unload another model (Diagnostics > Loaded now > Models in memory, once no job is running), pick a smaller model or int8, or lower the setting. The default is 0 (off). Sizes are estimates, so leave a little slack. Cloud engines, including Ollama's hosted models, use none of this PC's memory and are not checked. If the memory can't be read (no NVIDIA GPU, or an OS Baihe can't query for RAM), the check is skipped and Models in memory says so. A Whisper model folder is sized by its folder name when it is a known model; otherwise no estimate is made and the check is skipped. Not yet covered: diarization, OCR other than the manga model, and a llama.cpp server. In the same card, "Pause GPU jobs when the GPU is short of memory or hot" (on by default) makes Baihe give way while it runs: GPU jobs wait, saying "Held" and why, while free graphics memory is under the reserve (1 GB when it is off) or the GPU temperature is at "GPU too hot at" (85 °C; this is the GPU, not the CPU), and start by themselves within about 20 seconds of it clearing. When memory runs short and no job is running, models left loaded are unloaded. If it stays short or hot for "Stop a running job after" (2 minutes; 0 never stops one), a running transcription or speaker detection stops and starts again by itself once the card is clear; a translation goes on with the lines still empty, a Whisper transcription from where it stopped, the others from the start. If free graphics memory falls under half the reserve, it stops at once instead of waiting the minutes. Other jobs are only held, never stopped. After three restarts in a row a job stops for good and says so. A transcription whose model would not fit yet waits instead of failing: it says "Waiting for GPU memory" and starts by itself once there is room for the model on top of the reserve. After an hour without room it ends Failed, and only then sends a failure alert. On a PC shared with Jellyfin, set Keep free graphics memory to about 1.2 GB per stream you expect.
+If this PC also runs something else that needs the GPU or RAM (a media server doing hardware transcoding,
+say), set Settings > Transcription and jobs > Jobs and GPU > "Keep free memory" > "Keep free graphics memory"
+and "Keep free RAM". Before a local model loads (Whisper, Qwen3-ASR, the aligner, vocal separation, the dub
+voices), Baihe compares the model's estimated size and the memory that is free right now with that reserve. If
+loading would break it, the job stops at once with a message saying what is needed, what is free and what is
+kept free, instead of running out of memory halfway. Then unload another model (Diagnostics > Loaded now >
+Models in memory, once no job is running), pick a smaller model or int8, or lower the setting. The default is
+0 (off). Sizes are estimates, so leave a little slack. Cloud engines, including Ollama's hosted models, use
+none of this PC's memory and are not checked. If the memory can't be read (no NVIDIA GPU, or an OS Baihe can't
+query for RAM), the check is skipped and Models in memory says so. A Whisper model folder is sized by its
+folder name when it is a known model; otherwise no estimate is made and the check is skipped. Not yet covered:
+diarization, OCR other than the manga model, and a llama.cpp server. In the same card, "Pause GPU jobs when
+the GPU is short of memory or hot" (on by default) makes Baihe give way while it runs: GPU jobs wait, saying
+"Held" and why, while free graphics memory is under the reserve (1 GB when it is off) or the GPU temperature
+is at "GPU too hot at" (85 °C; this is the GPU, not the CPU), and start by themselves within about 20 seconds
+of it clearing. When memory runs short and no job is running, models left loaded are unloaded. If it stays
+short or hot for "Stop a running job after" (2 minutes; 0 never stops one), a running transcription or speaker
+detection stops and starts again by itself once the card is clear; a translation goes on with the lines still
+empty, a Whisper transcription from where it stopped, the others from the start. If free graphics memory falls
+under half the reserve, it stops at once instead of waiting the minutes. Other jobs are only held, never
+stopped. After three restarts in a row a job stops for good and says so. A transcription whose model would not
+fit yet waits instead of failing: it says "Waiting for GPU memory" and starts by itself once there is room for
+the model on top of the reserve. After an hour without room it ends Failed, and only then sends a failure
+alert. On a PC shared with Jellyfin, set Keep free graphics memory to about 1.2 GB per stream you expect.
 
 ### GPU PyTorch (NVIDIA)
 
-`pip install torch` gives a CPU-only build on Windows, and installing torch, torchvision and torchaudio separately can leave mismatched versions. Diagnostics > Packages and installs > GPU PyTorch shows your GPU, driver and installed torch family, and "Set up GPU PyTorch…" (PC only) installs the matched CUDA build the app is tested with, then checks that CUDA works. The driver line compares your NVIDIA driver with what the installed CUDA build needs (the recommended build when none is installed): for a card older than compute 7.5 such as a V100 (the CUDA 12.6 build), any driver from 528.33 (Windows) or 525.60.13 (Linux) is fine and no newer one is suggested; otherwise CUDA 12.8 recommends 570.65 or newer, and 528.33 still works. Afterwards every Install/Update pins the installed torch family, so a package wanting a different torch is refused instead of replacing your CUDA build. On an NVIDIA PC without PyTorch, a package that needs it (pyannote and the like) is refused until GPU PyTorch is set up, so it can't bring in the CPU build. The set-up itself is refused when it would take a package Baihe needs below the version the app asks for. Every refusal names the packages and versions involved.
+`pip install torch` gives a CPU-only build on Windows, and installing torch, torchvision and torchaudio
+separately can leave mismatched versions. Diagnostics > Packages and installs > GPU PyTorch shows your GPU,
+driver and installed torch family, and "Set up GPU PyTorch…" (PC only) installs the matched CUDA build the app
+is tested with, then checks that CUDA works. The driver line compares your NVIDIA driver with what the
+installed CUDA build needs (the recommended build when none is installed): for a card older than compute 7.5
+such as a V100 (the CUDA 12.6 build), any driver from 528.33 (Windows) or 525.60.13 (Linux) is fine and no
+newer one is suggested; otherwise CUDA 12.8 recommends 570.65 or newer, and 528.33 still works. Afterwards
+every Install/Update pins the installed torch family, so a package wanting a different torch is refused
+instead of replacing your CUDA build. On an NVIDIA PC without PyTorch, a package that needs it (pyannote and
+the like) is refused until GPU PyTorch is set up, so it can't bring in the CPU build. The set-up itself is
+refused when it would take a package Baihe needs below the version the app asks for. Every refusal names the
+packages and versions involved.
 
 ### The Export stage
 
-Export is a list of collapsible blocks, one per thing you can make for the title's kind: Video with a subtitle track (SRT, or ASS to keep overlapping lines and speaker colours; ASS is always saved as MKV and plays in VLC and mpv, while some TVs and phone players ignore the styling), Burned-in video, Video with the dub audio, Audiobook, EPUB and Subtitle file (SRT, VTT, LRC or ASS). The first block is the one that fits the title's kind (a video leads with the video blocks, a novel with EPUB, an audio drama with Audiobook, an imported subtitle with Subtitle file; a comic's Export stage points to Scanlate instead and lists no blocks); the other blocks follow. A block that doesn't fit the kind is left out instead of shown with a "not available" note: a video lists the three video blocks and Subtitle file, an audio drama Audiobook and Subtitle file, a novel in novel-narration mode EPUB, Audiobook and Subtitle file (a novel that isn't in that mode has no EPUB block), an imported subtitle Subtitle file, and a comic none (its pages export from Scanlate). A title that has the media anyway still gets the block: the video blocks once it has a source video (Video with the dub audio also once it has a dub), Audiobook once it has a narration. One line at the top gives the title's kind and how many lines are translated; when something needs a look (untranslated lines export empty, cues overlap, lines Review would flag) it is a thin yellow bar with **Open Review checks ›**, and pointing at it shows the full sentences. In Guided the blocks sit side by side and always open, and the first one that can run is marked. In All tools the first block that can run starts open (on an audio drama with no narration or source video, Subtitle file), and the rest start folded. Which blocks you keep open is remembered per kind of title. A block that cannot run yet says why in one line (no source video, ffmpeg not installed, no dub or narration yet). Send to Jellyfin with the ASS format uses the same ASS style set in Subtitle file. Its errors name the cause: an address that redirects, an address that answers but isn't Jellyfin, a Jellyfin server error, a library folder the app can't write to or a full drive. "Next to a Jellyfin video" lists the videos in your library folder first, skips disc folders (a DVD or Blu-ray folder has no single file to put a subtitle beside), and counts a subtitle tagged "zh-CN" as Chinese. ASS, burned-in and ASS soft-sub exports refuse a title with no text in the chosen field, as SRT does. A backslash in a line is shown once in ASS and burned-in video. A long Chinese, Japanese or Korean line is broken onto several rows in ASS and burned-in video (at most 15 characters a row at the Clean size on a landscape video, fewer at bigger sizes, with a thicker outline or on a portrait phone video), because players break rows only at spaces and it ran off both sides of the picture; a narrower wrap width set in Advanced still wins. A downloaded ASS file and the ASS sent to Jellyfin are sized for the title's own video (or the Jellyfin video it goes next to); with no video they assume a landscape one. A portrait phone video gets 6 characters a row at the Clean size, which fits even in the widest Chinese and Japanese fonts. In LRC, a line followed by an untranslated one disappears at its own end instead of staying up until the next translated line. Importing an ASS file keeps braces written as `\{` and `\}` as text, as players show them. A soft-sub track of the original text is tagged with the title's language (Japanese, Korean or Chinese), and a video with no audio track can get one. Subtitle files list cues in time order, also after a line was retimed before the one above it, and so does the Export all zip. A downloaded SRT with Chinese, Japanese, Korean or any other non-English letters starts with a UTF-8 marker (BOM), so TVs that otherwise guess the wrong encoding show the text correctly; an all-English SRT is saved as before. An EPUB only embeds images from the title's own images folder. **Reading line** (Chinese and Japanese titles, original or Both, not LRC) puts pinyin or kana on a row above the original: for SRT and VTT it is in Subtitle file > Advanced, for ASS and burned-in video in the ASS style settings, where the row is smaller. **Karaoke**, next to it in the ASS style settings, shows the original faint and fills in each word as it is spoken, from the word times Whisper kept; a line without them, or edited since, shows as usual. Review's Burned subtitle preview shows the reading line and karaoke too. **Speaker colours** in the same settings takes one "Name = #RRGGBB" per line, where the name is a character's name as shown in Review (any case) or a speaker label such as SPEAKER_00; speakers not listed keep the text colour, and the box is greyed out while **Colour each speaker** is off.
+Export is a list of collapsible blocks, one per thing you can make for the title's kind: Video with a subtitle
+track (SRT, or ASS to keep overlapping lines and speaker colours; ASS is always saved as MKV and plays in VLC
+and mpv, while some TVs and phone players ignore the styling), Burned-in video, Video with the dub audio,
+Audiobook, EPUB and Subtitle file (SRT, VTT, LRC or ASS). The first block is the one that fits the title's
+kind (a video leads with the video blocks, a novel with EPUB, an audio drama with Audiobook, an imported
+subtitle with Subtitle file; a comic's Export stage points to Scanlate instead and lists no blocks); the other
+blocks follow. A block that doesn't fit the kind is left out instead of shown with a "not available" note: a
+video lists the three video blocks and Subtitle file, an audio drama Audiobook and Subtitle file, a novel in
+novel-narration mode EPUB, Audiobook and Subtitle file (a novel that isn't in that mode has no EPUB block), an
+imported subtitle Subtitle file, and a comic none (its pages export from Scanlate). A title that has the media
+anyway still gets the block: the video blocks once it has a source video (Video with the dub audio also once
+it has a dub), Audiobook once it has a narration. One line at the top gives the title's kind and how many
+lines are translated; when something needs a look (untranslated lines export empty, cues overlap, lines Review
+would flag) it is a thin yellow bar with **Open Review checks ›**, and pointing at it shows the full
+sentences. In Guided the blocks sit side by side and always open, and the first one that can run is marked. In
+All tools the first block that can run starts open (on an audio drama with no narration or source video,
+Subtitle file), and the rest start folded. Which blocks you keep open is remembered per kind of title. A block
+that cannot run yet says why in one line (no source video, ffmpeg not installed, no dub or narration yet).
+Send to Jellyfin with the ASS format uses the same ASS style set in Subtitle file. Its errors name the cause:
+an address that redirects, an address that answers but isn't Jellyfin, a Jellyfin server error, a library
+folder the app can't write to or a full drive. "Next to a Jellyfin video" lists the videos in your library
+folder first, skips disc folders (a DVD or Blu-ray folder has no single file to put a subtitle beside), and
+counts a subtitle tagged "zh-CN" as Chinese. ASS, burned-in and ASS soft-sub exports refuse a title with no
+text in the chosen field, as SRT does. A backslash in a line is shown once in ASS and burned-in video. A long
+Chinese, Japanese or Korean line is broken onto several rows in ASS and burned-in video (at most 15 characters
+a row at the Clean size on a landscape video, fewer at bigger sizes, with a thicker outline or on a portrait
+phone video), because players break rows only at spaces and it ran off both sides of the picture; a narrower
+wrap width set in Advanced still wins. A downloaded ASS file and the ASS sent to Jellyfin are sized for the
+title's own video (or the Jellyfin video it goes next to); with no video they assume a landscape one. A
+portrait phone video gets 6 characters a row at the Clean size, which fits even in the widest Chinese and
+Japanese fonts. In LRC, a line followed by an untranslated one disappears at its own end instead of staying up
+until the next translated line. Importing an ASS file keeps braces written as `\{` and `\}` as text, as
+players show them. A soft-sub track of the original text is tagged with the title's language (Japanese, Korean
+or Chinese), and a video with no audio track can get one. Subtitle files list cues in time order, also after a
+line was retimed before the one above it, and so does the Export all zip. A downloaded SRT with Chinese,
+Japanese, Korean or any other non-English letters starts with a UTF-8 marker (BOM), so TVs that otherwise
+guess the wrong encoding show the text correctly; an all-English SRT is saved as before. An EPUB only embeds
+images from the title's own images folder. **Reading line** (Chinese and Japanese titles, original or Both,
+not LRC) puts pinyin or kana on a row above the original: for SRT and VTT it is in Subtitle file > Advanced,
+for ASS and burned-in video in the ASS style settings, where the row is smaller. **Karaoke**, next to it in
+the ASS style settings, shows the original faint and fills in each word as it is spoken, from the word times
+Whisper kept; a line without them, or edited since, shows as usual. Review's Burned subtitle preview shows the
+reading line and karaoke too. **Speaker colours** in the same settings takes one "Name = #RRGGBB" per line,
+where the name is a character's name as shown in Review (any case) or a speaker label such as SPEAKER_00;
+speakers not listed keep the text colour, and the box is greyed out while **Colour each speaker** is off.
 
-**An imported ASS file keeps its styling.** When a title's lines came from an ASS file (Import subtitle file, as source lines), an ASS export writes back that file's styles, canvas size, and each line's style, layer, margins, effect and override tags. A line exported in its original language and never edited comes back exactly as it was, karaoke and inline tags included. Once a line is edited, or when you export the English, only the tags at the start of the line are kept (position, alignment, fades), because tags inside the text belonged to the old words. Baihe's own styles for lines added later are scaled to the imported canvas, and are renamed "Baihe Default" and so on where the file already used that name. SRT, VTT and LRC never carry tags. Undoing an import brings back the earlier lines with their own styling. Importing a subtitle file as source lines into a title that already has lines keeps the notes, emotion tags, speaker and flags of each line the file matches (same text, start within a second); the preview says how many lines keep them and how many lines have notes or emotion tags that nothing in the file matches. Those are deleted, and Undo brings back the old line text but not their notes or tags.
+**An imported ASS file keeps its styling.** When a title's lines came from an ASS file (Import subtitle file,
+as source lines), an ASS export writes back that file's styles, canvas size, and each line's style, layer,
+margins, effect and override tags. A line exported in its original language and never edited comes back
+exactly as it was, karaoke and inline tags included. Once a line is edited, or when you export the English,
+only the tags at the start of the line are kept (position, alignment, fades), because tags inside the text
+belonged to the old words. Baihe's own styles for lines added later are scaled to the imported canvas, and are
+renamed "Baihe Default" and so on where the file already used that name. SRT, VTT and LRC never carry tags.
+Undoing an import brings back the earlier lines with their own styling. Importing a subtitle file as source
+lines into a title that already has lines keeps the notes, emotion tags, speaker and flags of each line the
+file matches (same text, start within a second); the preview says how many lines keep them and how many lines
+have notes or emotion tags that nothing in the file matches. Those are deleted, and Undo brings back the old
+line text but not their notes or tags.
 
-**Exporting marks the title as Exported.** Downloading the whole title as a subtitle file (SRT, VTT, LRC or ASS) from the Export stage sets its Library status to Exported when the file has the English (English or Both), every line has text in it (both languages for Both) and you can change title details (Library admin). A file in the original language only leaves the status alone, so you can download it to check in a player before translating. A member who can only read lines downloads the file without changing the status, and a queue export never changes it. A file with any blank line leaves the status alone, and "Mark as exported" still sets it by hand.
+**Exporting marks the title as Exported.** Downloading the whole title as a subtitle file (SRT, VTT, LRC or
+ASS) from the Export stage sets its Library status to Exported when the file has the English (English or
+Both), every line has text in it (both languages for Both) and you can change title details (Library admin). A
+file in the original language only leaves the status alone, so you can download it to check in a player before
+translating. A member who can only read lines downloads the file without changing the status, and a queue
+export never changes it. A file with any blank line leaves the status alone, and "Mark as exported" still sets
+it by hand.
 
 ### Tidy cue timing, and the reading-speed check
 
-Each Review line shows its speed as characters per second, such as 16.0/s. The reading-speed check only raises a flag; it never changes a saved time. It judges the English subtitle, at the Netflix Timed Text Style Guide's 17 characters per second (Relaxed allows 20, and streamer titles allow 20% more than Relaxed). Cues under 1.5 seconds are never flagged. A flag is often right that the person really talks that fast, so its note says what is true: either the next line leaves room and the cue "could be shown N s longer", or "The speech is this fast: shorten the text". Nothing stretches a cue to fit. Reading-speed flags you dismiss are not remembered: flagging again, or finishing a translation, flags the line again if it is still too dense.
+Each Review line shows its speed as characters per second, such as 16.0/s. The reading-speed check only raises
+a flag; it never changes a saved time. It judges the English subtitle, at the Netflix Timed Text Style Guide's
+17 characters per second (Relaxed allows 20, and streamer titles allow 20% more than Relaxed). Cues under 1.5
+seconds are never flagged. A flag is often right that the person really talks that fast, so its note says what
+is true: either the next line leaves room and the cue "could be shown N s longer", or "The speech is this
+fast: shorten the text". Nothing stretches a cue to fit. Reading-speed flags you dismiss are not remembered:
+flagging again, or finishing a translation, flags the line again if it is still too dense.
 
-**Speaker names** (Export > Subtitle file, next to Format; off by default and remembered with your other export choices) starts each cue with its speaker's name, using the character name from the Characters tab: `Name: ` in SRT and LRC (in SRT the name counts toward the wrap width, so the first row still fits), a `<v Name>` voice tag in VTT. A line with no speaker, a speaker you haven't named (a raw label such as SPEAKER_00 is never written), and a sound cue, are left as they are. It is not shown for ASS, which has its own **Colour each speaker** choice.
+**Speaker names** (Export > Subtitle file, next to Format; off by default and remembered with your other
+export choices) starts each cue with its speaker's name, using the character name from the Characters tab:
+`Name: ` in SRT and LRC (in SRT the name counts toward the wrap width, so the first row still fits), a
+`<v Name>` voice tag in VTT. A line with no speaker, a speaker you haven't named (a raw label such as
+SPEAKER_00 is never written), and a sound cue, are left as they are. It is not shown for ASS, which has its
+own **Colour each speaker** choice.
 
-**Sound captions** (Export > Subtitle file > Advanced; off by default, shown only for a title that has Audio tags from Review) starts the English of a line with what the audio tags heard: [laughs], [crying], [applause], [coughs], [sneezes], and [music] on the first line of each stretch of music rather than every line under it. It works for SRT, VTT, LRC, ASS and the burned-in video, and for the English row of a two-language file; the source-language export and SFX lines are unchanged. With Speaker names on, the name comes first ("Name: [laughs] ...").
+**Sound captions** (Export > Subtitle file > Advanced; off by default, shown only for a title that has Audio
+tags from Review) starts the English of a line with what the audio tags heard: [laughs], [crying], [applause],
+[coughs], [sneezes], and [music] on the first line of each stretch of music rather than every line under it.
+It works for SRT, VTT, LRC, ASS and the burned-in video, and for the English row of a two-language file; the
+source-language export and SFX lines are unchanged. With Speaker names on, the name comes first ("Name:
+[laughs] ...").
 
-**Tidy cue timing for players** (Export > Subtitle file > Advanced, SRT and bilingual SRT only, off by default and remembered with your other export choices) makes the exported file friendlier to players without touching your saved times. It lengthens a cue shorter than about 0.83 s into the silence after it (never past the next cue, never by more than 1 s) and leaves 2 frames between cues that touch by shortening the earlier one by at most 2 frames. Cues over 7 s are not cut: they are listed after the export for you to review. The frame rate is read from the title's own video (ffprobe, five-second limit); with no stored video, or if the probe fails, 24 is used. ASS and VTT keep the times as saved, so overlapping cues stay fully visible there (in the burned-in video too); SRT, bilingual SRT and LRC shorten the earlier cue to the next one's start; when two overlapping lines start within 0.1 s of each other, the second starts 0.1 s after the first there, so players show both instead of dropping one. The download's `X-Cues-Extended`, `X-Cues-Trimmed` and `X-Cues-Left-Long` headers carry the same counts.
+**Tidy cue timing for players** (Export > Subtitle file > Advanced, SRT and bilingual SRT only, off by default
+and remembered with your other export choices) makes the exported file friendlier to players without touching
+your saved times. It lengthens a cue shorter than about 0.83 s into the silence after it (never past the next
+cue, never by more than 1 s) and leaves 2 frames between cues that touch by shortening the earlier one by at
+most 2 frames. Cues over 7 s are not cut: they are listed after the export for you to review. The frame rate
+is read from the title's own video (ffprobe, five-second limit); with no stored video, or if the probe fails,
+24 is used. ASS and VTT keep the times as saved, so overlapping cues stay fully visible there (in the
+burned-in video too); SRT, bilingual SRT and LRC shorten the earlier cue to the next one's start; when two
+overlapping lines start within 0.1 s of each other, the second starts 0.1 s after the first there, so players
+show both instead of dropping one. The download's `X-Cues-Extended`, `X-Cues-Trimmed` and `X-Cues-Left-Long`
+headers carry the same counts.
 
 ### If your exported subtitles are blank
 
-A `.srt` with correct timestamps but no text means the lines aren't translated yet (an aligned but untranslated drama exports every entry empty). Check that the lines are translated (the Library header shows "X of Y lines" for the whole library; Review shows each line) and press Translate first. The export buttons warn before this: zero translated lines disables the English/bilingual downloads, and a partial translation shows how many lines will export blank.
+A `.srt` with correct timestamps but no text means the lines aren't translated yet (an aligned but
+untranslated drama exports every entry empty). Check that the lines are translated (the Library header shows
+"X of Y lines" for the whole library; Review shows each line) and press Translate first. The export buttons
+warn before this: zero translated lines disables the English/bilingual downloads, and a partial translation
+shows how many lines will export blank.
 
 ## Testing & diagnostics
 
 ### Testing
 
-The test suite is fully mocked (no GPU, models, API keys or network) and uses an isolated temp database, so it never touches your library.
+The test suite is fully mocked (no GPU, models, API keys or network) and uses an isolated temp database, so it
+never touches your library.
 
 ```bash
 pip install -r requirements-core.txt pytest -c constraints.txt
@@ -106,62 +501,339 @@ python run_tests.py              # everything (a wrapper around pytest)
 python run_tests.py -k history   # a subset
 ```
 
-Frontend checks, from `frontend/` after `npm ci`: `npm run lint`, `npm test` (vitest), `npm run build` (typecheck + bundle) and `npm run e2e` (Playwright against a seeded throwaway library; uses ports 8611 and 4174; point `PLAYWRIGHT_CHROMIUM_PATH` at an installed Chromium, or on your own PC install one with `npx playwright install chromium`). The repo's `CLAUDE.md` has the maintainers' fuller command list.
+Frontend checks, from `frontend/` after `npm ci`: `npm run lint`, `npm test` (vitest), `npm run build`
+(typecheck + bundle) and `npm run e2e` (Playwright against a seeded throwaway library; uses ports 8611 and
+4174; point `PLAYWRIGHT_CHROMIUM_PATH` at an installed Chromium, or on your own PC install one with
+`npx playwright install chromium`). The repo's `CLAUDE.md` has the maintainers' fuller command list.
 
 ### Diagnostics ("Check my setup")
 
-At the main PC, a problem with remote access or with automatic backups shows as one thin yellow line above every page (red when remote access is not working), with one link (Diagnostics or Backups) and an × that hides it; with a mouse on a wide screen a long message is cut short and its full text shows when you point at it (a touch screen wraps it instead). Once the library has 5 titles, the same line says once that the automatic backups sit on the library's own drive (the default folder does), so one failed drive loses both; its × hides that note for good. The GPU note on Diagnostics and Transcribe and a member's paid-limit note use the same thin line.
+At the main PC, a problem with remote access or with automatic backups shows as one thin yellow line above
+every page (red when remote access is not working), with one link (Diagnostics or Backups) and an × that hides
+it; with a mouse on a wide screen a long message is cut short and its full text shows when you point at it (a
+touch screen wraps it instead). Once the library has 5 titles, the same line says once that the automatic
+backups sit on the library's own drive (the default folder does), so one failed drive loses both; its × hides
+that note for good. The GPU note on Diagnostics and Transcribe and a member's paid-limit note use the same
+thin line.
 
-The Diagnostics page (nav item "Diagnostics") lists its parts down the left (Setup, Packages and installs, Speaker detection, Model status, Models on disk, Loaded now, Test models, Resources and ports, Log, and last, in red, Reset library) and shows the one you pick on the right, in full, with nothing to open; on a phone they are one row of tabs you can swipe. The part you last used is remembered, and links from other pages (for example "Open Diagnostics" on a job, or on Before you run) open the right part and card. A part with a number on it has something that needs a look (a setup problem, an install waiting for the next start, a model that is retired or older). The summary under the title is one plain line (setup, packages, jobs running). Test models and Reset library are left out away from the main PC.
-- **Setup** -- **Recommended installs** (the GPU, FFmpeg and JavaScript runtime found, then each optional piece with Ready or Missing, why you would want it, its size and how to install it; **Install all** sets up GPU PyTorch first, then every other missing package; **Update these**, at the top of Packages > Install by task, updates every installed package older than the app needs in one go, and refreshes Playwright's browser if you use one; when a package it would replace is in use, Windows can't swap it, so the preview offers "Install when I restart Baihe", and the queued install then shows "Restart and install now…" (a copy started with start.bat): it lists any running jobs, stops none unless you tick that, and after "Confirm: restart and update" Baihe closes, installs the packages before anything loads them, and opens again by itself; a copy installed with Setup says so and keeps the close-and-reopen steps, and one running as the background service says to restart the PC instead, since closing its window doesn't restart it; Packages > Install by task also has its own **Install all**, which adds every task's missing packages and, on an NVIDIA PC without PyTorch, sets up GPU PyTorch first (the GPU PyTorch card below picks another build); the task groups there stay in a fixed order, and only the tasks inside a group move, with the ones still to set up first) and the **Setup** card: Python version, whether ffmpeg is on PATH, the JavaScript runtime, GPU and PyTorch state (Unknown, not OK, for a GPU the app has not been able to check because PyTorch is not installed), the app files and whether the library folder is writable, problems first. The Playwright package and browser rows only count as problems once a saved source has worked only through a browser; until then a missing one is not listed.
-- **Packages and installs** -- every install lives here. If Baihe runs as a Windows service, its install folder is locked and installs are refused, and the page says so; turning the services off does not unlock it (see "Locked install folder" in the runbook). **Packages** has installed versions, install-by-task presets (on an NVIDIA PC without PyTorch, a task that needs it sets up GPU PyTorch first, then installs the rest), per-package Install / Update (PC only) with "Check for package updates", a "Test first" upgrade check and the GPU PyTorch set-up. **Browser support**, **ffmpeg**, **CUDA runtime for GPU Whisper** and **JavaScript runtime** (Deno) cards appear at the top of Setup when those are missing; the Deno download is one tested version, checked against a checksum built into Baihe (on Windows with winget, winget installs its own current version instead). **Voice cloning: Qwen3-TTS** (PC only) installs Qwen3-TTS and its own PyTorch, matched to your card, into `voice_engines/qwen3_tts` in the data folder, about 5 GB, so Baihe's own packages are never changed, then checks that it imports; Cancel stops it and removes the folder. **Remove** (two presses) deletes that folder only; voices, narration tracks and the downloaded model are kept. A half-installed folder shows as damaged until it is removed or installed again. An installed copy also needs a full Python 3.12 or 3.13 installed for all users on the PC (python.org, "Install for all users" ticked), because the bundled Python cannot make the engine's folder; the page says so if it is missing. The GPU build needs a CUDA 12 driver. **Voice cloning: Chatterbox** works the same way, in `voice_engines/chatterbox`, about 8 GB; on Python 3.13 or older its package needs PyTorch 2.6 (CUDA 12.6), so there it is refused on cards newer than the RTX 40 series. **Speaker detection** shows whether pyannote and your Hugging Face token are ready, with an on-demand check that the token can open the gated models.
-- **Model status**, **Models on disk**, **Loaded now** and **Test models** -- **Model status** lists every model the app is set up to use, flagged when it is retired, deprecated or no longer listed by its provider (the provider check runs only when you press "Check providers now"; engines that need a key link to Settings). **Models** (on Models on disk) lists each engine with its version and the model files you have downloaded (size, Delete); an engine that isn't installed says what it is for and links to Packages and installs. An installed engine whose models can be fetched here (Qwen3-ASR with its aligner, SenseVoice, manga-ocr, LaMa-manga for Scanlate's text cleanup, Nemotron-3-Diarization and the pyannote community-1 model (both speaker detection), and the Whisper models: large-v3, turbo, medium, the Japanese ones, anime-whisper and Breeze-ASR-25) lists each model on its own line with its rough size and whether it is downloaded, and a missing one has its own **Download** button (PC only) with progress and Cancel, so the first run doesn't have to fetch it; one download runs at a time, and a failed one says why. The pyannote download uses your saved Hugging Face token and says so if Hugging Face refuses it (accept the model's terms on its page). SenseVoice comes from ModelScope and shows the megabytes received; if nothing arrives for 2 minutes it is stopped with a message, so you can try again later or on another connection. A row that says "not downloaded" without a button downloads the first time a feature needs it. A run started from another device is still refused until the model is downloaded this way or by a run on the PC. **Test my models** runs one transcription, OCR read and Ollama translation with the models you have. **Models in memory** shows what Ollama, the app and the GPU hold right now, with Refresh and a confirmed "Free app models" (PC only, disabled while a GPU job runs). **Memory by process** (PC only) lists the Python, Ollama and llama.cpp processes on the PC with their RAM (what each holds in memory now, plus how much it has claimed when Windows has pushed most of it out to disk), their graphics memory ("None" when Windows lists its graphics counters and the process isn't in them, "Windows doesn't say" when it can't be read), and whether this server started each one, so a leftover worker holding memory while Models in memory says "Nothing loaded" shows up there; command lines show file names only. A link to the Benchmark Lab, which is its own page (below), sits at the bottom.
-- **Resources and ports**, **Log** and **Reset library** -- **Resources** (this PC's latest GPU temperature, GPU throttling, GPU memory, RAM, CPU and free disk readings, each alert rule's limit and time, and whether a reading is OK, past its limit or alerting; it refreshes every 30 seconds), **Ports**, **Log** (recent redacted lines of the app's own log, 50/100/200; a filter word searches the last 5,000 lines) and, last in the list and in red, **Reset library** (described in [Resetting for testing](user-guide-setup.md#resetting-for-testing)).
+The Diagnostics page (nav item "Diagnostics") lists its parts down the left (Setup, Packages and installs,
+Speaker detection, Model status, Models on disk, Loaded now, Test models, Resources and ports, Log, and last,
+in red, Reset library) and shows the one you pick on the right, in full, with nothing to open; on a phone they
+are one row of tabs you can swipe. The part you last used is remembered, and links from other pages (for
+example "Open Diagnostics" on a job, or on Before you run) open the right part and card. A part with a number
+on it has something that needs a look (a setup problem, an install waiting for the next start, a model that is
+retired or older). The summary under the title is one plain line (setup, packages, jobs running). Test models
+and Reset library are left out away from the main PC.
+- **Setup** -- **Recommended installs** (the GPU, FFmpeg and JavaScript runtime found, then each optional
+  piece with Ready or Missing, why you would want it, its size and how to install it; **Install all** sets up
+  GPU PyTorch first, then every other missing package; **Update these**, at the top of Packages > Install by
+  task, updates every installed package older than the app needs in one go, and refreshes Playwright's browser
+  if you use one; when a package it would replace is in use, Windows can't swap it, so the preview offers
+  "Install when I restart Baihe", and the queued install then shows "Restart and install now…" (a copy started
+  with start.bat): it lists any running jobs, stops none unless you tick that, and after "Confirm: restart and
+  update" Baihe closes, installs the packages before anything loads them, and opens again by itself; a copy
+  installed with Setup says so and keeps the close-and-reopen steps, and one running as the background service
+  says to restart the PC instead, since closing its window doesn't restart it; Packages > Install by task also
+  has its own **Install all**, which adds every task's missing packages and, on an NVIDIA PC without PyTorch,
+  sets up GPU PyTorch first (the GPU PyTorch card below picks another build); the task groups there stay in a
+  fixed order, and only the tasks inside a group move, with the ones still to set up first) and the **Setup**
+  card: Python version, whether ffmpeg is on PATH, the JavaScript runtime, GPU and PyTorch state (Unknown, not
+  OK, for a GPU the app has not been able to check because PyTorch is not installed), the app files and
+  whether the library folder is writable, problems first. The Playwright package and browser rows only count
+  as problems once a saved source has worked only through a browser; until then a missing one is not listed.
+- **Packages and installs** -- every install lives here. If Baihe runs as a Windows service, its install
+  folder is locked and installs are refused, and the page says so; turning the services off does not unlock it
+  (see "Locked install folder" in the runbook). **Packages** has installed versions, install-by-task presets
+  (on an NVIDIA PC without PyTorch, a task that needs it sets up GPU PyTorch first, then installs the rest),
+  per-package Install / Update (PC only) with "Check for package updates", a "Test first" upgrade check and
+  the GPU PyTorch set-up. **Browser support**, **ffmpeg**, **CUDA runtime for GPU Whisper** and **JavaScript
+  runtime** (Deno) cards appear at the top of Setup when those are missing; the Deno download is one tested
+  version, checked against a checksum built into Baihe (on Windows with winget, winget installs its own
+  current version instead). **Voice cloning: Qwen3-TTS** (PC only) installs Qwen3-TTS and its own PyTorch,
+  matched to your card, into `voice_engines/qwen3_tts` in the data folder, about 5 GB, so Baihe's own packages
+  are never changed, then checks that it imports; Cancel stops it and removes the folder. **Remove** (two
+  presses) deletes that folder only; voices, narration tracks and the downloaded model are kept. A
+  half-installed folder shows as damaged until it is removed or installed again. An installed copy also needs
+  a full Python 3.12 or 3.13 installed for all users on the PC (python.org, "Install for all users" ticked),
+  because the bundled Python cannot make the engine's folder; the page says so if it is missing. The GPU build
+  needs a CUDA 12 driver. **Voice cloning: Chatterbox** works the same way, in `voice_engines/chatterbox`,
+  about 8 GB; on Python 3.13 or older its package needs PyTorch 2.6 (CUDA 12.6), so there it is refused on
+  cards newer than the RTX 40 series. **Speaker detection** shows whether pyannote and your Hugging Face token
+  are ready, with an on-demand check that the token can open the gated models.
+- **Model status**, **Models on disk**, **Loaded now** and **Test models** -- **Model status** lists every
+  model the app is set up to use, flagged when it is retired, deprecated or no longer listed by its provider
+  (the provider check runs only when you press "Check providers now"; engines that need a key link to
+  Settings). **Models** (on Models on disk) lists each engine with its version and the model files you have
+  downloaded (size, Delete); an engine that isn't installed says what it is for and links to Packages and
+  installs. An installed engine whose models can be fetched here (Qwen3-ASR with its aligner, SenseVoice,
+  manga-ocr, LaMa-manga for Scanlate's text cleanup, Nemotron-3-Diarization and the pyannote community-1 model
+  (both speaker detection), and the Whisper models: large-v3, turbo, medium, the Japanese ones, anime-whisper
+  and Breeze-ASR-25) lists each model on its own line with its rough size and whether it is downloaded, and a
+  missing one has its own **Download** button (PC only) with progress and Cancel, so the first run doesn't
+  have to fetch it; one download runs at a time, and a failed one says why. The pyannote download uses your
+  saved Hugging Face token and says so if Hugging Face refuses it (accept the model's terms on its page).
+  SenseVoice comes from ModelScope and shows the megabytes received; if nothing arrives for 2 minutes it is
+  stopped with a message, so you can try again later or on another connection. A row that says "not
+  downloaded" without a button downloads the first time a feature needs it. A run started from another device
+  is still refused until the model is downloaded this way or by a run on the PC. **Test my models** runs one
+  transcription, OCR read and Ollama translation with the models you have. **Models in memory** shows what
+  Ollama, the app and the GPU hold right now, with Refresh and a confirmed "Free app models" (PC only,
+  disabled while a GPU job runs). **Memory by process** (PC only) lists the Python, Ollama and llama.cpp
+  processes on the PC with their RAM (what each holds in memory now, plus how much it has claimed when Windows
+  has pushed most of it out to disk), their graphics memory ("None" when Windows lists its graphics counters
+  and the process isn't in them, "Windows doesn't say" when it can't be read), and whether this server started
+  each one, so a leftover worker holding memory while Models in memory says "Nothing loaded" shows up there;
+  command lines show file names only. A link to the Benchmark Lab, which is its own page (below), sits at the
+  bottom.
+- **Resources and ports**, **Log** and **Reset library** -- **Resources** (this PC's latest GPU temperature,
+  GPU throttling, GPU memory, RAM, CPU and free disk readings, each alert rule's limit and time, and whether a
+  reading is OK, past its limit or alerting; it refreshes every 30 seconds), **Ports**, **Log** (recent
+  redacted lines of the app's own log, 50/100/200; a filter word searches the last 5,000 lines) and, last in
+  the list and in red, **Reset library** (described in
+  [Resetting for testing](user-guide-setup.md#resetting-for-testing)).
 
-The list of every background job (translate, transcribe, dub, diarize, Live capture, etc.) with progress, cancel and delete is the separate **Jobs** page (the menu shows the running count beside Jobs, and in the docked menu on the left or right a quiet 0 while nothing runs; a round dot with the count sits on its icon when the menu shows icons only). Each finished job says how it ended: a force-stopped job says so, a job still running when Baihe was stopped reads "Interrupted: Baihe was stopped while this was running" (after a crash or power cut too, even when Windows has given the old Baihe process number to another program), a bulk translation that gave up after several failed titles says so, and a cloud batch that stopped checking, hit the spending cap or had failed batches reads as partly done rather than Finished (so does a flag pass, consistency check or translation notes batch with a reply that was cut off or unreadable, counted as "unparsable requests"), and a cancelled bulk review pass (flags or consistency) reads "The job was cancelled." rather than calling itself a translation. When a bulk translate from the Library starts nothing, the message names each skipped title with its own reason; accounts and the activity log are on **People and access**.
+The list of every background job (translate, transcribe, dub, diarize, Live capture, etc.) with progress,
+cancel and delete is the separate **Jobs** page (the menu shows the running count beside Jobs, and in the
+docked menu on the left or right a quiet 0 while nothing runs; a round dot with the count sits on its icon
+when the menu shows icons only). Each finished job says how it ended: a force-stopped job says so, a job still
+running when Baihe was stopped reads "Interrupted: Baihe was stopped while this was running" (after a crash or
+power cut too, even when Windows has given the old Baihe process number to another program), a bulk
+translation that gave up after several failed titles says so, and a cloud batch that stopped checking, hit the
+spending cap or had failed batches reads as partly done rather than Finished (so does a flag pass, consistency
+check or translation notes batch with a reply that was cut off or unreadable, counted as "unparsable
+requests"), and a cancelled bulk review pass (flags or consistency) reads "The job was cancelled." rather than
+calling itself a translation. When a bulk translate from the Library starts nothing, the message names each
+skipped title with its own reason; accounts and the activity log are on **People and access**.
 
-The redacted support report (strips API keys, paths and user names) is in the "Report a problem" dialog (in the **You** menu at the top right, or the Menu on a phone) ("Copy a report for a bug"). A sent report also lists the page title (left out of the text the **Open GitHub issue** link carries, since it can name what you were reading), the newest job ids and states, and the extension version the app ships (the server part only the PC owner and admins see); IP addresses are removed, and a Share button sends the report to a chat or mail app where the phone or browser has one. In the phone app, the same dialog also carries the app build and the last crash the phone kept, and Grab's menu (App) has its own **Report a problem** (once Grab has its server address and key; before that it says to set them up instead of opening): it copies the page area (not the address bar) on the phone and shows it with an "Include a screenshot of the page" box (ticked), so the picture goes only if you leave it ticked; the report also carries the screen name, the page address without its query, the app build and the last crash the phone kept, and appears in the same list for admins. The App Assistant (Developer Mode, PC only) is its own page.
+The redacted support report (strips API keys, paths and user names) is in the "Report a problem" dialog (in
+the **You** menu at the top right, or the Menu on a phone) ("Copy a report for a bug"). A sent report also
+lists the page title (left out of the text the **Open GitHub issue** link carries, since it can name what you
+were reading), the newest job ids and states, and the extension version the app ships (the server part only
+the PC owner and admins see); IP addresses are removed, and a Share button sends the report to a chat or mail
+app where the phone or browser has one. In the phone app, the same dialog also carries the app build and the
+last crash the phone kept, and Grab's menu (App) has its own **Report a problem** (once Grab has its server
+address and key; before that it says to set them up instead of opening): it copies the page area (not the
+address bar) on the phone and shows it with an "Include a screenshot of the page" box (ticked), so the picture
+goes only if you leave it ticked; the report also carries the screen name, the page address without its query,
+the app build and the last crash the phone kept, and appears in the same list for admins. The App Assistant
+(Developer Mode, PC only) is its own page.
 
 Run Diagnostics first whenever something isn't working.
 
 ### Costs
 
-Costs are estimates from the app's price table. Settings > Costs > Spending sets the caps. Settings > Costs > Past costs (closed until you open it; "Check past costs") previews entries that were priced at a higher model's rate; nothing changes until you press Apply, and "Undo re-cost" puts the old figures back. Settings > Costs > Spend history lists spend and calls by month for the last months, with By operation, By engine and model, and By title breakdowns for a chosen month and a Download CSV. Past costs and Spend history are PC only; the Library tools page also lists estimated cost per title. The estimate before a paid Translate run counts a Chinese, Japanese or Korean character as a token, the style guide of the Style picked on the form (or the title's own), glossary and notes in every batch, the reply's hidden extra output, the whole-episode pre-read and a paid episode summary (it was about a quarter of the real cost on past runs; on 11 recorded Claude runs it is now within about a quarter either way), and Gemini's reasoning tokens now count as output in spend and caps.
+Costs are estimates from the app's price table. Settings > Costs > Spending sets the caps. Settings > Costs >
+Past costs (closed until you open it; "Check past costs") previews entries that were priced at a higher
+model's rate; nothing changes until you press Apply, and "Undo re-cost" puts the old figures back. Settings >
+Costs > Spend history lists spend and calls by month for the last months, with By operation, By engine and
+model, and By title breakdowns for a chosen month and a Download CSV. Past costs and Spend history are PC
+only; the Library tools page also lists estimated cost per title. The estimate before a paid Translate run
+counts a Chinese, Japanese or Korean character as a token, the style guide of the Style picked on the form (or
+the title's own), glossary and notes in every batch, the reply's hidden extra output, the whole-episode
+pre-read and a paid episode summary (it was about a quarter of the real cost on past runs; on 11 recorded
+Claude runs it is now within about a quarter either way), and Gemini's reasoning tokens now count as output in
+spend and caps.
 
-**Runs stop themselves.** A translate run ends after 3 batches in a row fail or after about 10 minutes of waiting out rate limits (the reason is shown and the lines already translated are kept), Live refuses to start once the monthly cap is spent and ends on the cap or after 3 failed translation requests in a row, and Text has no length limit but stops before the chunk that would pass the monthly cap and returns what it finished, showing the estimated cost and the cap left before you press Translate. Two runs going at once can each read the same month total before either logs its next request, so together they can pass the cap by at most one request each.
+**Runs stop themselves.** A translate run ends after 3 batches in a row fail or after about 10 minutes of
+waiting out rate limits (the reason is shown and the lines already translated are kept), Live refuses to start
+once the monthly cap is spent and ends on the cap or after 3 failed translation requests in a row, and Text
+has no length limit but stops before the chunk that would pass the monthly cap and returns what it finished,
+showing the estimated cost and the cap left before you press Translate. Two runs going at once can each read
+the same month total before either logs its next request, so together they can pass the cap by at most one
+request each.
 
-**Engine chosen for you (Text).** A member, and anyone on another device, sees no engine, model or enlarge choices on Text or in Read from a screenshot, just "The engine is chosen for you." The owner's default engine runs; for an account without the paid-engines right it runs on Ollama instead (hosted Gemma 4 31B, unless the owner set another Ollama default model while "Allow a hosted Ollama model as the default" is off). An admin away from the PC can press **Show options** to pick one; a paid engine picked by hand still needs that right.
+**Engine chosen for you (Text).** A member, and anyone on another device, sees no engine, model or enlarge
+choices on Text or in Read from a screenshot, just "The engine is chosen for you." The owner's default engine
+runs; for an account without the paid-engines right it runs on Ollama instead (hosted Gemma 4 31B, unless the
+owner set another Ollama default model while "Allow a hosted Ollama model as the default" is off). An admin
+away from the PC can press **Show options** to pick one; a paid engine picked by hand still needs that right.
 
-**Open a file (Text).** Under **+ File or screenshot**; the file's name (or why it could not be read) shows beside "Text to translate". A `.txt` or `.md` file saved as GBK, Big5, Shift-JIS, EUC-KR or UTF-16 is read in that encoding instead of losing its characters.
+**Open a file (Text).** Under **+ File or screenshot**; the file's name (or why it could not be read) shows
+beside "Text to translate". A `.txt` or `.md` file saved as GBK, Big5, Shift-JIS, EUC-KR or UTF-16 is read in
+that encoding instead of losing its characters.
 
-**Read from a screenshot (Text).** **+ File or screenshot**, at the top right of Text, holds **Open a file…** and **Read from a screenshot…**. Read from a screenshot takes a pasted (Ctrl+V), dropped or chosen PNG, JPEG or WebP picture, lets you drag a box round the text and enlarge it, and sends just that crop to a vision engine (Claude, Gemini, OpenAI or Ollama; DeepSeek takes no pictures). The characters it returns are added to the text box as they are, not translated. It works from a phone or any other signed-in device too (Ctrl+V needs a keyboard, so there you choose a picture or take a photo). The picture follows the page-upload limits (30 MB, and 25 megapixels here), is written out fresh without its metadata and cut down to 2000 px on its long side before it is sent, and is not kept. A paid engine shows its estimated price (the most a request can cost) and the cap left first, is refused when the cap is spent or the picture would pass it, and is logged like any other paid call; Ollama's hosted Gemma is billed too, and the model must accept pictures (Gemma 4 should; untested on a real PC when this was written). If the engine fails, the message gives its reason (for example a refused key).
+**Read from a screenshot (Text).** **+ File or screenshot**, at the top right of Text, holds **Open a file…**
+and **Read from a screenshot…**. Read from a screenshot takes a pasted (Ctrl+V), dropped or chosen PNG, JPEG
+or WebP picture, lets you drag a box round the text and enlarge it, and sends just that crop to a vision
+engine (Claude, Gemini, OpenAI or Ollama; DeepSeek takes no pictures). The characters it returns are added to
+the text box as they are, not translated. It works from a phone or any other signed-in device too (Ctrl+V
+needs a keyboard, so there you choose a picture or take a photo). The picture follows the page-upload limits
+(30 MB, and 25 megapixels here), is written out fresh without its metadata and cut down to 2000 px on its long
+side before it is sent, and is not kept. A paid engine shows its estimated price (the most a request can cost)
+and the cap left first, is refused when the cap is spent or the picture would pass it, and is logged like any
+other paid call; Ollama's hosted Gemma is billed too, and the model must accept pictures (Gemma 4 should;
+untested on a real PC when this was written). If the engine fails, the message gives its reason (for example a
+refused key).
 
-**History (Text).** At the PC, Text's History lists every account's translations, the extension's too, and names each row's account (display name, never an email) once it holds more than one; **Clear history…** asks "Clear everyone's Text history on this PC?" and clears them all. A member sees only their own rows.
+**History (Text).** At the PC, Text's History lists every account's translations, the extension's too, and
+names each row's account (display name, never an email) once it holds more than one; **Clear history…** asks
+"Clear everyone's Text history on this PC?" and clears them all. A member sees only their own rows.
 
-**Read from video (Review).** On a wide screen with a video, the side card has a small picture-icon button; the panel stays closed until you open it (and stays as you left it on that browser). Pressing Ctrl+V with a picture on the clipboard while a line is selected opens it with that picture, so a screenshot needs no saving; other pastes are untouched. Inside, **Use this frame** and **Use frame at line start** take the picture from the player instead. Drag a box round the hard-sub caption (the box stays for the next picture) and **Read into this line** puts the characters into the selected line's Source box as an unsaved edit, so Save, Undo and the conflict check work as for any edit. **Read & translate** does the same and also fills the line's Translation box with the title's own engine's English (an unsaved edit too). With lines ticked in the list, **Read all selected lines** reads each ticked line's frame at its start (same box, enlarge and engine) and saves the characters as that line's Source at once, stopping at the first failure; lines already read stay saved. It uses the same read as above (same permission, price shown first, PC only). If the browser can't take a picture from the video, paste a screenshot instead.
+**Read from video (Review).** On a wide screen with a video, the side card has a small picture-icon button;
+the panel stays closed until you open it (and stays as you left it on that browser). Pressing Ctrl+V with a
+picture on the clipboard while a line is selected opens it with that picture, so a screenshot needs no saving;
+other pastes are untouched. Inside, **Use this frame** and **Use frame at line start** take the picture from
+the player instead. Drag a box round the hard-sub caption (the box stays for the next picture) and **Read into
+this line** puts the characters into the selected line's Source box as an unsaved edit, so Save, Undo and the
+conflict check work as for any edit. **Read & translate** does the same and also fills the line's Translation
+box with the title's own engine's English (an unsaved edit too). With lines ticked in the list, **Read all
+selected lines** reads each ticked line's frame at its start (same box, enlarge and engine) and saves the
+characters as that line's Source at once, stopping at the first failure; lines already read stay saved. It
+uses the same read as above (same permission, price shown first, PC only). If the browser can't take a picture
+from the video, paste a screenshot instead.
 
-**Every paid loop stops itself too.** The AI flag pass, consistency check, emotion tagging, translation notes, Fix flagged, glossary extraction, narration tagging, re-segmentation, Scanlate, the Benchmark lab and its judge pass end after 3 failed requests in a row, after about 10 minutes of waiting out rate limits, or when this month's cap is spent, and the job's result says why ("Stopped: 3 requests failed in a row", "Stopped: monthly cap reached"); whatever was finished is kept. A cloud batch checker gives up after about 15 minutes of failed status checks or 49 hours of the provider still reporting it pending, with a plain reason (the batch stays recoverable through "Check now"), and a DeepSeek off-peak run goes back to waiting when the half-price window closes. Work that runs with nobody watching (a bulk batch, an off-peak run, a bulk series, Start Live automatically) is refused until a monthly spending cap is set in Settings. A cloud batch is billed only when its results come back, so until then its estimate holds that much of the cap: a new bulk translation, Reflect stage, flag pass, consistency check, emotion tagging or translation notes batch on any title is refused when its own estimate is more than what the cap has left once those pending batches are counted (DeepSeek off-peak runs hold nothing, as they stop at the cap themselves). Normal runs, DeepSeek off-peak runs and every other check against the cap count those pending batches too, so the "X of $cap" figures include them; a batch a member sends also counts against their own monthly limit while it is pending, and its cost is recorded against them when it is billed; a member's DeepSeek off-peak run doesn't start once their limit is used up. The monthly cap also covers Ollama's hosted "-cloud" models, and the maintenance assistant's questions and the Reader's Ask are logged and stop at the cap. Line actions, Reader, Discover, metadata lookup, the Sources AI fallback and Groq transcription now write every paid call to the usage log, failed requests too (Groq at no cost when it failed, and under its own name when the audio length could not be read); the review passes, Fix flagged, glossary, narration, re-segmentation and Scanlate keep logging each successful request through their own callbacks, so a failed request there adds no row. A job a rule stopped shows the reason on the Jobs page, and the batch checker fails a batch as expired only when the provider still reports it pending after 49 hours.
+**Every paid loop stops itself too.** The AI flag pass, consistency check, emotion tagging, translation notes,
+Fix flagged, glossary extraction, narration tagging, re-segmentation, Scanlate, the Benchmark lab and its
+judge pass end after 3 failed requests in a row, after about 10 minutes of waiting out rate limits, or when
+this month's cap is spent, and the job's result says why ("Stopped: 3 requests failed in a row", "Stopped:
+monthly cap reached"); whatever was finished is kept. A cloud batch checker gives up after about 15 minutes of
+failed status checks or 49 hours of the provider still reporting it pending, with a plain reason (the batch
+stays recoverable through "Check now"), and a DeepSeek off-peak run goes back to waiting when the half-price
+window closes. Work that runs with nobody watching (a bulk batch, an off-peak run, a bulk series, Start Live
+automatically) is refused until a monthly spending cap is set in Settings. A cloud batch is billed only when
+its results come back, so until then its estimate holds that much of the cap: a new bulk translation, Reflect
+stage, flag pass, consistency check, emotion tagging or translation notes batch on any title is refused when
+its own estimate is more than what the cap has left once those pending batches are counted (DeepSeek off-peak
+runs hold nothing, as they stop at the cap themselves). Normal runs, DeepSeek off-peak runs and every other
+check against the cap count those pending batches too, so the "X of $cap" figures include them; a batch a
+member sends also counts against their own monthly limit while it is pending, and its cost is recorded against
+them when it is billed; a member's DeepSeek off-peak run doesn't start once their limit is used up. The
+monthly cap also covers Ollama's hosted "-cloud" models, and the maintenance assistant's questions and the
+Reader's Ask are logged and stop at the cap. Line actions, Reader, Discover, metadata lookup, the Sources AI
+fallback and Groq transcription now write every paid call to the usage log, failed requests too (Groq at no
+cost when it failed, and under its own name when the audio length could not be read); the review passes, Fix
+flagged, glossary, narration, re-segmentation and Scanlate keep logging each successful request through their
+own callbacks, so a failed request there adds no row. A job a rule stopped shows the reason on the Jobs page,
+and the batch checker fails a batch as expired only when the provider still reports it pending after 49 hours.
 
 ### Benchmark Lab
 
-**Uploads from away.** Uploads are PC only unless People and access > Remote access > "Allow uploads from away" is on. Then an admin signed in on another device can upload audio or video (also with Transcribe), import a subtitle file, attach novel text or an EPUB, save the raw novel or the English reference, and add comic pages or a cover, under the Settings upload limit. An upload from away is refused before it starts when the PC's temporary folder hasn't room for it alongside the other uploads from away still arriving. The switch turns itself off after 7 days. It no longer needs Developer Mode; after the update that changed this, the switch starts off until you turn it on again. A member can send audio or video from their phone into titles they own once you turn on People > Rights > "Upload audio and video" for them (off by default, no switch needed, and it covers only audio and video, not covers, subtitles, novel text or comic pages). Their files are held to Settings > Advanced > Uploads > "Member upload limit" (1 GB unless you change it, never above the upload limit); the screen shows the limit before they choose a file, warns when a file will take long, and shows the time left while it sends. Link downloads, using Sources chapters as narration text, lightnovel-crawler, chapter OCR and every delete stay at the PC.
+**Uploads from away.** Uploads are PC only unless People and access > Remote access > "Allow uploads from
+away" is on. Then an admin signed in on another device can upload audio or video (also with Transcribe),
+import a subtitle file, attach novel text or an EPUB, save the raw novel or the English reference, and add
+comic pages or a cover, under the Settings upload limit. An upload from away is refused before it starts when
+the PC's temporary folder hasn't room for it alongside the other uploads from away still arriving. The switch
+turns itself off after 7 days. It no longer needs Developer Mode; after the update that changed this, the
+switch starts off until you turn it on again. A member can send audio or video from their phone into titles
+they own once you turn on People > Rights > "Upload audio and video" for them (off by default, no switch
+needed, and it covers only audio and video, not covers, subtitles, novel text or comic pages). Their files are
+held to Settings > Advanced > Uploads > "Member upload limit" (1 GB unless you change it, never above the
+upload limit); the screen shows the limit before they choose a file, warns when a file will take long, and
+shows the time left while it sends. Link downloads, using Sources chapters as narration text,
+lightnovel-crawler, chapter OCR and every delete stay at the PC.
 
-The Benchmark Lab page is behind Developer Mode (Settings > Developer Mode), like the Assistant: with the mode off it is left out of the menu, the command palette and Diagnostics > Models on disk, and Model status's "Compare in Benchmark Lab" links open a notice with a link to Settings. It checks whether a model, engine or setting change actually helps on your own content. No test data ships with the app: you supply it.
+The Benchmark Lab page is behind Developer Mode (Settings > Developer Mode), like the Assistant: with the mode
+off it is left out of the menu, the command palette and Diagnostics > Models on disk, and Model status's
+"Compare in Benchmark Lab" links open a notice with a link to Settings. It checks whether a model, engine or
+setting change actually helps on your own content. No test data ships with the app: you supply it.
 
-- **Golden sets.** Cases are translation pairs (source text plus a reference translation) or audio clips with their reference transcript, in a named set with a tier: public (a set you import, e.g. a FLORES-200 slice), application (your own corrected translations) or regression (a line you fixed by hand and kept). Import pasted JSONL (`{"source": ..., "reference": ...}` per line) or TSV (`source<TAB>reference`), up to 500 cases; add one case by hand; upload your own clips with their transcripts ("Your own clips", up to 250 at once); build a set from a title you have reviewed ("Build a set from a reviewed title"); add a title's corrected lines with their audio ("Add a title's corrections to a test set"); or keep a corrected line from Review with "Add as regression test". "Hard-sub reading result" shows a title's latest reading of its on-screen captions by speaker (the lines per speaker group and how much of them the transcript has); the reading is kept with the title. "Show cases" lets you read, exclude, fix the reference of or delete a case. Nothing is downloaded; importing, adding and building are PC only.
-- **Run.** Pick a stage (translation, transcription or OCR), a set, and one to four engine/model configs; two or more run the same cases side by side (Model Arena). Press "Estimate cost" first: paid engines stop at the monthly cap. Transcription runs use the same per-title settings a real run would; "Translate like a title" runs a title's cases together, in order, with context, and can add a series' translation-memory examples to the prompt or set a temperature (DeepSeek, Gemini and Ollama only). The **Settings sweep** (transcription) and **Translation sweep** cards on the same tab try one setting at a time on your own cases, check the winner on titles the sweep never tuned on, and **Approve** saves it as a setting profile; nothing changes by itself.
-- **Scores.** Translation uses chrF via `sacrebleu` when installed, else a text similarity ratio; transcription and OCR use 1 - CER (character error rate) for every source language, Korean included, via `jiwer` when installed, else a built-in scorer. For Chinese, both texts are first converted to Simplified (OpenCC, else a built-in character table), so Traditional against Simplified is not an error; the run records which converter it used, and the Traditional/Simplified counts still show the script. Japanese and Korean are not converted, and Chinese scores from before this change were script-sensitive. Each result records its metric and scorer.
-- **Results.** Every run is saved (engine, model, score, latency, cost, peak VRAM, per-case pass/fail) under "Recent runs"; tick runs and press "Compare in Arena" (export a run or comparison as CSV or JSON; delete a run on the PC). Transcription runs on timed clips also report line timing (start and end error, merged, split and missed lines). A scheduled re-evaluation of candidate models against your production model is on the same page. The Arena refuses runs whose cases were scored by different metrics (for example before and after installing `sacrebleu`), and a run that stops on an error keeps that error as its note. An Ollama translation sweep tries only models pulled on this PC, never a cloud model.
+- **Golden sets.** Cases are translation pairs (source text plus a reference translation) or audio clips with
+  their reference transcript, in a named set with a tier: public (a set you import, e.g. a FLORES-200 slice),
+  application (your own corrected translations) or regression (a line you fixed by hand and kept). Import
+  pasted JSONL (`{"source": ..., "reference": ...}` per line) or TSV (`source<TAB>reference`), up to 500
+  cases; add one case by hand; upload your own clips with their transcripts ("Your own clips", up to 250 at
+  once); build a set from a title you have reviewed ("Build a set from a reviewed title"); add a title's
+  corrected lines with their audio ("Add a title's corrections to a test set"); or keep a corrected line from
+  Review with "Add as regression test". "Hard-sub reading result" shows a title's latest reading of its
+  on-screen captions by speaker (the lines per speaker group and how much of them the transcript has); the
+  reading is kept with the title. "Show cases" lets you read, exclude, fix the reference of or delete a case.
+  Nothing is downloaded; importing, adding and building are PC only.
+- **Run.** Pick a stage (translation, transcription or OCR), a set, and one to four engine/model configs; two
+  or more run the same cases side by side (Model Arena). Press "Estimate cost" first: paid engines stop at the
+  monthly cap. Transcription runs use the same per-title settings a real run would; "Translate like a title"
+  runs a title's cases together, in order, with context, and can add a series' translation-memory examples to
+  the prompt or set a temperature (DeepSeek, Gemini and Ollama only). The **Settings sweep** (transcription)
+  and **Translation sweep** cards on the same tab try one setting at a time on your own cases, check the
+  winner on titles the sweep never tuned on, and **Approve** saves it as a setting profile; nothing changes by
+  itself.
+- **Scores.** Translation uses chrF via `sacrebleu` when installed, else a text similarity ratio;
+  transcription and OCR use 1 - CER (character error rate) for every source language, Korean included, via
+  `jiwer` when installed, else a built-in scorer. For Chinese, both texts are first converted to Simplified
+  (OpenCC, else a built-in character table), so Traditional against Simplified is not an error; the run
+  records which converter it used, and the Traditional/Simplified counts still show the script. Japanese and
+  Korean are not converted, and Chinese scores from before this change were script-sensitive. Each result
+  records its metric and scorer.
+- **Results.** Every run is saved (engine, model, score, latency, cost, peak VRAM, per-case pass/fail) under
+  "Recent runs"; tick runs and press "Compare in Arena" (export a run or comparison as CSV or JSON; delete a
+  run on the PC). Transcription runs on timed clips also report line timing (start and end error, merged,
+  split and missed lines). A scheduled re-evaluation of candidate models against your production model is on
+  the same page. The Arena refuses runs whose cases were scored by different metrics (for example before and
+  after installing `sacrebleu`), and a run that stops on an error keeps that error as its note. An Ollama
+  translation sweep tries only models pulled on this PC, never a cloud model.
 
-**Comparing transcription recipes on your own audio.** The Benchmark Lab needs a golden set; `python -m tools.asr_bench TITLE_ID --config RECIPE --config RECIPE ...` instead runs one stretch of a title's stored audio (`--from`/`--to` in seconds, default the first 300) through several recipes and writes `asr-bench-report.md` to the data folder. A recipe is a backend, a model and a few options, for example `whisper:large-v3-turbo`, `whisper:kotoba-v2,align=on`, `whisper:large-v3-turbo,vad=sensitive,beam=1`, `whisper:large-v3,difficult=on`, `qwen3_asr_vad,detector=asmr` or `qwen3_asr_long`; the first is the baseline, and the full grammar is in `--help` and `docs/asr-experiments.md`. It scores against `--reference FILE.srt` (hand-corrected subtitles on the title's timeline) or, without one, against the title's current lines. Without `--yes` it is a dry run that lists the recipes, the models they would load and a rough time, and writes nothing; with `--yes` it waits for any running GPU job, unloads models between recipes and saves nothing to the title. The report gives per recipe time, real-time factor, peak GPU memory, merged and missed lines, start/end timing error, 1 - CER, repetition loops, stock-phrase hallucinations, lines over silence and a side-by-side listing of the lines that differ.
+**Comparing transcription recipes on your own audio.** The Benchmark Lab needs a golden set;
+`python -m tools.asr_bench TITLE_ID --config RECIPE --config RECIPE ...` instead runs one stretch of a title's
+stored audio (`--from`/`--to` in seconds, default the first 300) through several recipes and writes
+`asr-bench-report.md` to the data folder. A recipe is a backend, a model and a few options, for example
+`whisper:large-v3-turbo`, `whisper:kotoba-v2,align=on`, `whisper:large-v3-turbo,vad=sensitive,beam=1`,
+`whisper:large-v3,difficult=on`, `qwen3_asr_vad,detector=asmr` or `qwen3_asr_long`; the first is the baseline,
+and the full grammar is in `--help` and `docs/asr-experiments.md`. It scores against `--reference FILE.srt`
+(hand-corrected subtitles on the title's timeline) or, without one, against the title's current lines. Without
+`--yes` it is a dry run that lists the recipes, the models they would load and a rough time, and writes
+nothing; with `--yes` it waits for any running GPU job, unloads models between recipes and saves nothing to
+the title. The report gives per recipe time, real-time factor, peak GPU memory, merged and missed lines,
+start/end timing error, 1 - CER, repetition loops, stock-phrase hallucinations, lines over silence and a
+side-by-side listing of the lines that differ.
 
-**Release check on real hardware.** CI only runs mocked tests, so before a release run `python -m tools.release_check MANIFEST.json` on the GPU PC. The manifest is a JSON file you keep outside the repo (the clips are private) listing `clips`, each with an `id`, a `kind` and its files: `transcription` (`audio`, `language`, and `reference_srt` or `reference_text`; add `title_settings`, a title's saved transcription settings, plus an optional `initial_prompt` to run the app's whole transcription pipeline with them instead of plain Whisper; add `"fixed_decoding": true` to pin Whisper's temperature at 0 for that run only, so the score is the same every time and a later run can be compared with it closely; the app's own decoding is unchanged), `diarization` (`audio`, `reference_rttm`, optional `num_speakers`, optional `backend`: `nemotron`, which needs no Hugging Face token, or `pyannote`; default your Speaker detection model setting; Nemotron ignores `num_speakers`, as the app does) or `translation` (`source_srt` and `reference_srt` with the same number of lines, `language`, optional `engine`; add `title_settings` (any of `content_mode`, `media_type`, `genre`, `series_note`, `episode_brief`, `previous_episode_summary`, `style_preset`, `style_note`, `include_genre_notes`, `default_female_pronouns`, `batch_size`, `context_window`, `context_window_ahead`, `locale`) and an optional `glossary` list of `{"original", "translation"}` to run the app's own translate path, with its id-keyed batches, retries, reply check, context lines, glossary and style, instead of the bare engine; your saved reply check and reasoning settings apply as in a run, while speaker names, a series' learned style and memory examples are not used). It scores 1 - CER, diarization error rate (frame-based, no collar, so use it to compare runs rather than against papers) and translation chrF, plus speed and peak GPU memory, and writes `release-check-DATE.md` and a `.json` to the data folder. Give the last `.json` as `--previous` to flag any score that got worse. Each transcription clip runs 5 times and scores the median (`--repeats N` to change it), since Whisper's default decoding varies from run to run; a later run is then flagged only when it is worse than the lowest of those runs. A clip's optional `baseline` is the score it must keep: the report marks a clip BELOW BASELINE when it is worse by more than 0.02 and ends with "Release gate: passed" (and the stamp Promote Release asks for) only when nothing failed or fell below its baseline and every transcription clip without fixed decoding ran at least 5 times. Each translation clip runs 3 times and scores the median (`--translation-repeats N`), since one run can land a few chrF points either side, and its details give the most blank lines in one run and the seconds per 100 lines; the gate needs 3 runs of each. Benchmark Lab > Quality (the first tab) shows the newest result in the data folder (the default output folder): each score against its baseline, green or red, when it ran and on which PC, and whether it is recent enough for a release (7 days). Without `--yes` it is a dry run; translation uses the default hosted engine (Ollama's hosted Gemma, or OpenAI when Ollama does not answer) unless a clip names another, and it needs `--allow-paid` and stops at `--max-usd` (default 1.00), which covers all 3 runs of every translation clip together.
+**Release check on real hardware.** CI only runs mocked tests, so before a release run
+`python -m tools.release_check MANIFEST.json` on the GPU PC. The manifest is a JSON file you keep outside the
+repo (the clips are private) listing `clips`, each with an `id`, a `kind` and its files: `transcription`
+(`audio`, `language`, and `reference_srt` or `reference_text`; add `title_settings`, a title's saved
+transcription settings, plus an optional `initial_prompt` to run the app's whole transcription pipeline with
+them instead of plain Whisper; add `"fixed_decoding": true` to pin Whisper's temperature at 0 for that run
+only, so the score is the same every time and a later run can be compared with it closely; the app's own
+decoding is unchanged), `diarization` (`audio`, `reference_rttm`, optional `num_speakers`, optional `backend`:
+`nemotron`, which needs no Hugging Face token, or `pyannote`; default your Speaker detection model setting;
+Nemotron ignores `num_speakers`, as the app does) or `translation` (`source_srt` and `reference_srt` with the
+same number of lines, `language`, optional `engine`; add `title_settings` (any of `content_mode`,
+`media_type`, `genre`, `series_note`, `episode_brief`, `previous_episode_summary`, `style_preset`,
+`style_note`, `include_genre_notes`, `default_female_pronouns`, `batch_size`, `context_window`,
+`context_window_ahead`, `locale`) and an optional `glossary` list of `{"original", "translation"}` to run the
+app's own translate path, with its id-keyed batches, retries, reply check, context lines, glossary and style,
+instead of the bare engine; your saved reply check and reasoning settings apply as in a run, while speaker
+names, a series' learned style and memory examples are not used). It scores 1 - CER, diarization error rate
+(frame-based, no collar, so use it to compare runs rather than against papers) and translation chrF, plus
+speed and peak GPU memory, and writes `release-check-DATE.md` and a `.json` to the data folder. Give the last
+`.json` as `--previous` to flag any score that got worse. Each transcription clip runs 5 times and scores the
+median (`--repeats N` to change it), since Whisper's default decoding varies from run to run; a later run is
+then flagged only when it is worse than the lowest of those runs. A clip's optional `baseline` is the score it
+must keep: the report marks a clip BELOW BASELINE when it is worse by more than 0.02 and ends with "Release
+gate: passed" (and the stamp Promote Release asks for) only when nothing failed or fell below its baseline and
+every transcription clip without fixed decoding ran at least 5 times. Each translation clip runs 3 times and
+scores the median (`--translation-repeats N`), since one run can land a few chrF points either side, and its
+details give the most blank lines in one run and the seconds per 100 lines; the gate needs 3 runs of each.
+Benchmark Lab > Quality (the first tab) shows the newest result in the data folder (the default output
+folder): each score against its baseline, green or red, when it ran and on which PC, and whether it is recent
+enough for a release (7 days). Without `--yes` it is a dry run; translation uses the default hosted engine
+(Ollama's hosted Gemma, or OpenAI when Ollama does not answer) unless a clip names another, and it needs
+`--allow-paid` and stops at `--max-usd` (default 1.00), which covers all 3 runs of every translation clip
+together.
 
 ## Notes & tips
 
 - The first run downloads the Whisper model (a few hundred MB to ~3GB, once).
-- Settings > Display (on a phone only Text size and Style show, since the phone follows its own screen for the rest) has Page width, Text size and Spacing (Comfortable or Compact) for this browser. Compact tightens gaps and padding on a computer with a mouse; phones and touch screens keep the larger touch targets. Style switches the look: Frost (the default) or Soft (rounder, raised cards, violet accent); it works with every theme. In Soft, a primary button that can't be pressed yet (such as Search with no title) shows greyed with readable text, as in Frost, instead of a blank violet pill. When you are signed in with your own account, your theme (Match this device, Light, Dark, Sepia or OLED black) is saved on the account, so it follows you to every device you sign in on; the PC owner without an account keeps it per browser.
-- Smaller screen details: a message that names a setting ("Add it in Settings", "Settings > Spending") links to it, in errors, job text and the queue. Settings > Menu items marks the items the Simple menu leaves out as "Advanced menu only". Diagnostics > Resources has a "Change limits" link to PC alerts and leaves out GPU rows on a PC with no GPU. A title with an uploaded cover shows it on its Library card. The Library's Series link opens the Series folders page, which has no second Back button; Library tools > Organize lists every series with a title, one-title ones too, so its count matches. On Diagnostics, Models in memory and Memory by process are flat folds like the ones around them. The header's Report a problem button is a "?" and Theme shows a sun or moon, all the header icon buttons share one width, and the Ctrl+K hint shows on wide windows. A comic with no pages yet shows only the upload panel (with its own Choose pages button). The sign-in page's second button reads "Check again". The Reader's readings (pinyin, furigana) are darker, and a highlighted word's reading takes the text colour so it stays readable.
-- No GPU is required, but a GPU makes transcription much faster (Settings > Transcription and jobs > Jobs and GPU).
-- Alignment is an approximation that interpolates timing for lines Whisper didn't clearly catch; skim the review table before exporting.
-- Your API keys and files never leave your machine except for the direct call to your chosen translation/TTS provider.
+- Settings > Display (on a phone only Text size and Style show, since the phone follows its own screen for the
+  rest) has Page width, Text size and Spacing (Comfortable or Compact) for this browser. Compact tightens gaps
+  and padding on a computer with a mouse; phones and touch screens keep the larger touch targets. Style
+  switches the look: Frost (the default) or Soft (rounder, raised cards, violet accent); it works with every
+  theme. In Soft, a primary button that can't be pressed yet (such as Search with no title) shows greyed with
+  readable text, as in Frost, instead of a blank violet pill. When you are signed in with your own account,
+  your theme (Match this device, Light, Dark, Sepia or OLED black) is saved on the account, so it follows you
+  to every device you sign in on; the PC owner without an account keeps it per browser.
+- Smaller screen details: a message that names a setting ("Add it in Settings", "Settings > Spending") links
+  to it, in errors, job text and the queue. Settings > Menu items marks the items the Simple menu leaves out
+  as "Advanced menu only". Diagnostics > Resources has a "Change limits" link to PC alerts and leaves out GPU
+  rows on a PC with no GPU. A title with an uploaded cover shows it on its Library card. The Library's Series
+  link opens the Series folders page, which has no second Back button; Library tools > Organize lists every
+  series with a title, one-title ones too, so its count matches. On Diagnostics, Models in memory and Memory
+  by process are flat folds like the ones around them. The header's Report a problem button is a "?" and Theme
+  shows a sun or moon, all the header icon buttons share one width, and the Ctrl+K hint shows on wide windows.
+  A comic with no pages yet shows only the upload panel (with its own Choose pages button). The sign-in page's
+  second button reads "Check again". The Reader's readings (pinyin, furigana) are darker, and a highlighted
+  word's reading takes the text colour so it stays readable.
+- No GPU is required, but a GPU makes transcription much faster (Settings > Transcription and jobs > Jobs and
+  GPU).
+- Alignment is an approximation that interpolates timing for lines Whisper didn't clearly catch; skim the
+  review table before exporting.
+- Your API keys and files never leave your machine except for the direct call to your chosen translation/TTS
+  provider.
