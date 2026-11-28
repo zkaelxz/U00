@@ -856,7 +856,27 @@ class _TranslateRun:
         # ids missing from the reply with "", so a cut-off reply still
         # matches in length; an empty result must not overwrite
         # anything or look like a success.
-        empty, fresh = [], []
+        fresh = []
+        empty = self._keep_replies(chunk, translations, fresh)
+        # Before the retry: a re-asked line is shown its neighbours' English, which must
+        # already be the guarded reply, not a shifted one the guard would replace.
+        self._check_replies(fresh, allow_bisect)
+        # A forced rerun keeps the old English on a line the reply omitted (it may be the
+        # user's own edit), so re-asking it would be the only path that rewrites it.
+        if empty and not self.args.force_retranslate and (len(chunk) > 1 or len(empty) < len(chunk)):
+            retried = []
+            empty = self._retry_smaller(empty, retried, depth=0)
+            self._check_replies(retried, allow_bisect)
+        flag_unusable_replies(empty, getattr(self.engine, "last_rejected", None))
+        if empty:
+            self._add_error(empty, f"{len(empty)} of {len(chunk)} lines got no "
+                                   f"translation (reply may have been cut off; "
+                                   f"try a smaller batch size)")
+
+    def _keep_replies(self, chunk, translations, fresh):
+        """Writes each non-empty reply to its line, appending those lines to fresh;
+        returns the lines whose reply was empty."""
+        empty = []
         for ln, tr in zip(chunk, translations):
             if (tr or "").strip():
                 ln.en = drop_em_dashes(keep_first_alternative(
@@ -867,15 +887,9 @@ class _TranslateRun:
                 fresh.append(ln)
             else:
                 empty.append(ln)
-        # A forced rerun keeps the old English on a line the reply omitted (it may be the
-        # user's own edit), so re-asking it would be the only path that rewrites it.
-        if empty and not self.args.force_retranslate and (len(chunk) > 1 or len(empty) < len(chunk)):
-            empty = self._retry_smaller(empty, fresh, depth=0)
-        flag_unusable_replies(empty, getattr(self.engine, "last_rejected", None))
-        if empty:
-            self._add_error(empty, f"{len(empty)} of {len(chunk)} lines got no "
-                                   f"translation (reply may have been cut off; "
-                                   f"try a smaller batch size)")
+        return empty
+
+    def _check_replies(self, fresh, allow_bisect):
         # Sentence mode redistributes one sentence over its fragments, so
         # fragment lengths say nothing there.
         if (allow_bisect and not self.args.reflect and not self.groups
@@ -928,16 +942,7 @@ class _TranslateRun:
             if len(translations) != len(part):
                 still.extend(part)
                 continue
-            missed = []
-            for ln, tr in zip(part, translations):
-                if (tr or "").strip():
-                    ln.en = drop_em_dashes(tr, ln.zh)
-                    source_change.clear_for_new_english(ln, self.args.replace_flags)
-                    self._flag_if_split(ln)
-                    self.translated.append(ln)
-                    fresh.append(ln)
-                else:
-                    missed.append(ln)
+            missed = self._keep_replies(part, translations, fresh)
             still.extend(self._retry_smaller(missed, fresh, depth + 1) if len(part) > 1 else missed)
         return still
 

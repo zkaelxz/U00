@@ -650,6 +650,38 @@ class TestScatteredLinesGetTheirOwnNeighbours:
         assert engine.calls[2]["upcoming_lines"] == ["l16"]
         assert [ln.en for ln in lines] == [f"EN:l{i}" for i in range(20)]
 
+    def test_a_left_out_line_is_shown_its_neighbours_english_after_the_reply_guard(self):
+        class ShiftsThenLeavesOut(ContextCapturingEngine):
+            def translate_batch(self, zh_lines, context):
+                out = super().translate_batch(zh_lines, context)
+                if len(zh_lines) == 1:
+                    return out
+                # l14 keeps source script, which the guard re-asks; l15 is left out.
+                return ["" if z == "l15" else t + " 未译" if z == "l14" else t
+                        for z, t in zip(zh_lines, out)]
+
+        engine = ShiftsThenLeavesOut()
+        lines = [Line(idx=i, start=0, end=1, zh=f"l{i}", id=100 + i) for i in range(20)]
+        translate_pipeline.translate_lines_with_engine(
+            lines, engine, {}, batch_size=20, context_window=2, context_window_ahead=1)
+        assert [c["zh_lines"] for c in engine.calls[1:]] == [["l14"], ["l15"]]
+        assert engine.calls[2]["recent_context"] == [("l13", "EN:l13"), ("l14", "EN:l14")]
+        assert lines[14].en == "EN:l14" and lines[15].en == "EN:l15"
+
+    def test_a_re_asked_line_loses_an_echoed_label_and_a_listed_alternative(self):
+        class LabelsTheRetry(ContextCapturingEngine):
+            def translate_batch(self, zh_lines, context):
+                super().translate_batch(zh_lines, context)
+                if len(zh_lines) > 1:
+                    return ["" if z == "l1" else "Fine." for z in zh_lines]
+                return ["[Xiaoling] Strange. Or: Weird."]
+
+        lines = [Line(idx=i, start=0, end=1, zh=f"l{i}", speaker="SPEAKER_00", id=100 + i)
+                 for i in range(3)]
+        translate_pipeline.translate_lines_with_engine(
+            lines, LabelsTheRetry(), {}, batch_size=3, character_names={"SPEAKER_00": "Xiaoling"})
+        assert lines[1].en == "Strange."
+
     def test_a_contiguous_batch_gets_the_same_context_as_before(self):
         engine = ContextCapturingEngine()
         translate_pipeline.translate_lines_with_engine(
