@@ -49,5 +49,6 @@ describe('NotificationRow', () => {
     expect(row({ kind: 'job_done', text: 'Finished with errors: Translation' })).toContain('href="#/jobs"')
     expect(row({ kind: 'chapters', text: '3 new chapters' })).toContain('href="#/updates"')
     expect(row({ kind: 'resource', text: 'GPU hot' })).not.toContain('<a')
+    expect(row({ kind: 'device_token', text: 'The remote access key "Phone" stops working in 6 days.' })).toContain('href="#/settings?card=extension-devices"')
   })
 })
