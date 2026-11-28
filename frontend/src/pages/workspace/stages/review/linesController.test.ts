@@ -288,4 +288,13 @@ describe('a saved edit that changed the English', () => {
     await other.ctl.saveEdit()
     expect(saved).not.toHaveBeenCalled()
   })
+
+  it('is not reported when only another field was sent and the English changed elsewhere', async () => {
+    const a = line(1, 'Lin left.')
+    const saved = vi.fn()
+    api.patchLine.mockImplementation(async (_d: number, id: number, p: LinePatch) => ({ ...a, id, ...p, en: 'Rin left.' }))
+    const { ctl } = setup([a], { ...editing(a, 'Lin left.'), draft: { ...draftFromLine(a), zh: 'zh changed' } }, saved)
+    expect(await ctl.saveEdit()).toBe(true)
+    expect(saved).not.toHaveBeenCalled()
+  })
 })

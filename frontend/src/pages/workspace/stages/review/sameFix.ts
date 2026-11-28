@@ -20,6 +20,12 @@ const MAX_FIX_CHARS = 80
 const TOKENS = /[\p{L}\p{N}_]+|\s+|[^\p{L}\p{N}_\s]/gu
 const WORDY = /[\p{L}\p{N}]/u
 
+// Pronouns, articles and the like change because of the line around them, not because a
+// word was wrong, so the same change in every other line would usually break them.
+const GRAMMAR_WORDS = new Set(('a an the is was are were be been am do does did has have had he she it they '
+  + 'him her his hers its them their we us our you your i me my mine this that these those to of in on at '
+  + 'by for with from and or but not no').split(' '))
+
 const tokens = (text: string) => text.match(TOKENS) ?? []
 
 function usable(find: string, replace: string): SameFix | null {
@@ -28,9 +34,13 @@ function usable(find: string, replace: string): SameFix | null {
   // One letter ("I", "a") is in nearly every line. A deletion would leave other lines with
   // doubled spaces or stray punctuation, so only a replacement is offered.
   if (find.length < 2 || !replace || find.length > MAX_FIX_CHARS || replace.length > MAX_FIX_CHARS) return null
-  if (!WORDY.test(find) || find === replace) return null
+  if (!WORDY.test(find) || find === replace || GRAMMAR_WORDS.has(find.toLowerCase())) return null
   return { find, replace }
 }
+
+/** Whether the fix can also be a series word replacement, which ignores capitals and so
+ *  refuses a change of capitals only. */
+export const canAlways = (fix: SameFix) => fix.find.toLowerCase() !== fix.replace.toLowerCase()
 
 /** The find and replace that turned `before` into `after`, in whole words: the one stretch
  *  that changed. Null for an insertion, a deletion or a rewrite of most of the line. */
@@ -75,18 +85,20 @@ export async function findSameFix(
   return matches.length ? { fix, matches } : null
 }
 
-/** Applies the offer, first saving it as a series word replacement when `always`; returns what to say. */
+/** Applies the offer and, when `always` and some line took it, saves it as a series word
+ *  replacement; returns what to say. `blocked` when an open edit stopped it and the offer stands. */
 export async function applySameFix(
   dramaId: number, offer: SameFixOffer, always: boolean,
   { apply = applyAfterEdit, saveReplacement = saveWordReplacement } = {},
-): Promise<{ text: string; changed: boolean }> {
-  if (always) await saveReplacement(dramaId, { find_text: offer.fix.find, replace_text: offer.fix.replace })
+): Promise<{ text: string; changed: boolean; blocked?: boolean }> {
   const r = await apply(dramaId, offer.matches)
-  if (typeof r === 'string') return { text: r, changed: false }
+  if (typeof r === 'string') return { text: r, changed: false, blocked: true }
   const n = r.applied
+  const saved = always && n > 0 && canAlways(offer.fix)
+  if (saved) await saveReplacement(dramaId, { find_text: offer.fix.find, replace_text: offer.fix.replace })
+  const stale = r.stale ? `; ${r.stale} changed meanwhile and ${r.stale === 1 ? 'was' : 'were'} left` : ''
   return {
-    text: `Fixed ${n} more line${n === 1 ? '' : 's'}${r.stale ? `; ${r.stale} changed meanwhile and were left` : ''}.`
-      + (always ? ' New translations in this series get the same fix.' : ''),
+    text: `Fixed ${n} more line${n === 1 ? '' : 's'}${stale}.` + (saved ? ' New translations in this series get the same fix.' : ''),
     changed: n > 0,
   }
 }

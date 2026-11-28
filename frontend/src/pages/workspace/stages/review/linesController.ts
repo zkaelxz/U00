@@ -160,7 +160,8 @@ export function createLinesController(deps: LinesControllerDeps) {
       setIssue(null)
       if (failed.current === saved.id) failed.current = null
       st.current.onChanged()
-      if ((line.en ?? '') !== (saved.en ?? '')) onEnglishSaved?.(saved.id, line.en ?? '', saved.en ?? '')
+      // Only an English the user sent: one changed elsewhere meanwhile is not their fix to spread.
+      if (patch.en !== undefined && (line.en ?? '') !== (saved.en ?? '')) onEnglishSaved?.(saved.id, line.en ?? '', saved.en ?? '')
       return true
     } catch (e) {
       failLine(cur.lineId, e)

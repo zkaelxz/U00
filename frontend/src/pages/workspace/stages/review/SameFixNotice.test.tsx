@@ -15,4 +15,13 @@ describe('SameFixNotice', () => {
     expect(html).toContain('aria-expanded="false"')
     expect(html).not.toContain('Lin ran')
   })
+
+  it('has no "always" for a change of capitals only, which a word replacement cannot hold', () => {
+    const offer = { fix: { find: 'lin', replace: 'Lin' }, matches: [{ id: 3, idx: 2, old_text: 'lin ran', new_text: 'Lin ran' }] }
+    const html = renderToStaticMarkup(
+      <SameFixNotice offer={offer} busy={false} onApply={() => {}} onAlways={() => {}} onDismiss={() => {}} />,
+    )
+    expect(html).toContain('>Apply<')
+    expect(html).not.toContain('Apply and always')
+  })
 })

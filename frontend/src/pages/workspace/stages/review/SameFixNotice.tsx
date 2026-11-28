@@ -2,7 +2,7 @@ import { useState } from 'react'
 
 import { buttonClass } from '../../../../components/uiClasses'
 import { lineNumber } from '../../../../lineNumber'
-import type { SameFixOffer } from './sameFix'
+import { canAlways, type SameFixOffer } from './sameFix'
 
 interface Props {
   offer: SameFixOffer
@@ -25,10 +25,12 @@ export function SameFixNotice({ offer, busy, onApply, onAlways, onDismiss }: Pro
       </span>
       <span className="review-undo-actions">
         <button type="button" className={buttonClass('primary')} disabled={busy} onClick={onApply}>Apply</button>
-        <button type="button" className={buttonClass('secondary')} disabled={busy} onClick={onAlways}
-          title="Also save it as a word replacement, so new translations in this series get it">
-          Apply and always
-        </button>
+        {canAlways(offer.fix) && (
+          <button type="button" className={buttonClass('secondary')} disabled={busy} onClick={onAlways}
+            title="Also save it as a word replacement, so new translations in this series get it">
+            Apply and always
+          </button>
+        )}
         <button type="button" className={buttonClass('secondary')} aria-label="Dismiss" onClick={onDismiss}>×</button>
       </span>
       {open && (

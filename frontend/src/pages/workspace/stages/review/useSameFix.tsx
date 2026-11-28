@@ -30,7 +30,7 @@ export function useSameFix(dramaId: number, onChanged: () => void, setStatus: (t
     setBusy(true)
     try {
       const done = await applySameFix(dramaId, offer, always)
-      setOffer(null)
+      if (!done.blocked) setOffer(null)
       setStatus(done.text)
       if (done.changed) onChanged()
     } catch (e) {
@@ -43,7 +43,7 @@ export function useSameFix(dramaId: number, onChanged: () => void, setStatus: (t
   const node = (
     <>
       {offer && (
-        <SameFixNotice offer={offer} busy={busy} onApply={() => void apply(false)} onAlways={() => void apply(true)}
+        <SameFixNotice key={`${offer.fix.find}\u0000${offer.fix.replace}`} offer={offer} busy={busy} onApply={() => void apply(false)} onAlways={() => void apply(true)}
           onDismiss={() => setOffer(null)} />
       )}
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
