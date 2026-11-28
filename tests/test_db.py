@@ -1208,15 +1208,21 @@ class TestInitDbSchema:
         isolated_db.save_lines(did, [Line(idx=0, start=0, end=1, zh="一", en="one"),
                                      Line(idx=1, start=1, end=2, zh="二", en=" ")])
         with contextlib.closing(isolated_db.get_conn()) as conn:
-            conn.execute("DROP INDEX idx_lines_drama_translated")
+            conn.execute("DROP INDEX idx_lines_drama_en")
             conn.commit()
         before = isolated_db.line_progress_by_drama()
 
         isolated_db.init_db()
 
+        import applog
+        for h in applog.get_logger().handlers:
+            h.flush()
+        with open(os.path.join(isolated_db.LIBRARY_DIR, "logs", "app.log"), encoding="utf-8") as f:
+            assert "built the line count index over 2 lines" in f.read()
+
         with contextlib.closing(isolated_db.get_conn()) as conn:
             assert conn.execute("SELECT 1 FROM sqlite_master WHERE type = 'index' "
-                                "AND name = 'idx_lines_drama_translated'").fetchone()
+                                "AND name = 'idx_lines_drama_en'").fetchone()
         assert isolated_db.line_progress_by_drama() == before == {did: (2, 1)}
 
     def test_a_new_database_has_no_bug_reports_table(self, isolated_db):

@@ -334,7 +334,7 @@ def init_db():
         _create_job_tables(conn)
         _create_activity_table(conn)
         _create_metadata_research_tables(conn)
-        _create_core_indexes(conn)
+        index_built = _create_core_indexes(conn)
         _migrate_job_records_columns(conn)
         _create_auth_tables(conn)
         _migrate_line_columns(conn)
@@ -365,6 +365,9 @@ def init_db():
                 ON CONFLICT(key) DO UPDATE SET value = excluded.value
             """, (APP_VERSION_SETTING, json.dumps(stamp)))
         conn.commit()
+    if index_built:
+        import applog  # local import: applog imports db, so this can't be top-level
+        applog.get_logger().info(index_built)
     _init_benchmark_lab_schema()
     _migrate_gpu_lock_slots()
     _migrate_line_refs_to_ids()

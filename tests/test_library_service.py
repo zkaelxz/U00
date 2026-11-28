@@ -86,7 +86,7 @@ class TestListLibraryDramas:
         from db import dramas
         with contextlib.closing(isolated_db.get_conn()) as conn:
             plan = " ".join(r[-1] for r in conn.execute("EXPLAIN QUERY PLAN " + dramas.LINE_PROGRESS_SQL))
-        assert "COVERING INDEX idx_lines_drama_translated" in plan, (plan, sqlite3.sqlite_version)
+        assert "COVERING INDEX idx_lines_drama_en" in plan, (plan, sqlite3.sqlite_version)
 
     def test_sql_filters_pass_through(self, isolated_db):
         _make(isolated_db, title_en="Moon", status="translated", source_language="ja")

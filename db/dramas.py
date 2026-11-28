@@ -417,7 +417,7 @@ def list_dramas_recently_active(n: int = 10, visible_to: int | None = None):
     return [dict(r) for r in rows]
 
 
-# idx_lines_drama_translated (db/schema.py) covers this only while its expression matches.
+# Answered from idx_lines_drama_en (db/schema.py) alone, without reading the line rows.
 LINE_PROGRESS_SQL = ("SELECT drama_id, COUNT(*) AS n, "
                      "SUM(CASE WHEN TRIM(COALESCE(en, '')) != '' THEN 1 ELSE 0 END) AS done "
                      "FROM lines GROUP BY drama_id")
