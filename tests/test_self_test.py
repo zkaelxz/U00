@@ -209,22 +209,21 @@ def test_tts_and_ocr_report_availability(monkeypatch):
 
 
 def test_ollama_states(monkeypatch):
-    import memory_headroom
     from lib.http import FetchError
     from services import settings_service
     monkeypatch.setattr(settings_service, "ollama_endpoint_is_loopback", lambda: False)
     assert st.check_ollama()[0] == st.SKIPPED
     monkeypatch.setattr(settings_service, "ollama_endpoint_is_loopback", lambda: True)
     monkeypatch.setattr(settings_service, "resolve_key", lambda key, env_path=None: None)
-    monkeypatch.setattr(memory_headroom, "_ollama_json", lambda url: {"models": [{}, {}]})
+    monkeypatch.setattr(st, "_ollama_json", lambda url: {"models": [{}, {}]})
     status, reason = st.check_ollama()
     assert status == st.PASS and "2 model" in reason
 
     def refused(url):
         raise FetchError()
-    monkeypatch.setattr(memory_headroom, "_ollama_json", refused)
+    monkeypatch.setattr(st, "_ollama_json", refused)
     assert st.check_ollama()[0] == st.SKIPPED
-    monkeypatch.setattr(memory_headroom, "_ollama_json", lambda url: (_ for _ in ()).throw(ValueError("HTTP 500")))
+    monkeypatch.setattr(st, "_ollama_json", lambda url: (_ for _ in ()).throw(ValueError("HTTP 500")))
     assert st.check_ollama()[0] == st.FAIL
 
 
@@ -278,14 +277,14 @@ def test_report_is_written_before_it_is_printed_and_console_errors_are_replaced(
 
 
 def test_ollama_request_bypasses_environment_proxies(monkeypatch):
-    import memory_headroom
+    from lib import http
     seen = {}
 
     def fake_get(url, **kw):
         seen.update(kw)
         return types.SimpleNamespace(status=200, body=b"{}")
-    monkeypatch.setattr(memory_headroom.http, "get", fake_get)
-    memory_headroom._ollama_json("http://localhost:11434/api/tags")
+    monkeypatch.setattr(http, "get", fake_get)
+    st._ollama_json("http://localhost:11434/api/tags")
     assert seen["trust_env"] is False and seen["timeout"] == 3
 
 
