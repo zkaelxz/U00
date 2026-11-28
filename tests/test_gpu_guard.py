@@ -728,7 +728,7 @@ class TestServicesRegister:
 def _stub_for(name):
     from types import SimpleNamespace
     if name == "_resolve_run_options":
-        return lambda *a, **k: SimpleNamespace(engine_name="ollama", model="m", locale="en-US")
+        return lambda *a, **k: SimpleNamespace(engine_name="ollama", model="m", locale="en-US", style_preset="audio_drama")
     if name == "_build_engine_chain":
         return lambda *a, **k: ([{"engine": "ollama"}], [], [None])
     if name == "_prepare_run":

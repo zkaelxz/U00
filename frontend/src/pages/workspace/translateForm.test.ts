@@ -25,6 +25,8 @@ import {
   isTranslationOnly,
   lineRanges,
   loadPresetStart,
+  savedRunEstimateParams,
+  savedRunForm,
   MAX_FALLBACKS,
   monthSpendText,
   ollamaWarning,
@@ -252,6 +254,22 @@ describe('preset start values', () => {
     expect(loadPresetStart(7)).toEqual({
       default_female_pronouns: true, include_genre_notes: false, engine_model: 'gemini-pro',
     })
+  })
+
+  it('builds the saved run form from the old preset, then the title start', () => {
+    const storage = memory()
+    vi.stubGlobal('localStorage', storage)
+    storage.setItem('baihe.translatePreset.3', JSON.stringify({ style_preset: 'wuxia' }))
+    expect(savedRunForm(config, 3).style_preset).toBe('wuxia')
+    expect(savedRunForm(config, 4).style_preset).toBe('natural')
+    const started = { ...config, translate_start: { style_preset: 'natural' } } as TranslateRunConfig
+    expect(savedRunForm(started, 3).style_preset).toBe('natural')
+    expect(savedRunEstimateParams(config, 3, 'claude', '', [4, 5])).toEqual({
+      engine: 'claude', force_retranslate: true, style_preset: 'wuxia', line_ids: [4, 5],
+    })
+    expect(savedRunEstimateParams(config, 4, '', 'm', [])).toEqual({ model: 'm', force_retranslate: true, style_preset: 'natural' })
+    const batched = { ...config, translate_start: { batch_size: 12 } } as TranslateRunConfig
+    expect(savedRunEstimateParams(batched, 4, '', '', [])).toMatchObject({ batch_size: 12 })
   })
 
   it('starts the toggles from the preset (defaults: she/her off, genre notes on) and sends them', () => {

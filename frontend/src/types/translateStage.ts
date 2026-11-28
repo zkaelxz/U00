@@ -137,6 +137,8 @@ export interface GlossaryAffectedParams {
   model?: string
   reflect?: boolean
   job_cost_cap_usd?: number
+  style_preset?: string
+  batch_size?: number
 }
 
 export type GlossaryAffectedRunBody = Omit<TranslateRunStartBody, 'force_retranslate' | 'bulk'> & {

@@ -447,6 +447,24 @@ export function skippedNote(keys: string[] | undefined): string {
   return keys?.length ? ` Left out because they don't suit this title's language: ${keys.map((k) => k.replace(/_/g, ' ')).join(', ')}.` : ''
 }
 
+/** The form a run started outside the Translate stage uses: this browser's old preset, then the title's saved start. */
+export function savedRunForm(c: TranslateRunConfig, dramaId: number): RunForm {
+  return applyStartToForm(initialForm(c, loadPresetStart(dramaId)), c.translate_start, c)
+}
+
+/** The estimate for a Review redo of `lineIds` (every line when empty), priced with the Style and batch size that run uses. */
+export function savedRunEstimateParams(
+  c: TranslateRunConfig, dramaId: number, engine: string, model: string, lineIds: number[],
+): EstimateParams {
+  const f = savedRunForm(c, dramaId)
+  return {
+    engine: engine || undefined, model: model || undefined, force_retranslate: true,
+    style_preset: f.style_preset,
+    ...(intIn(f.batch_size, BATCH_SIZE_MIN, BATCH_SIZE_MAX) !== null ? { batch_size: Number(f.batch_size) } : {}),
+    ...(lineIds.length ? { line_ids: lineIds } : {}),
+  }
+}
+
 // Overlay the Translate form values a profile left on the title (the server's
 // translate_start, or an applied profile's options) on `f`. Each value applies only
 // when this server still offers it and the engine can run it, as for a remembered

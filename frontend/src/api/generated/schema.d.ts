@@ -76108,6 +76108,8 @@ export interface operations {
                 reflect?: boolean;
                 gemini_free_tier?: boolean | null;
                 job_cost_cap_usd?: number | null;
+                style_preset?: string | null;
+                batch_size?: number | null;
             };
             header?: never;
             path: {

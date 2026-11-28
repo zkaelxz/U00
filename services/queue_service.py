@@ -409,7 +409,8 @@ def _translate_rows(drama: dict, settings: Optional[dict] = None) -> list:
         _row("Reply check", _on(guard)),
         # Only a bulk run waits for DeepSeek's off-peak hours; the queue starts a normal one.
         _row("Off-peak start", "Off: the queue runs it right away"),
-        _row("Cost", _translate_cost(drama_id, engine, saved_model, saved_batch)),
+        _row("Cost", _translate_cost(drama_id, engine, saved_model, saved_batch,
+                                     (settings or {}).get("style_preset"))),
         _row("Monthly cap left", _cap_left()),
     ]
 
@@ -844,7 +845,7 @@ def _start_translate(principal, drama: dict, settings: Optional[dict] = None,
     # per-job cap: 0 would mean "no cap" to the cost resolver, which ceiling_left never returns.
     left = series_auto_service.ceiling_left(auto_series) if auto_series is not None and paid else None
     _check_translate_spend(drama["id"], settings.get("model", saved[0]), settings.get("batch_size", saved[1]),
-                           series_left=left)
+                           series_left=left, style_preset=settings.get("style_preset"))
     own = {k: settings[k] for k in ("style_preset", "batch_size") if k in settings}
     return translate_thinking_service.start_with_thinking(
         translate_run_service.start_translate_run, drama["id"], None, False,
