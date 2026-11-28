@@ -40,6 +40,10 @@ IDLE_LIMIT_S = 90.0
 # a worker that is leaving.
 CHILD_IDLE_EXIT_S = 600.0
 
+# nvidia-smi's utilization covers its last sample period, up to a second, so a
+# reading taken as one job ends still shows that job's own work.
+UTIL_SETTLE_S = 2.0
+
 # Queue items the worker sends besides a job's own: it has the job and is
 # about to run it; it has finished the job and is ready for the next.
 _BEGAN = "warm-began"
@@ -250,14 +254,18 @@ def _log(message):
     applog.get_logger().info(message)
 
 
-def _vram_note() -> str:
-    """For the measurement: the card's used memory, whoever uses it."""
+def _card_used_mb():
+    """The card's used memory, whoever uses it; None without a reading."""
     try:
         import diagnostics_torch
-        load = diagnostics_torch.external_gpu_load()
+        return (diagnostics_torch.external_gpu_load() or {}).get("memory_used_mb")
     except Exception:
-        return ""
-    used = (load or {}).get("memory_used_mb")
+        return None
+
+
+def _vram_note(used=...) -> str:
+    """For the measurement: the card's used memory, whoever uses it."""
+    used = _card_used_mb() if used is ... else used
     return f", VRAM used {used:.0f} MB" if used is not None else ""
 
 
@@ -294,6 +302,10 @@ class _Worker:
         self.idle_round = 0
         self.jobs = 0
         self.retired = False
+        # The card's used memory before this worker started, and what it holds
+        # beyond that while idle: a job that reuses it takes that memory over.
+        self.baseline_mb = None
+        self.held_mb = 0.0
 
     def fits(self, key) -> bool:
         """Caller holds _lock. Same settings, still running, and inside the
@@ -303,6 +315,7 @@ class _Worker:
 
     def launch(self, job):
         if not self.started:
+            self.baseline_mb = _card_used_mb()
             self.proc.start()
             self.started = True
             self._receive.close()   # the child has its own copy
@@ -411,11 +424,28 @@ def retire_idle(reason, keep_key=None):
 def retire_if_the_card_reads_busy():
     """Right after gpu_probe.prefetch, before a slot check a job that fits the
     idle worker is about to pass through: the busy reading may be the worker's
-    own memory, and the job would queue behind it until its idle limit. The
-    worker is retired and the card read again, once."""
-    if idle_key() is not None and gpu_probe.prefetched_busy():
-        retire_idle("the GPU looked busy to the job that would reuse it")
-        gpu_probe.prefetch()
+    own doing, and the job would queue behind it until its idle limit. The card
+    is read again once the last job's utilization has settled, with the memory
+    the worker holds counted free, since the job takes it over. Only a card
+    still busy then retires the worker, and is read once more."""
+    with _lock:
+        worker = _current
+        if worker is None or worker.busy:
+            return
+        idle_since, held_mb = worker.idle_since, worker.held_mb
+    if not gpu_probe.prefetched_busy():
+        return
+    wait = UTIL_SETTLE_S - (time.monotonic() - idle_since)
+    if wait > 0:
+        time.sleep(wait)
+    gpu_probe.prefetch(held_mb=held_mb)
+    if not gpu_probe.prefetched_busy():
+        return
+    load = gpu_probe.prefetched_load() or {}
+    retire_idle(f"the GPU looked busy to the job that would reuse it: utilization "
+                f"{load.get('utilization_percent')}%, {load.get('memory_free_mb')} MB free "
+                f"counting the worker's {held_mb:.0f} MB")
+    gpu_probe.prefetch()
 
 
 def _arm_idle_timer(worker, idle_round):
@@ -568,7 +598,10 @@ class WarmJob:
             _forget(worker)
             worker.retire(reason)
             return
-        _log(f"job {self.job_id}: warm worker pid {worker.proc.pid} idle{_vram_note()}")
+        used = _card_used_mb()
+        if used is not None and worker.baseline_mb is not None:
+            worker.held_mb = max(0.0, used - worker.baseline_mb)
+        _log(f"job {self.job_id}: warm worker pid {worker.proc.pid} idle{_vram_note(used)}")
         _arm_idle_timer(worker, idle_round)
 
     def _lost(self):

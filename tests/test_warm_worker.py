@@ -376,6 +376,53 @@ def test_a_queued_matching_job_the_workers_own_memory_would_hold_back_is_promote
     assert status["result"]["pid"] != pid and _gone(pid)
 
 
+def _fake_card(monkeypatch, reading):
+    import diagnostics_torch
+    monkeypatch.setattr(diagnostics_torch, "external_gpu_load", reading)
+    monkeypatch.setattr(diagnostics_torch, "external_gpu_is_busy",
+                        lambda load=...: (lambda r: r["utilization_percent"] >= 50 or r["memory_free_mb"] < 1000)(
+                            reading() if load is ... else load))
+
+
+def _idle_worker():
+    worker = warm_worker._current
+    return worker if worker is not None and worker.started and not worker.busy and worker.proc.is_alive() else None
+
+
+def test_the_workers_own_memory_counts_as_free_for_the_job_that_reuses_it(monkeypatch):
+    monkeypatch.setattr(warm_worker, "UTIL_SETTLE_S", 0.0)
+
+    def reading():
+        worker = warm_worker._current
+        used = 1000.0 + (5000.0 if worker is not None and worker.started and worker.proc.is_alive() else 0.0)
+        return {"utilization_percent": 0, "memory_used_mb": used, "memory_total_mb": 6000.0,
+                "memory_free_mb": 6000.0 - used}
+    _fake_card(monkeypatch, reading)
+    pid = _run("warm_held_a", tagged_worker, ("a", False), gpu_touching=True)["result"]["pid"]
+    assert warm_worker._current.held_mb == 5000.0
+    status = _run("warm_held_b", tagged_worker, ("b", False), gpu_touching=True)
+    assert status["status"] == "done", status
+    assert status["result"]["pid"] == pid
+
+
+def test_the_last_jobs_own_utilization_is_waited_out_instead_of_retiring_the_worker(monkeypatch):
+    monkeypatch.setattr(warm_worker, "UTIL_SETTLE_S", 3.0)
+    busy_reads = []
+
+    def reading():
+        worker = _idle_worker()
+        hot = worker is not None and time.monotonic() - worker.idle_since < 3.0
+        if hot:
+            busy_reads.append(True)
+        return {"utilization_percent": 90 if hot else 0, "memory_used_mb": 1000.0, "memory_total_mb": 12000.0,
+                "memory_free_mb": 11000.0}
+    _fake_card(monkeypatch, reading)
+    pid = _run("warm_util_a", tagged_worker, ("a", False), gpu_touching=True)["result"]["pid"]
+    status = _run("warm_util_b", tagged_worker, ("b", False), gpu_touching=True)
+    assert status["status"] == "done", status
+    assert busy_reads and status["result"]["pid"] == pid
+
+
 def test_a_worker_the_parent_stopped_retiring_exits_by_itself(monkeypatch):
     monkeypatch.setattr(warm_worker, "IDLE_LIMIT_S", 120.0)
     monkeypatch.setattr(warm_worker, "CHILD_IDLE_EXIT_S", 1.0)
