@@ -7,6 +7,7 @@ import json
 import math
 import os
 import re
+import threading
 
 import whisper_models
 from segment_splitting import (_word_dicts, extend_ends_to_speech, settle_overlaps, tighten_to_words,
@@ -109,6 +110,8 @@ def _segment_dicts(segments, prompt_keys: set, on_segment=None, on_kept=None) ->
     """faster-whisper segments as {start, end, text[, words]} dicts, times narrowed to the
     spoken words; on_segment(s) is called for every segment, kept or not, on_kept(dict)
     for each one kept."""
+    if isinstance(segments, _LaneSegments):
+        return list(segments)
     result = []
     for s in segments:
         text = s.text.strip()
@@ -644,7 +647,7 @@ def transcribe_for_timing(audio_path: str, model_size: str = "medium", language:
         if fast_mode:
             from faster_whisper import BatchedInferencePipeline
             return BatchedInferencePipeline(model=m).transcribe(whole.decoded(), **kwargs)
-        return m.transcribe(tail or whole.decoded(), **kwargs)
+        return _transcribe_in_lanes(m, model if use_gpu else None, tail or whole.decoded(), kwargs, prompt_keys, progress_cb, resume)
 
     try:
         try:
@@ -666,6 +669,69 @@ def transcribe_for_timing(audio_path: str, model_size: str = "medium", language:
     finally:
         if tail:
             os.unlink(tail)
+
+
+# Two lanes only for a file at least this long: on a short one the second lane's own speech
+# detector pass and start-up eat what it saves.
+LANES_MIN_SECONDS = 600.0
+
+
+class _LaneSegments(list):
+    """Segment dicts two lanes already produced and merged (_segment_dicts passes them on)."""
+
+
+def _lane_cut(audio) -> float | None:
+    """Where two lanes split the file: the middle of the longest pause whose middle lies in the
+    middle third, in seconds. None for a file under LANES_MIN_SECONDS or with no pause there."""
+    if audio is None or isinstance(audio, str) or len(audio) / 16000 < LANES_MIN_SECONDS:
+        return None
+    import vad_segments
+    duration = len(audio) / 16000
+    # The same scoring _fit_to_speech asks for later, so the whole file is scored once.
+    spans = vad_segments.speech_spans(audio, 16000, threshold=0.4, min_silence_ms=150, pad_ms=0)
+    pauses = [(b.start_s - a.end_s, (a.end_s + b.start_s) / 2) for a, b in zip(spans, spans[1:])
+              if duration / 3 <= (a.end_s + b.start_s) / 2 <= 2 * duration / 3]
+    return max(pauses)[1] if pauses else None
+
+
+def _transcribe_in_lanes(m, gpu_model, audio, kwargs, prompt_keys, progress_cb, resume):
+    """m.transcribe(audio), or, with BAIHE_WHISPER_LANES=2 on the GPU model of a fresh run, the
+    two halves either side of _lane_cut heard at once on two threads and merged. Each half is a
+    normal decode (retries, timestamps, rehear afterwards). Only the first half reports
+    checkpoint units: they must stay in time order for a resume to start after them. The
+    second thread only calls transcribe on the model the job's thread built; it builds none."""
+    cut = (_lane_cut(audio) if m is gpu_model and whisper_models.whisper_lanes() > 1 and not resume.at
+           else None)
+    if cut is None:
+        return m.transcribe(audio, **kwargs)
+    at = int(cut * 16000)
+    halves, heard, errors, reached = (audio[:at], audio[at:]), [[], []], [], [0.0, 0.0]
+    duration = len(audio) / 16000
+
+    def report(lane):
+        if not progress_cb:
+            return None
+
+        def on_segment(s):
+            reached[lane] = s.end
+            progress_cb(min(sum(reached) / duration, 1.0))
+        return on_segment
+
+    def lane(i):
+        try:
+            segments, _info = m.transcribe(halves[i], **kwargs)
+            heard[i] = _segment_dicts(segments, prompt_keys, report(i),
+                                      on_kept=resume.keep if i == 0 and resume.on_unit else None)
+        except BaseException as exc:   # re-raised on the job's thread below
+            errors.append(exc)
+
+    second = threading.Thread(target=lane, args=(1,), name="whisper-lane-2", daemon=True)
+    second.start()
+    lane(0)
+    second.join()
+    if errors:
+        raise errors[0]
+    return _LaneSegments(heard[0] + [_shifted(s, cut) for s in heard[1]]), None
 
 
 def _retry_on_cpu(model_size, local_model_path, hf_token, run, collect):

@@ -781,6 +781,14 @@ def _load_text_only(model_size: str, use_gpu: bool, token):
     return text_only_whisper.load(folder, use_gpu, WHISPER_LANGUAGE_RULES[model_size].only_for[0])
 
 
+def whisper_lanes() -> int:
+    """2 when BAIHE_WHISPER_LANES=2, else 1: a GPU model is then built with two workers, so two
+    transcribe() calls on two threads run at once. Read per call and never cached: the variable is
+    set for one V100 A/B process, so a model already cached in this process was built for it.
+    Not a setting: whether two lanes beat one is still being measured."""
+    return 2 if os.environ.get("BAIHE_WHISPER_LANES", "").strip() == "2" else 1
+
+
 def load_whisper_model(model_size: str, use_gpu: bool = False, local_model_path: str | None = None,
                         hf_token: str | None = None):
     """Loads (and on first use, downloads) a Whisper model.
@@ -821,7 +829,8 @@ def load_whisper_model(model_size: str, use_gpu: bool = False, local_model_path:
     build_kwargs = {"local_files_only": True} if offline else {}
 
     def _build(device, compute_type):
-        return WhisperModel(model_path, device=device, compute_type=compute_type, **build_kwargs)
+        lanes = {"num_workers": 2} if device == "cuda" and whisper_lanes() > 1 else {}
+        return WhisperModel(model_path, device=device, compute_type=compute_type, **build_kwargs, **lanes)
 
     device_info = {"device": "cpu", "compute_type": "int8", "gpu_error": None}
     try:
