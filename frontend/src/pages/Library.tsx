@@ -8,7 +8,6 @@ import { listAllSeries } from '../api/series'
 import type { DramaSummary } from '../api/types'
 import { Badge } from '../components/Badge'
 import { ButtonLink } from '../components/Button'
-import { Card } from '../components/Card'
 import { DramaDetailPanel } from '../components/DramaDetailPanel'
 import { ErrorBanner } from '../components/ErrorBanner'
 import { RetryBanner } from '../components/RetryBanner'
@@ -27,6 +26,7 @@ import { buttonClass } from '../components/uiClasses'
 import { useLoad, type Loaded } from '../hooks/useLoad'
 import { useHolds } from '../hooks/useHolds'
 import { useMediaQuery } from '../hooks/useMediaQuery'
+import { menuUser, useSession } from '../hooks/useSession'
 import { usePersistedState } from '../hooks/usePersistedState'
 import { usePcOnly } from '../hooks/usePcOnly'
 import { nameLang } from '../hanScript'
@@ -53,7 +53,6 @@ import { skippedNote } from './workspace/translateForm'
 import { SERIES_HELP } from '../helpText'
 import { NewTitleLink } from './NewTitleLink'
 import { createdFromLinkNote } from './linkFill'
-import { ADD_LINK_ID, AddBox } from './makeSubtitles/AddBox'
 import { clearHandoff, peekHandoff, type NewTitleStart } from './makeSubtitles/addBoxModel'
 import { mediaTypeFor, titleFor } from './makeSubtitles/makeSubtitlesFlow'
 
@@ -97,34 +96,29 @@ function useCheckCounts(ids: number[], reloadKey: number): ReadonlyMap<number, C
   return counts
 }
 
-// The shelf's card as Card draws it (Card cannot be hidden from a screen reader, so its markup is repeated here), with
-// nothing in it and as many tiles as it last showed: it takes the loaded shelf's height under every width, density
-// and text size as long as each title and button label fits on one line (a title that wraps makes its tile taller),
-// and then the list below does not move when the shelf arrives.
+// The shelf's markup with nothing in it and as many tiles as it last showed: it takes the loaded shelf's height under
+// every width, density and text size as long as each title and button label fits on one line (a title that wraps
+// makes its tile taller), and then the list below does not move when the shelf arrives.
 function ShelfPlaceholder({ count, limit, phone }: { count: number; limit: number; phone: boolean }) {
   return (
-    <section className="card continue-card continue-placeholder" aria-hidden="true">
-      {!phone && (
-        <header className="card-head">
-          <div className="card-heading"><h2 className="card-title">Continue</h2></div>
-        </header>
-      )}
-      <div className="card-body">
-        <ul className="continue-list">
-          {Array.from({ length: Math.min(count, limit) }, (_, i) => (
-            <li key={i} className="continue-item">
-              <div className="continue-row">
+    <section className="continue-shelf continue-placeholder" aria-hidden="true">
+      {!phone && <h2 className="continue-head">Continue</h2>}
+      <ul className="continue-list">
+        {Array.from({ length: Math.min(count, limit) }, (_, i) => (
+          <li key={i} className="continue-item">
+            <div className="continue-row">
+              <span className="continue-open">
                 <span className="continue-tile skeleton-block" />
                 <div className="continue-text">
                   <span className="continue-title skeleton-text">{'\u00a0'}</span>
                   <span className="continue-meta skeleton-text short">{'\u00a0'}</span>
                 </div>
-                <span className={buttonClass('secondary', 'sm', 'continue-next skeleton-block')}>{'\u00a0'}</span>
-              </div>
-            </li>
-          ))}
-        </ul>
-      </div>
+              </span>
+              <span className={buttonClass('secondary', 'sm', 'continue-next skeleton-block')}>{'\u00a0'}</span>
+            </div>
+          </li>
+        ))}
+      </ul>
     </section>
   )
 }
@@ -158,7 +152,8 @@ function ContinueShelf({ continuing, recent, rows, rowsCurrent, phone, reloadKey
   useEffect(() => {
     if (answered) setStoredCount(items.length)
   }, [answered, items.length, setStoredCount])
-  const limit = 2
+  // The approved layout: four on a computer, two on a phone.
+  const limit = phone ? 2 : 4
   const shown = loading ? [] : items.slice(0, limit)
   const row = (id: number) => rows?.get(id)
   const checking = rowsCurrent ? shown.filter((x) => needsCheckCount(x, row(x.dramaId))).map((x) => x.dramaId) : []
@@ -166,7 +161,8 @@ function ContinueShelf({ continuing, recent, rows, rowsCurrent, phone, reloadKey
   if (loading) return lastCount > 0 ? <ShelfPlaceholder count={lastCount} limit={limit} phone={phone} /> : null
   if (!items.length) return null
   return (
-    <Card title={phone ? undefined : 'Continue'} className="continue-card" aria-label="Continue">
+    <section className="continue-shelf" aria-label="Continue">
+      {!phone && <h2 className="continue-head">Continue</h2>}
       <ul className="continue-list">
         {shown.map((x) => {
           const next = continueAction(x, row(x.dramaId), risk.get(x.dramaId)?.n ?? null)
@@ -196,7 +192,7 @@ function ContinueShelf({ continuing, recent, rows, rowsCurrent, phone, reloadKey
           )
         })}
       </ul>
-    </Card>
+    </section>
   )
 }
 
@@ -208,13 +204,14 @@ const NO_EXTRAS: CreateExtras = { series: '', newSeriesName: '', preset: DEFAULT
 // successful create or Cancel clears it.
 type CreateDraft = { form: DramaCreateRequest; extras: CreateExtras }
 
-// The Add box's "Only add it" keeps what was typed and adds the link, or the title and type a file gives.
-function draftFor(start: NonNullable<NewTitleStart>, draft: CreateDraft | null): CreateDraft {
-  const extras = draft?.extras ?? NO_EXTRAS
-  if ('link' in start) return { form: { ...(draft?.form ?? formForLink(start.link)), source_url: start.link }, extras }
-  const form = draft?.form ?? formForLink('')
-  const title = (form.title_en ?? '').trim() ? form.title_en : titleFor(start.fileName, '')
-  return { form: { ...form, title_en: title, media_type: mediaTypeFor(start.fileName) }, extras }
+// New title is opened again from Find & Add, which leaves this page, so what was typed is kept outside it,
+// for the account that typed it only: a shared browser must not show the next person someone else's draft.
+let kept: { user: number | null; draft: CreateDraft | null } = { user: null, draft: null }
+
+// The Add box's "Only add it": the link, or the title and type a file gives.
+function draftFor(start: NonNullable<NewTitleStart>): CreateDraft {
+  if ('link' in start) return { form: { ...formForLink(start.link), source_url: start.link }, extras: NO_EXTRAS }
+  return { form: { ...formForLink(''), title_en: titleFor(start.fileName, ''), media_type: mediaTypeFor(start.fileName) }, extras: NO_EXTRAS }
 }
 
 // The "New drama" Sheet body. Language and type remember the last choice.
@@ -379,7 +376,17 @@ export default function LibraryPage() {
   const [handoff] = useState(() => peekHandoff('new-title'))
   useEffect(() => clearHandoff(handoff), [handoff])
   const [creating, setCreating] = useState(handoff !== null)
-  const [draft, setDraft] = useState<CreateDraft | null>(() => (handoff?.start ? draftFor(handoff.start, null) : null))
+  const user = menuUser(useSession())?.id ?? null
+  const [draft, setDraftState] = useState<CreateDraft | null>(() => {
+    // A new link or file starts a fresh title rather than filling in one typed for something else.
+    const start = handoff?.start ? draftFor(handoff.start) : kept.user === user ? kept.draft : null
+    kept = { user, draft: start }
+    return start
+  })
+  const setDraft = (next: CreateDraft | null) => {
+    kept = { user, draft: next }
+    setDraftState(next)
+  }
   const [draftFile, setDraftFile] = useState(() => (handoff?.start && 'fileName' in handoff.start ? handoff.start.fileName : null))
   // A title named after its link's website: stay here and say so, with the way to rename it.
   const [createdNote, setCreatedNote] = useState<{ id: number; text: string } | null>(null)
@@ -397,6 +404,8 @@ export default function LibraryPage() {
   const phone = useMediaQuery('(max-width: 640px)')
   const stats = useLoad(getStats, reloadKey)
   const getStarted = showGetStarted(stats.data?.total_dramas, startedDismissed)
+  const showFirstSteps = canCreate && startedDismissed && stats.data?.total_dramas === 0
+  const showAdd = (canCreate || canLinkRun) && !phone && !getStarted
   const recent = useLoad(getRecent, reloadKey)
   const continuing = useLoad(getContinueReading, reloadKey)
   const continuingIds = useMemo(() => new Set((continuing.data?.items ?? []).map((x) => x.drama_id)), [continuing.data])
@@ -450,18 +459,16 @@ export default function LibraryPage() {
   // A list that failed before it ever answered still lets the shelf show: its work tiles say Open.
   const shelfRows = seenRows?.rows ?? (listError ? NO_ROWS : null)
 
-  // "Add a title by hand" (null) opens the sheet as New title always did, draft and all.
-  const startNewTitle = (start: NewTitleStart) => {
-    if (start) setDraft(draftFor(start, draft))
-    setDraftFile(start && 'fileName' in start ? start.fileName : null)
-    setCreating(true)
-  }
   const addHref = routeHref({ name: 'make-subtitles' })
-  // The empty list's Add: the box is just above it on a computer; a phone has no box on this page.
   const addFromEmpty = () => {
-    if (phone) window.location.hash = addHref
-    else document.getElementById(ADD_LINK_ID)?.focus()
+    window.location.hash = addHref
   }
+
+  const seriesLink = !!allSeries.data?.items.length && (
+    <p className="library-series-links" data-testid="library-series-links">
+      <a href={routeHref({ name: 'series-list' })}>Series ({allSeries.data.items.length})</a>
+    </p>
+  )
 
   const picked = selectedItems(items, checked)
   const clear = () => setChecked(new Set())
@@ -518,8 +525,15 @@ export default function LibraryPage() {
           )}
         </>
       )}
-      actions={canCreate && startedDismissed && stats.data?.total_dramas === 0 && (
-        <button type="button" className={buttonClass('ghost', 'sm')} onClick={() => setStartedDismissed(false)}>Show first steps</button>
+      actions={(showFirstSteps || showAdd) && (
+        <>
+          {showFirstSteps && (
+            <button type="button" className={buttonClass('ghost', 'sm')} onClick={() => setStartedDismissed(false)}>Show first steps</button>
+          )}
+          {/* Find & Add holds the link box, Choose a file, Add a title by hand and Open Text; a phone reaches it from its
+              bar. While the first-steps card shows, it is the page's one call to action. */}
+          {showAdd && <ButtonLink variant="primary" href={addHref}>+ Add</ButtonLink>}
+        </>
       )}
     >
       {notice && (
@@ -544,9 +558,6 @@ export default function LibraryPage() {
         </p>
       )}
 
-      {/* Not on a phone: the box would push the first title card off the first screen; the phone bar's Find & Add opens it there. */}
-      {(canCreate || canLinkRun) && !phone && <AddBox place="library" onNewTitle={startNewTitle} />}
-
       <HomeShelves reloadKey={reloadKey} />
 
       <ContinueShelf
@@ -554,11 +565,7 @@ export default function LibraryPage() {
         phone={phone} reloadKey={reloadKey}
       />
 
-      {!!allSeries.data?.items.length && (
-        <p className="library-series-links" data-testid="library-series-links">
-          <a href={routeHref({ name: 'series-list' })}>Series ({allSeries.data.items.length})</a>
-        </p>
-      )}
+      {phone && seriesLink}
 
       {!phone && bar}
       {!(phone && bar) && resultLine}
@@ -579,6 +586,8 @@ export default function LibraryPage() {
         continuing={continuingIds}
         onVisible={onVisible}
         onLoadError={onLoadError}
+        // A computer has room for it at the end of the quick-filter row.
+        chipsEnd={phone ? undefined : seriesLink || undefined}
       />
       {phone && bar}
 

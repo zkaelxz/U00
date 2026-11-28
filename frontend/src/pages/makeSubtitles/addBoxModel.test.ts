@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { MediaLinkProbe } from '../../api/linkDetails'
 import {
   HANDOFF_LIFE_MS, SETTLE_MS, clearHandoff, fileKind, foundForFile, foundForLink, handOff, linkCanRun, linkFrom, linkTaker, peekHandoff, planForFile,
-  lengthText, planForLink, previewRows, type FileRunRequest,
+  lengthText, planForLink, previewRows,
 } from './addBoxModel'
 
 const probe = (o: Partial<MediaLinkProbe>): MediaLinkProbe => ({
@@ -78,16 +78,14 @@ describe('Add box: the plan line', () => {
 })
 
 describe('Add box hand-off', () => {
-  it('keeps a file run for the Add page until it is cleared, and only for the kind asked', () => {
-    const request: FileRunRequest = { file: new File(['x'], 'a.mp3'), engine: 'deepseek', language: 'ja', title: '', variant: 'en-GB' }
-    handOff({ kind: 'run-file', request })
-    expect(peekHandoff('new-title')).toBeNull()
-    const h = peekHandoff('run-file')
-    expect(h?.request).toBe(request)
+  it('keeps New title for the Library until it is cleared', () => {
+    handOff({ kind: 'new-title', start: { link: LINK } })
+    const h = peekHandoff('new-title')
+    expect(h?.start).toEqual({ link: LINK })
     // A second read (React's doubled first render) sees the same hand-off.
-    expect(peekHandoff('run-file')).toBe(h)
+    expect(peekHandoff('new-title')).toBe(h)
     clearHandoff(h)
-    expect(peekHandoff('run-file')).toBeNull()
+    expect(peekHandoff('new-title')).toBeNull()
   })
   it('does not clear a newer hand-off', () => {
     handOff({ kind: 'new-title', start: { link: LINK } })
@@ -110,12 +108,11 @@ describe('Add box hand-off', () => {
       clearHandoff(h)
     })
     it('is gone once older than its life, and stays gone', () => {
-      const request: FileRunRequest = { file: new File(['x'], 'a.mp3'), engine: 'deepseek', language: 'ja', title: '', variant: '' }
-      handOff({ kind: 'run-file', request })
+      handOff({ kind: 'new-title', start: { link: LINK } })
       vi.advanceTimersByTime(HANDOFF_LIFE_MS + 1)
-      expect(peekHandoff('run-file')).toBeNull()
+      expect(peekHandoff('new-title')).toBeNull()
       vi.setSystemTime(Date.now() - 2 * HANDOFF_LIFE_MS)
-      expect(peekHandoff('run-file')).toBeNull()
+      expect(peekHandoff('new-title')).toBeNull()
     })
   })
 })
