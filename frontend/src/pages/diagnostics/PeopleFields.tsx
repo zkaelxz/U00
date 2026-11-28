@@ -130,7 +130,7 @@ export function PersonFields({ user: u, limits, onName, onPaidLimit, onJobLimit 
       {limits && (
         <AutoSaveField id={`admin-job-limit-${u.id}`} label="Jobs a day" saved={u.daily_job_limit ?? null}
           toText={limitText} parse={readJobLimit} onSave={onJobLimit} placeholder="No limit" inputMode="numeric" size={8} clearOnEnterOnly
-          help="Every background job counts: a transcription, a translation, a download. Once they have started this many today, new ones are refused until tomorrow. Jobs already running finish. The count starts again at midnight on this PC. Nobody is limited unless you set a number." />
+          help="Every background job counts: a transcription, a translation, a download. Once they have started this many today, new ones are refused until tomorrow. Jobs already running finish. The count starts again at midnight on this PC. There is no daily limit unless you set a number. Everyone can still have 2 jobs running and 10 waiting at a time." />
       )}
     </div>
   )

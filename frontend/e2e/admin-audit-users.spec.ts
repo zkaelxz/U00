@@ -296,7 +296,7 @@ test('People and access: a list down the left, People first, the pane remembered
   await page.getByRole('button', { name: '+ Add person' }).click()
   const form = page.getByRole('form', { name: 'Add a person' })
   await form.getByRole('button', { name: 'Help: Add a person' }).focus()
-  await expect(form.getByRole('tooltip')).toContainText('use Review, play audio and video)')
+  await expect(form.getByRole('tooltip')).toContainText('import chapters from novel and comic sites)')
   await expect(page.locator('section[aria-label="People and access"]')).not.toContainText('grant-admin')
 
   await openPane(page, 'Remote access')
