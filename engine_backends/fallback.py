@@ -1,5 +1,10 @@
 """Translate fallback chain."""
 
+import contextvars
+import threading
+import time
+from typing import Any
+
 from lib.http import FetchError
 
 from .engine_registry import ENGINES, TRANSLATION_ONLY_ENGINES, unknown_engine_message
@@ -203,3 +208,133 @@ class FallbackEngine:
         self.spent[self.active] += estimate_cost_for_engine(engine, *tokens)
         if self.failed_usage_cb:
             self.failed_usage_cb(self.choices[self.active], engine, *tokens)
+
+
+# The owner's line for "too slow" is 10 s for a page (about 15 lines), so a request is slow
+# past that, or past the same pace per line for a longer batch.
+SLOW_REQUEST_SECONDS = 10.0
+SLOW_SECONDS_PER_LINE = SLOW_REQUEST_SECONDS / 15
+SLOW_REQUESTS_TO_SWITCH = 2
+# A provider that was slow stays slow for a while, so the next runs start on the fallback
+# rather than paying for two more slow requests first.
+SLOW_MEMORY_SECONDS = 30 * 60
+_slow_until = {}
+_slow_until_lock = threading.Lock()
+_clock = time.monotonic  # patchable
+
+
+def is_slow_request(seconds: float, n_lines: int) -> bool:
+    return seconds > max(SLOW_REQUEST_SECONDS, n_lines * SLOW_SECONDS_PER_LINE)
+
+
+def _engine_key(engine):
+    return (getattr(engine, "name", ""), getattr(engine, "model", ""))
+
+
+def recently_slow(engine) -> bool:
+    with _slow_until_lock:
+        return _clock() < _slow_until.get(_engine_key(engine), 0.0)
+
+
+def _remember_slow(engine):
+    with _slow_until_lock:
+        _slow_until[_engine_key(engine)] = _clock() + SLOW_MEMORY_SECONDS
+
+
+class _SlowSwitchState:
+    """Shared by a run's lane copies: whether the run has moved off the slow engine."""
+
+    def __init__(self, switched: bool):
+        self.lock = threading.Lock()
+        self.switched = switched
+        self.fallback_failed = False
+        self.slow_in_a_row = 0
+        self.events = []
+        self.spent: list = []
+        # The lane copy a chapter lane's thread is using. The usage logger, pricing and line
+        # provenance hold the run's own wrapper and read it from the lane's thread (or a
+        # request worker, which gets a copy of the lane's context), so they follow the lane.
+        self.lane: contextvars.ContextVar[Any] = contextvars.ContextVar("slow_switch_lane", default=None)
+
+
+class SlowSwitchEngine(FallbackEngine):
+    """[primary, fallback]: the run moves to the fallback once the primary answers
+    SLOW_REQUESTS_TO_SWITCH requests in a row slower than is_slow_request allows, and starts
+    there while the primary was slow in the last SLOW_MEMORY_SECONDS. The move happens only
+    in begin_chapter, which the pipeline calls when a chapter (or, with no chapters, a batch)
+    starts, so a chapter is never translated by two engines. Errors are not a reason to
+    switch (a fallback chain is for that), except that a fallback failing with one hands the
+    run back to the primary."""
+
+    def __init__(self, engines: list, choices: list, state: _SlowSwitchState | None = None):
+        self._state = state or _SlowSwitchState(switched=recently_slow(engines[0]))
+        super().__init__(engines, choices)
+        # Not a chain's failed-usage hook: the pipeline then records a failed attempt itself.
+        del self.failed_usage_cb
+        self._active = 1 if self._state.switched else 0
+        if state is None:
+            self._state.spent = self.spent
+            if self._state.switched:
+                self._state.events.append({"from": choices[0], "to": choices[1], "reason": "slow",
+                                           "detail": f"{choices[0]} was slow in an earlier run"})
+        self.spent = self._state.spent
+        self.events = self._state.events
+
+    @property
+    def active(self):
+        lane = self._state.lane.get()
+        if lane is not None and lane is not self:
+            return lane._active
+        return self._active
+
+    @active.setter
+    def active(self, index):
+        self._active = index
+
+    def lane_copy(self, clone):
+        """A copy for one chapter lane: its own engine copies, the run's shared state."""
+        return SlowSwitchEngine([clone(e) for e in self.engines], self.choices, self._state)
+
+    def begin_chapter(self):
+        s = self._state
+        s.lane.set(self)
+        if s.switched and not s.fallback_failed:
+            self._active = max(self._active, 1)
+
+    def translate_batch(self, zh_lines, context):
+        # Each engine is called directly: its errors and retries stay what they are on a run
+        # without the switch, and the pipeline records a failed attempt's usage as usual.
+        on_primary = self.active == 0
+        started = _clock()
+        try:
+            result = self.engines[self.active].translate_batch(zh_lines, context)
+        except Exception as e:
+            if on_primary or not is_fallback_error(e):
+                raise
+            # The fallback can't serve this PC (Ollama not running or not signed in): the
+            # slow engine is still better than none.
+            with self._state.lock:
+                self._state.fallback_failed = True
+                self._state.events.append({"from": self.choices[1], "to": self.choices[0],
+                                           "reason": type(e).__name__,
+                                           "detail": redact_secrets(str(e))[:200]})
+            self.active = 0
+            return self.engines[0].translate_batch(zh_lines, context)
+        if on_primary:
+            self._note_primary_time(_clock() - started, len(zh_lines))
+        return result
+
+    def _note_primary_time(self, seconds, n_lines):
+        s = self._state
+        with s.lock:
+            if not is_slow_request(seconds, n_lines):
+                s.slow_in_a_row = 0
+                return
+            s.slow_in_a_row += 1
+            if s.switched or s.fallback_failed or s.slow_in_a_row < SLOW_REQUESTS_TO_SWITCH:
+                return
+            s.switched = True
+            s.events.append({"from": self.choices[0], "to": self.choices[1], "reason": "slow",
+                             "detail": f"{s.slow_in_a_row} requests in a row were slow "
+                                       f"(last {seconds:.0f} s for {n_lines} lines)"})
+        _remember_slow(self.engines[0])

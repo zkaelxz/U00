@@ -6,7 +6,7 @@ import contextvars
 import threading
 import time
 from .fallback import (FALLBACK_BACKOFF_BASE_SECONDS, FALLBACK_BACKOFF_CAP_SECONDS,
-                       FALLBACK_TRANSIENT_RETRIES, FallbackEngine)
+                       FALLBACK_TRANSIENT_RETRIES, FallbackEngine, SlowSwitchEngine)
 from .flag_reasons import FLAG_REASONS
 from .gemini import GeminiEngine, gemini_reply
 from .local import (OllamaEngine, _ollama_chat, abort_check_var, is_ollama_cloud_model,
@@ -163,6 +163,9 @@ def batch_deadline_for(engine) -> float:
     engine still leaves time for the next: that window covers every attempt
     FallbackEngine makes on the same engine before switching, plus the
     backoff between them."""
+    if isinstance(engine, SlowSwitchEngine):
+        # One engine per call, except that a failing fallback hands that call to the primary.
+        return sum(_BATCH_REQUESTS * _request_timeout_for(e) for e in engine.engines) + _DEADLINE_MARGIN_SECONDS
     if isinstance(engine, FallbackEngine):
         attempts = FALLBACK_TRANSIENT_RETRIES + 1
         return sum(attempts * _BATCH_REQUESTS * _request_timeout_for(e) + _fallback_backoff_total()
