@@ -770,3 +770,45 @@ def test_the_dead_worker_sweep_ends_a_warm_job_and_its_worker(tmp_path):
     status = _wait_end("warm_swept")
     assert status["status"] == "error" and status["error"] == job_runner.WORKER_LOST_MESSAGE
     bg.clear_job("warm_swept")
+
+
+@pytest.mark.parametrize("free_mb, kept", [(28000.0, True), (1000.0, False)])
+def test_beside_a_running_gpu_job_only_a_memory_shortage_retires_the_worker_a_job_would_reuse(
+        monkeypatch, free_mb, kept):
+    _two_slots(monkeypatch)
+    monkeypatch.setattr(warm_worker, "UTIL_SETTLE_S", 0.0)
+    pid = _run("warm_join_a", tagged_worker, ("a", False))["result"]["pid"]
+    _fake_card(monkeypatch, lambda: {"utilization_percent": 96, "memory_used_mb": 32000.0 - free_mb,
+                                     "memory_total_mb": 32000.0, "memory_free_mb": free_mb})
+    with job_table._lock:   # another GPU job busy on the card: its load is the 96%
+        job_table._jobs["busy_gpu_job"] = {"status": "running", "gpu_touching": True}
+    try:
+        warm_worker.gpu_probe.prefetch(held_mb=warm_worker.reusable_held_mb(KEY))
+        warm_worker.retire_if_the_card_reads_busy()
+        assert (not _gone(pid)) == kept and (_one() is not None) == kept
+    finally:
+        with job_table._lock:
+            job_table._jobs.pop("busy_gpu_job", None)
+
+
+def test_with_another_gpu_job_on_the_card_the_cards_reading_is_not_taken_as_the_workers(monkeypatch):
+    _two_slots(monkeypatch)
+    go = threading.Event()
+
+    def reading():
+        worker = _one()
+        mine = 4000.0 if worker is not None and worker.started and worker.proc.is_alive() else 0.0
+        other = 0.0 if go.is_set() else 6000.0
+        used = 1000.0 + mine + other
+        return {"utilization_percent": 0, "memory_used_mb": used, "memory_total_mb": 32000.0,
+                "memory_free_mb": 32000.0 - used}
+    _fake_card(monkeypatch, reading)
+    bg.clear_job("busy_gpu_job")
+    assert job_launch.start_job("busy_gpu_job", lambda: go.wait(30), gpu_touching=True, line_fields=())
+    try:
+        assert _run("warm_shared", tagged_worker, ("s", False), gpu_touching=True)["status"] == "done"
+        assert _one().held_mb == 0.0   # no per-process reading and no torch here: nothing claimed as its own
+    finally:
+        go.set()
+        _wait_end("busy_gpu_job")
+        bg.clear_job("busy_gpu_job")

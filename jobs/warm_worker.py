@@ -10,7 +10,8 @@ cancel, clear or stop kills the whole worker, and a native crash goes to the
 usual CPU retry in a fresh normal process. Every item on the worker's
 long-lived queue carries its job's number, so no item of one job is read as
 another's. An idle worker holds VRAM that the GPU checks would take for
-another program's, so it is retired before any GPU work it cannot run.
+another program's, so it is retired before any GPU work that starts and
+cannot use it; one may stay idle beside GPU jobs already running.
 """
 
 import contextvars
@@ -323,22 +324,15 @@ def _slots() -> int:
     return job_settings.get_gpu_max_parallel()
 
 
-def _no_slot_to_stay_in(job_id) -> str:
-    """Why the worker whose job job_id just ended must not stay loaded, or "":
-    the other running GPU jobs and the idle workers already take every GPU
-    slot, so keeping it would put more on the card than may run at once."""
+def _running_others(job_id):
+    """How many GPU jobs other than job_id run in this process; None when that
+    cannot be read. Takes the job lock, so never call it holding _lock."""
     from jobs import gpu_queue, job_table
     try:
-        slots = _slots()
         with job_table._lock:
-            running = gpu_queue._running_gpu_job_count_locked(job_id)
-        with _lock:
-            idle = sum(1 for w in _workers if not w.busy)
+            return gpu_queue._running_gpu_job_count_locked(job_id)
     except Exception:
-        return "the running GPU jobs could not be checked"
-    if running + idle > slots:
-        return "every GPU slot is taken"
-    return ""
+        return None
 
 
 class _Worker:
@@ -362,6 +356,9 @@ class _Worker:
         self.baseline_mb = None
         self.held_mb = 0.0
         self.first_idle_mb = None   # its own memory at its first idle, for GROWTH_LIMIT_MB
+        # Another GPU job ran during this worker's current job: the card's used
+        # memory then says nothing about what the worker alone holds.
+        self.shared_card = False
 
     def fits(self, key) -> bool:
         """Caller holds _lock. Same settings, still running, and inside the
@@ -508,6 +505,9 @@ def retire_if_the_card_reads_busy():
             return
         idle_since = max(w.idle_since for w in idle)
         held_mb = sum(w.held_mb for w in idle)
+    if _running_others(None) and _slots() > 1:
+        _retire_if_no_room_to_join(held_mb)
+        return
     if not gpu_probe.prefetched_busy():
         return
     wait = UTIL_SETTLE_S - (time.monotonic() - idle_since)
@@ -519,6 +519,20 @@ def retire_if_the_card_reads_busy():
     load = gpu_probe.prefetched_load() or {}
     retire_idle(f"the GPU looked busy to the job that would reuse it: utilization "
                 f"{load.get('utilization_percent')}%, {load.get('memory_free_mb')} MB free "
+                f"counting the idle workers' {held_mb:.0f} MB")
+    gpu_probe.prefetch()
+
+
+def _retire_if_no_room_to_join(held_mb):
+    """Beside running GPU jobs the card is judged as a job joining them is
+    (gpu_slots.acquire): their own load keeps utilization high, so only free
+    memory counts, with the reused worker's memory already read as free."""
+    from jobs import gpu_slots
+    load = gpu_probe.prefetched_load()
+    free = (load or {}).get("memory_free_mb")
+    if free is None or free >= gpu_slots.GPU_PARALLEL_RESERVE_MB:
+        return
+    retire_idle(f"too little GPU memory for the job that would reuse it: {free:.0f} MB free "
                 f"counting the idle workers' {held_mb:.0f} MB")
     gpu_probe.prefetch()
 
@@ -627,6 +641,7 @@ class WarmJob:
             stale.retire("the next transcription has other settings")
         worker = self._worker
         reused = worker.started
+        worker.shared_card = bool(_running_others(self.job_id))
         try:
             worker.launch(self)
         except Exception:
@@ -653,45 +668,73 @@ class WarmJob:
         worker.retire("it could not be given a job")
 
     def _replace_worker(self, old):
-        _forget(old)
-        old.retire("its pipe broke")
         fresh = _Worker(old.key)
+        fresh.busy = True
+        fresh.jobs = 1
+        fresh.shared_card = old.shared_card
         with _lock:
-            fresh.busy = True
-            fresh.jobs = 1
-            _workers.append(fresh)   # in old's slot
+            # In old's place in one step, so no claim sees a free slot between.
+            if old in _workers:
+                _workers[_workers.index(old)] = fresh
+            else:
+                _workers.append(fresh)
+        old.retire("its pipe broke")
         self._worker, self.seq = fresh, 1
 
     def went_idle(self):
+        """The worker stays only while the other running GPU jobs and the idle
+        workers, this one included, fit the GPU slots: keeping it otherwise
+        would put more on the card than may run at once."""
         self._state = "done"
         worker = self._worker
+        running = _running_others(self.job_id)
+        grew = self._note_memory(worker, running)
+        slots = _slots()
         with _lock:
+            # Marked idle, counted and removed in one step, so two workers going
+            # idle together do not both count the other and both leave.
             idle_round = worker.now_idle()
-        reason = _no_slot_to_stay_in(self.job_id) or self._grew_too_much(worker)
+            idle = sum(1 for w in _workers if not w.busy)
+            if running is None:
+                reason = "the running GPU jobs could not be checked"
+            elif running + idle > slots:
+                reason = "every GPU slot is taken"
+            else:
+                reason = grew
+            if reason and worker in _workers:
+                _workers.remove(worker)
         if reason:
-            _forget(worker)
             worker.retire(reason)
             return
         _arm_idle_timer(worker, idle_round)
 
-    def _grew_too_much(self, worker) -> str:
-        """Records what the idle worker holds, and why it must go if its own
-        memory grew past GROWTH_LIMIT_MB."""
+    def _note_memory(self, worker, running) -> str:
+        """Logs and records what the idle worker holds; returns why it must go
+        if its own memory grew past GROWTH_LIMIT_MB, or "". Its own memory is
+        nvidia-smi's per-process reading where the driver gives one, else
+        torch's reserved memory from the worker's report. The card's used
+        memory less its reading before the worker started stands in only when
+        no other GPU job shared the card meanwhile."""
         used = _card_used_mb()
         own = _process_used_mb(worker.proc.pid)
+        reserved = self.memory.get("torch_reserved_mb")
+        shared = worker.shared_card or bool(running)
         if own is not None:
             worker.held_mb = own
-        elif used is not None and worker.baseline_mb is not None:
+        elif not shared and used is not None and worker.baseline_mb is not None:
             worker.held_mb = max(0.0, used - worker.baseline_mb)
+        else:
+            worker.held_mb = float(reserved or 0.0)
+        mine = own if own is not None else reserved
         if worker.first_idle_mb is None:
-            worker.first_idle_mb = own
+            worker.first_idle_mb = mine
         torch_note = "".join(f", {name} {self.memory[name]:.0f} MB" for name in
                              ("torch_allocated_mb", "torch_reserved_mb") if name in self.memory)
         _log(f"job {self.job_id}: warm worker pid {worker.proc.pid} idle{_vram_note(used)}"
              + (f", own {own:.0f} MB" if own is not None else "")
              + torch_note + (f", threads {self.memory['threads']}" if "threads" in self.memory else ""))
-        if own is not None and worker.first_idle_mb is not None and own - worker.first_idle_mb > GROWTH_LIMIT_MB:
-            return f"its memory grew {own - worker.first_idle_mb:.0f} MB"
+        if mine is not None and worker.first_idle_mb is not None and mine - worker.first_idle_mb > GROWTH_LIMIT_MB:
+            return f"its memory grew {mine - worker.first_idle_mb:.0f} MB"
         return ""
 
     def _lost(self):
