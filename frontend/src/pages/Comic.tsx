@@ -89,6 +89,19 @@ function replacePage(id: number, page: number) {
   window.location.replace(comicHref(id, page))
 }
 
+function ImportNote({ id, onDone }: { id: number; onDone: () => void }) {
+  const importing = isReadTranslated(browserStorage(), id)
+  const { job } = useJob(importing ? readTranslatedJob(browserStorage(), id) : null, { onDone })
+  if (job && jobFailed(job))
+    return (
+      <p role="alert">
+        Couldn’t import this chapter{importFailureText(job) ? `: ${importFailureText(job)}` : '.'}{' '}
+        <a href={routeHref({ name: 'jobs', job: job.job_id })}>See Jobs for details.</a>
+      </p>
+    )
+  return <p>{importing ? 'Importing…' : 'No pages to read yet. Upload page images or a PDF to translate them.'}</p>
+}
+
 export default function ComicPage({ id, page: routePage }: { id: number; page: number | null }) {
   const phone = useMediaQuery('(max-width: 640px)')
   const [title, setTitle] = useState<string | null>(null)
@@ -201,9 +214,6 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
 
   const count = data?.page_count ?? data?.pages.length ?? 0
   const pages = useMemo(() => data?.pages ?? [], [data])
-  const importing = data !== null && count === 0 && isReadTranslated(browserStorage(), id)
-  const { job: importJob } = useJob(importing ? readTranslatedJob(browserStorage(), id) : null, { onDone: refreshPages })
-  const importFailed = importJob ? jobFailed(importJob) : false
   const chapters = useMemo(() => data?.chapters ?? [], [data])
   const cprefs = useMemo(() => chapterPrefs ?? loadChapterPrefs(browserStorage(), id), [chapterPrefs, id])
   const setCprefs = (next: ChapterPrefs) => {
@@ -588,14 +598,7 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
 
       {empty ? (
         <div className="comic-scanlate comic-empty">
-          {importFailed && importJob ? (
-            <p role="alert">
-              Couldn’t import this chapter{importFailureText(importJob) ? `: ${importFailureText(importJob)}` : '.'}{' '}
-              <a href={routeHref({ name: 'jobs', job: importJob.job_id })}>See Jobs for details.</a>
-            </p>
-          ) : (
-            <p>{importing ? 'Importing…' : 'No pages to read yet. Upload page images or a PDF to translate them.'}</p>
-          )}
+          <ImportNote id={id} onDone={refreshPages} />
           {panel}
         </div>
       ) : !data || current === null ? (
