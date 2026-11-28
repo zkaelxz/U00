@@ -138,7 +138,7 @@ def find_tested(repo, sha, tree, base_tree, token, get=_get):
 _NOT_FOUND = object()
 
 
-def find_tested_at_head(repo, head_sha, tree, base_tree, token, get=_get, skip_run_id=None):
+def find_tested_at_head(repo, head_sha, tree, base_tree, token, get=_get, skip_run_id=None, strict=False):
     """The outputs of the newest PR run at `head_sha` that recorded `tree` on `base_tree` when that run
     is green and from this repo; None when it is not; _NOT_FOUND when no run recorded those trees."""
     runs = get(f"{_API}/repos/{repo}/actions/workflows/tests.yml/runs"
@@ -147,12 +147,16 @@ def find_tested_at_head(repo, head_sha, tree, base_tree, token, get=_get, skip_r
         if skip_run_id is not None and str(run.get("id")) == str(skip_run_id):
             continue
         record = _record(repo, run, token, get)
+        if record is None and strict and run.get("status") == "completed" and run.get("conclusion") == "failure":
+            # Its record failed to upload, so it may be a failed run of this very tree.
+            return None
         if record is None or record.get("tree") != tree or record.get("base_tree") != base_tree:
             continue
         # A fork's record is its own word, so it may stop a skip but never vouch for one.
         if ((run.get("head_repository") or {}).get("full_name") != repo
                 or run.get("status") != "completed" or run.get("conclusion") != "success"):
             return None
+        print(f"ci_tested_tree: reusing run {run.get('id')} {run.get('html_url', '')}", file=sys.stderr)
         return parse_outputs("\n".join(f"{k}={v}" for k, v in record["outputs"].items()))
     return _NOT_FOUND
 
@@ -185,16 +189,16 @@ def main(argv=None, stdin=None, stdout=None, env=None, tree=_tree, get=_get, mer
             raise ValueError("the merge changes CI or dependency files")
         if args.on_approval:
             tested = find_tested_at_head(env["GITHUB_REPOSITORY"], env["PR_HEAD_SHA"], tree(), tree("HEAD^1"),
-                                         env["GITHUB_TOKEN"], get, skip_run_id=env["GITHUB_RUN_ID"])
+                                         env["GITHUB_TOKEN"], get, skip_run_id=env["GITHUB_RUN_ID"], strict=True)
             tested = None if tested is _NOT_FOUND else tested
         else:
             tested = find_tested(env["GITHUB_REPOSITORY"], env["GITHUB_SHA"], tree(), tree("HEAD^1"),
                                  env["GITHUB_TOKEN"], get)
     except Exception as exc:
-        print(f"ci_tested_tree: {type(exc).__name__}: {exc}; running everything the push needs", file=sys.stderr)
+        print(f"ci_tested_tree: {type(exc).__name__}: {exc}; running everything this run needs", file=sys.stderr)
         tested = None
     if tested is None:
-        print("ci_tested_tree: no green PR run of this tree; running everything the push needs", file=sys.stderr)
+        print("ci_tested_tree: no green PR run of this tree; running everything this run needs", file=sys.stderr)
         print_outputs(push, stdout)
     else:
         print("ci_tested_tree: a green PR run tested this tree; running only what it skipped", file=sys.stderr)

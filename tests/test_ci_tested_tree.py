@@ -278,6 +278,18 @@ class TestOnApproval:
         assert not on_approval(get)["run_full_pytest"]
         assert not any(f"/runs/{THIS_RUN}/" in u for u in asked)
 
+    def test_a_newer_failed_run_without_a_record_outranks_an_older_green_one(self):
+        get, _ = fake_github(DEFERRED, runs=[
+            (green_run(id=7, run_number=3), record_of(DEFERRED)),
+            (green_run(id=8, run_number=4, conclusion="failure"), None)])
+        assert on_approval(get) == APPROVED
+
+    def test_a_newer_cancelled_run_without_a_record_is_passed_over(self):
+        get, _ = fake_github(DEFERRED, runs=[
+            (green_run(id=7, run_number=3), record_of(DEFERRED)),
+            (green_run(id=8, run_number=4, conclusion="cancelled"), None)])
+        assert not on_approval(get)["run_full_pytest"]
+
     def test_no_earlier_run_runs_everything(self):
         get, _ = fake_github(DEFERRED, runs=[])
         assert on_approval(get) == APPROVED
