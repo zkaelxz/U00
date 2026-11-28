@@ -12,7 +12,7 @@ describe('showGetStarted', () => {
   })
 })
 
-const NONE = { faster_whisper: false, ollama_reachable: false, key_claude: false, key_deepseek: false, key_gemini: false, key_openai: false, key_groq: false }
+const NONE = { faster_whisper: false, ffmpeg: true, ollama_reachable: false, ollama_model_pulled: false, key_claude: false, key_deepseek: false, key_gemini: false, key_openai: false, key_groq: false }
 const ids = (steps: { id: string }[]) => steps.map((s) => s.id)
 
 describe('firstRunSteps', () => {
@@ -22,10 +22,23 @@ describe('firstRunSteps', () => {
     expect(steps.map((s) => s.href)).toEqual(['#/settings', '#/diagnostics?card=recommended', '#/make-subtitles'])
   })
 
-  it('drops the key step when a keyed engine or a running Ollama exists', () => {
-    for (const patch of [{ key_gemini: true }, { ollama_reachable: true }]) {
+  it('drops the key step when a keyed engine or a running Ollama with its model exists', () => {
+    for (const patch of [{ key_gemini: true }, { ollama_reachable: true, ollama_model_pulled: true }]) {
       expect(ids(firstRunSteps({ canSetUp: true, canCreate: true, readiness: { ...NONE, ...patch }, totalDramas: 0 }))).toEqual(['transcription', 'subtitles'])
     }
+  })
+
+  it('keeps the key step when Ollama runs but its model is not pulled', () => {
+    const steps = firstRunSteps({ canSetUp: true, canCreate: true, readiness: { ...NONE, ollama_reachable: true }, totalDramas: 0 })
+    expect(ids(steps)).toEqual(['key', 'transcription', 'subtitles'])
+  })
+
+  it('adds an FFmpeg step only when FFmpeg is known to be missing', () => {
+    const missing = firstRunSteps({ canSetUp: true, canCreate: true, readiness: { ...NONE, ffmpeg: false }, totalDramas: 0 })
+    expect(missing.find((s) => s.id === 'ffmpeg')).toEqual({ id: 'ffmpeg', label: 'Install FFmpeg', done: false, href: '#/diagnostics?card=ffmpeg' })
+    const member = firstRunSteps({ canSetUp: false, canCreate: false, readiness: { ...NONE, ffmpeg: false }, totalDramas: 0 })
+    expect(member.find((s) => s.id === 'ffmpeg')?.href).toBeNull()
+    expect(ids(firstRunSteps({ canSetUp: true, canCreate: true, readiness: null, totalDramas: 0 }))).not.toContain('ffmpeg')
   })
 
   it('marks transcription done once it is installed, and waits on an unknown readiness', () => {
