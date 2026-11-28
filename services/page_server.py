@@ -563,7 +563,9 @@ def _translate_missing(saved: list, page_id: int, drama: dict | None, drama_id, 
                                       **_page_extras(drama, config, engine, image, missing, language,
                                                      glossary))
     except Exception as e:
-        return [["warning", f"translation failed ({failure_detail(e, member)})"]]
+        # A partial answer is already in the dicts; keep those lines, as a first read does.
+        return ([["warning", f"translation failed ({failure_detail(e, member)})"]]
+                + page_capture_checks.save_filled_translations(page_id, missing, originals))
     return page_capture_checks.save_filled_translations(page_id, missing, originals)
 
 

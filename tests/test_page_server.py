@@ -1264,6 +1264,26 @@ class TestRecapturingKeepsSavedWork:
         assert [b["translated_text"] for b in db.load_bubbles(page["id"])] == ["my correction", ""]
         assert second["pages"][0]["notes"][0][0] == "warning"
 
+    def test_a_partial_answer_on_a_recapture_keeps_the_lines_it_did_translate(
+            self, token, fake_pipeline, isolated_db, monkeypatch):
+        import db
+        from scanlate import scanlate_translate
+        page, body = self._page_with_one_gap(token, isolated_db, monkeypatch)
+        bubbles = db.load_bubbles(page["id"])
+        second_gap = {k: v for k, v in bubbles[1].items() if k != "id"}
+        second_gap.update(source_text="又")
+        db.save_bubbles(page["id"], bubbles + [second_gap])
+
+        def answers_one(bubbles, engine, drama_meta, **kwargs):
+            bubbles[0]["translated_text"] = "the translation"
+            raise RuntimeError("1 of 2 regions weren't translated")
+        monkeypatch.setattr(scanlate_translate, "translate_page_bubbles", answers_one)
+        again = _post(token, body).payload["pages"][0]
+        assert [b["translated_text"] for b in db.load_bubbles(page["id"])] == [
+            "my correction", "the translation", ""]
+        assert again["untranslated_lines"] == 1
+        assert "translation failed" in again["notes"][0][1]
+
     def test_a_translation_typed_during_the_llm_call_is_not_overwritten(
             self, token, fake_pipeline, isolated_db, monkeypatch):
         import db
