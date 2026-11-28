@@ -51,6 +51,7 @@ interface Call {
 
 interface AssistantMock {
   developerMode: boolean
+  keepPages: boolean
   local: boolean
   engine: string | null
   model: string | null
@@ -77,7 +78,7 @@ const FORBIDDEN = { error: { code: 'forbidden', message: 'This only works on the
 
 export async function mockAssistant(page: Page, over: Partial<AssistantMock> = {}): Promise<AssistantMock> {
   const s: AssistantMock = {
-    developerMode: false, local: true, engine: null, model: null,
+    developerMode: false, keepPages: false, local: true, engine: null, model: null,
     backlog: [{ id: 1, kind: 'note', text: 'Tidy the Export stage copy.', created_at: '2026-09-28T09:30:00' }],
     askStatus: 200, askGate: null, calls: [], unmocked: [], cloudConsent: null,
     rolesEnabled: false, reviewEngine: null, review: null,
@@ -104,7 +105,7 @@ export async function mockAssistant(page: Page, over: Partial<AssistantMock> = {
   }
   const settings = () => ({
     ...(s.cloudConsent ? { default_engine: 'ollama', local_engines: ['ollama'], cloud_consent: s.cloudConsent } : {}),
-    developer_mode: s.developerMode, engine: s.engine, model: s.model, engine_choices: ['claude', 'gemini', 'ollama'],
+    developer_mode: s.developerMode, quick_read_keep_pages: s.keepPages, engine: s.engine, model: s.model, engine_choices: ['claude', 'gemini', 'ollama'],
     roles_enabled: s.rolesEnabled, review_engine: s.reviewEngine, review_model: null,
     ...(s.tiers ? { tier_order: null, tiers: ladder(), engine_keys: { claude: false, gemini: true, ollama: true } } : {}),
   })
@@ -126,6 +127,7 @@ export async function mockAssistant(page: Page, over: Partial<AssistantMock> = {
     if (route.request().method() === 'POST') {
       const b = route.request().postDataJSON() as Partial<ReturnType<typeof settings>>
       if ('developer_mode' in b) s.developerMode = !!b.developer_mode
+      if ('quick_read_keep_pages' in b) s.keepPages = !!b.quick_read_keep_pages
       if ('engine' in b) s.engine = b.engine ?? null
       if ('model' in b) s.model = b.model ?? null
       if ('roles_enabled' in b) s.rolesEnabled = !!b.roles_enabled

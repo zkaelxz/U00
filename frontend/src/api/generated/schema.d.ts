@@ -14892,6 +14892,11 @@ export interface components {
             local_engines: string[];
             /** Model */
             model: string | null;
+            /**
+             * Quick Read Keep Pages
+             * @default false
+             */
+            quick_read_keep_pages: boolean;
             /** Review Engine */
             review_engine: string | null;
             /** Review Model */
@@ -14918,6 +14923,8 @@ export interface components {
             engine?: string | null;
             /** Model */
             model?: string | null;
+            /** Quick Read Keep Pages */
+            quick_read_keep_pages?: boolean | null;
             /** Review Engine */
             review_engine?: string | null;
             /** Review Model */
@@ -30627,6 +30634,11 @@ export interface components {
              */
             bulk_auto_resume: boolean;
             choices: components["schemas"]["SettingsChoices"];
+            /**
+             * Desktop Popups
+             * @default true
+             */
+            desktop_popups: boolean;
             /**
              * Effective Monthly Cap Usd
              * @default 0

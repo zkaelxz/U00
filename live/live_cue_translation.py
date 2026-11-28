@@ -104,7 +104,7 @@ class CueTranslator:
             raise
         except Exception as exc:
             return f"[translation failed: {redact_secrets(str(exc))}]"
-        translated = drop_em_dashes(translated)
+        translated = drop_em_dashes(translated, text)
         self._remember(text, translated)
         return translated
 
@@ -153,7 +153,7 @@ class CueTranslator:
         for pos, (text, translated) in enumerate(zip(texts, replies)):
             if isinstance(translated, str) and translated.strip() \
                     and not _shifted(pos, texts, replies):
-                found[pos] = drop_em_dashes(translated)
+                found[pos] = drop_em_dashes(translated, text)
                 self._remember(text, found[pos])
         return found
 

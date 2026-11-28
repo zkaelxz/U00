@@ -202,7 +202,7 @@ def translate_regions_by_id(texts_by_id: dict, engine, drama_meta: dict,
             if not isinstance(result, (list, tuple)) or len(result) != 1 \
                     or not isinstance(result[0], str):
                 return None, previous_context
-            out[key] = drop_em_dashes(result[0])
+            out[key] = drop_em_dashes(result[0], text)
         return out, previous_context
 
     items = list(zip(ids, texts_by_id.values()))
@@ -259,10 +259,11 @@ def _translate_region_chunk(items: list, engine, drama_meta: dict, previous_cont
     )
     max_tokens = min(max(1500, 200 * len(ids)), _MAX_TOKENS_PER_CALL)
     text = call_llm_json(engine, prompt, max_tokens=max_tokens, fallback=None, usage_cb=usage_cb)
-    return _matched_answer(text, ids, previous_context, names_out)
+    return _matched_answer(text, ids, previous_context, names_out, dict(items))
 
 
-def _matched_answer(text, ids: list, previous_context: str, names_out: dict | None = None):
+def _matched_answer(text, ids: list, previous_context: str, names_out: dict | None = None,
+                    sources: dict | None = None):
     """({id: translation}, new_context) from an engine's reply, or (None,
     previous_context) unless it names exactly the ids sent, each with a string.
     `names_out` receives the reply's "names" map of an applied answer, unchecked, and its
@@ -281,7 +282,7 @@ def _matched_answer(text, ids: list, previous_context: str, names_out: dict | No
     got.update({k: data[k] for k in ids if k not in got and isinstance(data.get(k), str)})
     if set(got) != set(ids) or not all(isinstance(v, str) for v in got.values()):
         return None, previous_context
-    got = {k: drop_em_dashes(v) for k, v in got.items()}
+    got = {k: drop_em_dashes(v, (sources or {}).get(k, "")) for k, v in got.items()}
     summary = data.get("context_summary")
     new_context = (summary.strip()[:_MAX_CONTEXT_CHARS]
                    if isinstance(summary, str) and summary.strip() else previous_context)
@@ -393,7 +394,8 @@ def translate_regions_with_image(regions: list, image: bytes, mime: str, engine,
     text, usage = ask_about_image(engine, prompt, image, mime, max_tokens=max_tokens)
     if usage_cb:
         usage_cb(usage.get("input_tokens", 0), usage.get("output_tokens", 0))
-    return _matched_answer(text, ids, previous_context, names_out)
+    sources = {str(r["id"]): r.get("text") or "" for r in regions}
+    return _matched_answer(text, ids, previous_context, names_out, sources)
 
 
 # Kana, CJK ideographs and Hangul; CJK punctuation is left out because a translation
