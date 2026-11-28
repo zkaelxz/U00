@@ -483,6 +483,9 @@ no version a floor allows. Its output lists each package to bump. By hand:
    `docs/windows-installer-design.md`) so `tests/test_constraints_lock_parity.py` still passes.
 3. Run `python scripts/check_constraints.py` and `tests/test_constraints_lock_parity.py`; CI runs the full suite on the PR.
 
+`scripts/check_install_wheels.py` (another `tests.yml` step) asks PyPI whether each exact pin the app installs by name
+(`install_registry`) has a win_amd64 wheel for the shipped CPython; a pin that doesn't fails the PR.
+
 The weekly `dependency-canary.yml` workflow installs the newest versions the requirements and the caps in
 `constraints.txt` allow (exact pins dropped) into a clean venv, runs the mocked suite and
 `smoke_pack.py versions`, and reports only as a failing run: it opens no PRs, pushes nothing and has no
