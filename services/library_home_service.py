@@ -21,8 +21,7 @@ def _row(d: dict) -> dict:
 
 
 def get_home(principal=None) -> dict:
-    # The Running line shows no progress, and it reloads at every job start and end.
-    dramas = library_service.list_library_dramas(principal=principal, with_progress=False)
+    dramas = library_service.list_library_dramas(principal=principal)
     by_id = {d["id"]: d for d in dramas}
     queue = queue_service.get_queue(principal)
 
