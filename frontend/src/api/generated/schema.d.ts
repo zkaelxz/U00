@@ -27015,6 +27015,8 @@ export interface components {
             retried: number;
             /** Skipped Paid */
             skipped_paid: number;
+            /** Skipped Stale */
+            skipped_stale: number;
             /** Started */
             started: boolean;
         };

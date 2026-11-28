@@ -109,6 +109,7 @@ class QueueBulkAdded(BaseModel):
 class QueueRetriedInterrupted(BaseModel):
     retried: int          # items put back to waiting
     skipped_paid: int     # left interrupted: they could run on a paid engine the caller may not use
+    skipped_stale: int    # left interrupted: their saved settings no longer apply
     started: bool         # the queue is running now
 
 

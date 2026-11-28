@@ -31,6 +31,7 @@ from typing import Optional
 import db
 from engine_backends import shared as engine_shared
 from engine_backends import engine_registry
+from engine_backends import local as local_engine
 from lib import model_offline
 from jobs import user_caps
 from lib.errors import (ConflictError, ForbiddenError, InvalidInputError, NotFoundError,
@@ -708,21 +709,38 @@ def interrupted_since(since: float) -> int:
                and i["reason"] in (_INTERRUPTED, _NOT_STARTED) and (i["finished_at"] or 0) >= since)
 
 
+def _needs_paid(engine, model) -> bool:
+    """The rule the start routes apply (api.auth.require_engines_allowed): an
+    engine not open to every account, or an Ollama hosted tag outside the
+    members' ones."""
+    return not engine_registry.open_to_all_accounts(engine) or (
+        engine == "ollama" and local_engine.cloud_model_needs_paid(model))
+
+
+# Steps that translate or name with an engine of their own choosing, the title's otherwise.
+_ENGINE_STEPS = ("translate", NAMES, LINES, RUN_TRANSLATE, RUN_SCANLATE)
+
+
 def _may_use_paid(item: dict) -> bool:
-    """Could this item run on a paid engine? Judged on what it would run
-    with now: its own settings, else the title's saved choice."""
+    """Could this item run on an engine the caller may not use? Advisory, on
+    what the item would run with now (its own engine, else the title's): the
+    real gate is still the start, with the adder's rights. Raises
+    InvalidInputError for transcribe settings that no longer apply."""
     settings = item.get("settings") or {}
-    engine = settings.get("engine")
-    if settings.get("use_groq") or (engine and engine not in engine_registry.FREE_ENGINES):
+    if settings.get("use_groq"):
         return True
-    if item["step"] not in ("translate", "transcribe"):
-        return False
     drama = db.get_drama(item["drama_id"])
-    if not drama:
-        return False
-    if item["step"] == "translate":
-        return _translate_engine(drama) not in engine_registry.FREE_ENGINES
-    return bool(transcribe_options_service.apply_run_overrides(drama, settings).get("use_groq"))
+    if item["step"] in _ENGINE_STEPS:
+        engine = settings.get("engine") or (_translate_engine(drama) if drama else None)
+        if engine is None:
+            return False
+        model = settings.get("model")
+        if model is None and drama and not settings.get("engine"):
+            model = _queued_model_and_batch(drama, engine)[0]
+        return _needs_paid(engine, model)
+    if item["step"] == "transcribe" and drama:
+        return bool(transcribe_options_service.apply_run_overrides(drama, settings).get("use_groq"))
+    return False
 
 
 def retry_interrupted(principal, *, holds_paid: bool, at_pc: bool) -> dict:
@@ -730,17 +748,25 @@ def retry_interrupted(principal, *, holds_paid: bool, at_pc: bool) -> dict:
     caller may change goes back to waiting, as Retry does, and the queue
     starts when the caller may start it. An item that could run on a paid
     engine is left as it is unless the caller holds engines.paid, even
-    though it would run with its adder's rights: the press is what starts it."""
-    retried = skipped_paid = 0
+    though it would run with its adder's rights: the press is what starts it.
+    An item whose saved settings no longer apply is left too, for its own
+    Retry to explain."""
+    retried = skipped_paid = skipped_stale = 0
     with _lock:
         doc = _load()
         for item in doc["items"]:
             if item["status"] != INTERRUPTED or not _sees(principal, item) \
                     or not _may_change(principal, item):
                 continue
-            if not holds_paid and _may_use_paid(item):
-                skipped_paid += 1
-                continue
+            if not holds_paid:
+                try:
+                    paid = _may_use_paid(item)
+                except InvalidInputError:
+                    skipped_stale += 1
+                    continue
+                if paid:
+                    skipped_paid += 1
+                    continue
             _back_to_waiting(item, at_pc)
             retried += 1
         if retried and _controls(principal):
@@ -752,7 +778,8 @@ def retry_interrupted(principal, *, holds_paid: bool, at_pc: bool) -> dict:
         started = doc["state"] == ACTIVE
         _save(doc)
     _wake.set()
-    return {"retried": retried, "skipped_paid": skipped_paid, "started": bool(retried) and started}
+    return {"retried": retried, "skipped_paid": skipped_paid, "skipped_stale": skipped_stale,
+            "started": bool(retried) and started}
 
 
 def clear_finished(principal) -> dict:

@@ -1728,6 +1728,16 @@ class TestRestartNotice:
         member = {"user_id": 99, "is_admin": False, "is_local_owner": False}
         assert ns.list_recent(member) == []
 
+    def test_long_titles_never_cut_the_counts_or_the_button_sentence(self, env):
+        ids = [db.create_drama(title_en=f"A rather long audio drama title number {n}") for n in range(6)]
+        ns.notify_restart([{"description": f"Transcription (drama #{d})"} for d in ids], 3)
+        [entry] = ns.list_recent(None)
+        text = entry["text"]
+        assert len(text) <= ns._WAITING_MAX
+        assert "6 jobs were cut off" in text and "3 queue items stopped" in text
+        assert text.endswith("Run them again puts every interrupted queue item back.")
+        assert "more)" in text
+
     def test_jobs_only_has_no_queue_button_and_nothing_cut_off_says_nothing(self, env):
         ns.notify_restart([], 0)
         assert ns.list_recent(None) == []

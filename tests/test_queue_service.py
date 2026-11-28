@@ -1504,7 +1504,7 @@ def test_run_them_again_puts_interrupted_items_back_and_starts_the_queue(jobs):
     q.restore_at_startup()
     assert q.get_queue(None)["state"] == "idle"
     out = q.retry_interrupted(None, holds_paid=True, at_pc=True)
-    assert out == {"retried": 1, "skipped_paid": 0, "started": True}
+    assert out == {"retried": 1, "skipped_paid": 0, "skipped_stale": 0, "started": True}
     state = q.get_queue(None)
     assert state["state"] == "running"
     assert [i["status"] for i in state["items"]] == ["waiting", "waiting"]
@@ -1523,6 +1523,46 @@ def test_run_them_again_leaves_a_paid_item_for_a_presser_without_engines_paid(jo
     assert out["retried"] == 1 and out["skipped_paid"] == 1
     by_title = {i["title"]: i["status"] for i in q.get_queue(None)["items"]}
     assert by_title == {"Free": "waiting", "Paid": "interrupted"}
+
+
+def _interrupt_all():
+    with q._lock:
+        doc = q._load()
+        for item in doc["items"]:
+            q._finish(item, q.INTERRUPTED, q._INTERRUPTED, 0.0)
+        q._save(doc)
+
+
+def test_the_paid_check_follows_the_engine_the_item_would_run_on():
+    def item(step, settings=None, did=0):
+        return {"step": step, "settings": settings or {}, "drama_id": did}
+    paid_title = _drama("Paid", engine="claude")
+    # A free engine of the item's own wins over the title's saved paid one.
+    assert q._may_use_paid(item("run_translate", {"engine": "echo"}, paid_title)) is False
+    assert q._may_use_paid(item("translate", {}, paid_title)) is True
+    # Ollama is open to every account on its members' hosted tag, not on another hosted tag.
+    assert q._may_use_paid(item("names", {"engine": "ollama", "model": "gemma4:31b-cloud"}, paid_title)) is False
+    assert q._may_use_paid(item("names", {"engine": "ollama", "model": "qwen3-coder:480b-cloud"}, paid_title)) is True
+    # Page-run steps count too.
+    assert q._may_use_paid(item("run_scanlate", {"engine": "claude"}, paid_title)) is True
+    assert q._may_use_paid(item("lines", {}, paid_title)) is True
+    assert q._may_use_paid(item("export", {}, paid_title)) is False
+
+
+def test_run_them_again_skips_an_item_whose_settings_no_longer_apply(jobs, monkeypatch):
+    a, b = _drama("A"), _drama("B")
+    q.add_item(None, a, "transcribe", True, at_pc=True)
+    q.add_item(None, b, "transcribe", True, at_pc=True)
+    _interrupt_all()
+
+    def stale(drama, settings):
+        if drama["id"] == a:
+            raise InvalidInputError("That Whisper model is no longer offered.")
+        return dict(drama)
+    monkeypatch.setattr(q.transcribe_options_service, "apply_run_overrides", stale)
+    out = q.retry_interrupted(None, holds_paid=False, at_pc=True)
+    assert out["retried"] == 1 and out["skipped_stale"] == 1 and out["skipped_paid"] == 0
+    assert [i["status"] for i in q.get_queue(None)["items"]] == ["interrupted", "waiting"]
 
 
 def test_run_them_again_touches_only_the_callers_items(jobs):

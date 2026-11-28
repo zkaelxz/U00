@@ -1167,23 +1167,36 @@ def notify_job_finished(description, status, job_id=None, owner_user_id=None,
 
 
 def _restart_sentence(records, queue_items, shared_only) -> str:
-    names = []
+    """The counts and the closing sentences always fit; the job names take
+    what is left of _WAITING_MAX, so a long title list is what gets cut."""
+    head = "Baihe restarted while work was running."
+    counts = []
+    if records:
+        n = len(records)
+        counts.append(f"{n} job{'s were' if n != 1 else ' was'} cut off")
+    if queue_items:
+        counts.append(f"{queue_items} queue item{'s' if queue_items != 1 else ''} stopped")
+    tail = " Nothing started again by itself."
+    if queue_items and not shared_only:   # the button is the bell's; a push has none
+        tail += " Run them again puts every interrupted queue item back."
+    fixed = f"{head} {' and '.join(counts)}.{tail}"
+    room = _WAITING_MAX - len(WAITING_PREFIX) - len(fixed) - len(" ()")
+    names, shown = [], 0
     for rec in records[:_RESTART_NAMED]:
         title = _drama_title(rec.get("description"), shared_only)
         kind = _job_kind(rec.get("description"))
-        names.append(f"{kind} - {title}" if title else kind)
-    if len(records) > _RESTART_NAMED:
-        names.append(f"{len(records) - _RESTART_NAMED} more")
-    parts = []
-    if records:
-        n = len(records)
-        parts.append(f"{n} job{'s were' if n != 1 else ' was'} cut off ({'; '.join(names)})")
-    if queue_items:
-        parts.append(f"{queue_items} queue item{'s' if queue_items != 1 else ''} stopped")
-    text = "Baihe restarted while work was running: " + " and ".join(parts) + ". Nothing started again by itself."
-    if queue_items and not shared_only:   # the button is the bell's; a push has none
-        text += " Run them again puts the queue items back."
-    return redact_secrets(text)
+        name = f"{kind} - {title}" if title else kind
+        more = f"; {len(records) - shown - 1} more" if shown + 1 < len(records) else ""
+        if len("; ".join(names + [name])) + len(more) > room:
+            break
+        names.append(name)
+        shown += 1
+    if names and shown < len(records):
+        names.append(f"{len(records) - shown} more")
+    listed = f" ({'; '.join(names)})" if names else ""
+    first = counts[0] + (listed if records else "")
+    rest = (" and " + counts[1]) if len(counts) > 1 else ""
+    return redact_secrets(f"{head} {first}{rest}.{tail}")
 
 
 def notify_restart(records, queue_items: int) -> None:
