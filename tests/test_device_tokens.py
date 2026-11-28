@@ -723,3 +723,63 @@ def test_label_limit_matches_the_frontend():
     max_length = next(m.max_length for m in DeviceTokenCreateRequest.model_fields["label"].metadata
                       if hasattr(m, "max_length"))
     assert max_length == svc.MAX_LABEL_CHARS
+
+
+class TestExpiryWarning:
+    """A bell entry for its owner some days before a token in use runs out, once."""
+    DAY = 86400.0
+
+    @pytest.fixture(autouse=True)
+    def _clean_bell(self):
+        from services import notification_service
+        notification_service.reset_for_tests()
+        yield
+        notification_service.reset_for_tests()
+
+    def _bell(self, principal):
+        from services import notification_service
+        return [e for e in notification_service.list_recent(principal) if e["kind"] == "device_token"]
+
+    def _token(self, user_id, label, days, used_days_ago, now):
+        made = now - (90 - days) * self.DAY if days else now
+        out = svc.create_token(_principal(user_id), label, 90 if days else None, now=made)
+        tid = out["device_token"]["id"]
+        if used_days_ago is not None:
+            device_tokens.touch(tid, now - used_days_ago * self.DAY, "203.0.113.0")
+        return tid
+
+    def test_a_token_in_use_warns_its_owner_once(self, isolated_db):
+        now = time.time()
+        u, _ = _member()
+        other, _ = _member("other@example.com")
+        self._token(u["id"], "Phone", 6, used_days_ago=3, now=now)
+        assert svc.warn_expiring(now) == 1
+        mine = self._bell(_principal(u["id"]))
+        assert len(mine) == 1 and '"Phone"' in mine[0]["text"] and "in 6 days" in mine[0]["text"]
+        assert "baihe_dt_" not in mine[0]["text"]
+        assert self._bell(_principal(other["id"])) == []
+        admin = auth_service.grant_admin_local("admin@example.com")
+        assert self._bell(_principal(admin["id"], is_admin=True)) == []
+        assert svc.warn_expiring(now + 3600) == 0
+        assert len(self._bell(_principal(u["id"]))) == 1
+
+    def test_unused_far_off_revoked_and_endless_tokens_give_none(self, isolated_db):
+        now = time.time()
+        u, _ = _member()
+        self._token(u["id"], "Old laptop", 6, used_days_ago=45, now=now)
+        self._token(u["id"], "Never used", 6, used_days_ago=None, now=now)
+        self._token(u["id"], "Fresh", 60, used_days_ago=1, now=now)
+        self._token(u["id"], "Forever", None, used_days_ago=1, now=now)
+        gone = self._token(u["id"], "Revoked", 6, used_days_ago=1, now=now)
+        svc.revoke_own(u["id"], gone, now=now)
+        assert svc.warn_expiring(now) == 0
+        assert self._bell(_principal(u["id"])) == []
+
+    def test_the_warned_list_survives_a_restart(self, isolated_db):
+        from services import notification_service
+        now = time.time()
+        u, _ = _member()
+        self._token(u["id"], "Phone", 2, used_days_ago=1, now=now)
+        assert svc.warn_expiring(now) == 1
+        notification_service.reset_for_tests()   # the bell is memory only
+        assert svc.warn_expiring(now + 60) == 0

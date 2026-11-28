@@ -891,7 +891,12 @@ def list_recent(principal=None, limit=RECENT_MAX) -> list:
     out = []
     admin_ids = None
     for e in reversed(events):
-        if e["kind"] == "chapters" and not ownership_service.sees_every_job(principal):
+        if e["kind"] == "device_token":
+            # Its account alone, and the PC owner (auth off, or at the PC), who manages every key there.
+            if principal is not None and not principal.get("is_local_owner") \
+                    and ownership_service.user_id(principal) != e["owner_user_id"]:
+                continue
+        elif e["kind"] == "chapters" and not ownership_service.sees_every_job(principal):
             # A member hears only of the series they track.
             uid = ownership_service.user_id(principal)
             mine = (e.get("chapter_counts") or {}).get(uid, 0) if uid is not None else 0
@@ -1230,6 +1235,17 @@ def notify_waiting(text, *, push_text, owner_user_id=None, job_id=None, target=N
             _log().warning(f"notification: could not queue ({type(exc).__name__})")
         except Exception:
             pass
+
+
+def notify_device_token_expiring(owner_user_id, text) -> None:
+    """A remote access key of `owner_user_id` is about to stop working
+    (device_token_service.warn_expiring). The in-app list only, for that
+    account alone: no push, since a channel may be the household's, and an
+    admin has no use for another account's key. Never raises."""
+    try:
+        _record("device_token", redact_secrets(_tidy(text, 200)), None, owner_user_id)
+    except Exception:
+        pass
 
 
 def notify_live_follow(text, owner_user_id, follow_id, starts_at=None, start_action=False,

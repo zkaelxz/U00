@@ -31,6 +31,7 @@ Security rules kept here:
 
 import hashlib
 import hmac
+import math
 import re
 import secrets
 import time
@@ -54,6 +55,13 @@ DEFAULT_EXPIRY_DAYS = 90
 _TOUCH_INTERVAL_SECONDS = 60
 _KEEP_ENDED_SECONDS = 30 * 24 * 3600
 _GENERIC_401 = "Authentication required."
+# The bell warns this long before a token ends, once per token, and only for
+# one still in use: a forgotten token running out needs no one's attention.
+EXPIRY_WARN_SECONDS = 7 * 86400
+EXPIRY_WARN_USED_WITHIN_SECONDS = 30 * 86400
+EXPIRY_WARNED_KEY = "device_tokens.expiry_warned"
+EXPIRY_CHECK_SECONDS = 3600.0
+_last_expiry_check = None
 _NOT_FOUND = "That device token isn't active."
 ADMIN_TOKENS_AT_PC_ONLY = ("An admin account's extension devices can only be added at "
                            "the PC. You can revoke one from anywhere.")
@@ -222,6 +230,56 @@ def revoke_own(user_id: int, token_id: int, ip: str = "", now: float | None = No
     auth_service.write_audit(user_id, "device_token.revoke",
                              f"token {token_id} ip {auth_service.ip_prefix(ip)}")
     return {"revoked": 1}
+
+
+# --- expiry warning -------------------------------------------------------------
+
+def _expiry_text(label: str, seconds_left: float) -> str:
+    days = max(1, math.ceil(seconds_left / 86400))
+    when = "tomorrow" if days == 1 else f"in {days} days"
+    return (f'The remote access key "{label}" stops working {when}. '
+            "Make a new one in Settings > Remote access keys and paste it into that device.")
+
+
+def warn_expiring(now: float | None = None) -> int:
+    """One bell entry for its owner per live token that ends within
+    EXPIRY_WARN_SECONDS and was used within EXPIRY_WARN_USED_WITHIN_SECONDS.
+    The ids already warned about are kept (only those still listed), so a
+    restart doesn't warn twice. The entry names the token's label, never the
+    token. Returns how many entries were added."""
+    from services import notification_service
+    now = time.time() if now is None else now
+    rows = device_tokens.list_all()
+    raw = db.get_app_setting(EXPIRY_WARNED_KEY, [])
+    warned = {i for i in raw if type(i) is int} if isinstance(raw, list) else set()
+    added = 0
+    for row in rows:
+        left = (row["expires_at"] - now) if row["expires_at"] is not None else None
+        if (row["revoked_at"] is not None or left is None or left <= 0
+                or left > EXPIRY_WARN_SECONDS or row["id"] in warned
+                or row["last_used_at"] is None
+                or now - row["last_used_at"] > EXPIRY_WARN_USED_WITHIN_SECONDS):
+            continue
+        notification_service.notify_device_token_expiring(row["user_id"], _expiry_text(row["label"], left))
+        warned.add(row["id"])
+        added += 1
+    keep = sorted(warned & {r["id"] for r in rows})
+    if keep != sorted(raw if isinstance(raw, list) else []):
+        db.set_app_setting(EXPIRY_WARNED_KEY, keep)
+    return added
+
+
+def periodic_tick(interval: float | None = None) -> bool:
+    """Called by the API's background poller; runs warn_expiring at most
+    once per `interval` seconds (hourly). Returns True when it checked."""
+    global _last_expiry_check
+    interval = EXPIRY_CHECK_SECONDS if interval is None else interval
+    now = time.monotonic()
+    if _last_expiry_check is not None and now - _last_expiry_check < interval:
+        return False
+    _last_expiry_check = now
+    warn_expiring()
+    return True
 
 
 # --- admin -----------------------------------------------------------------------
