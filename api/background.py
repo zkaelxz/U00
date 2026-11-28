@@ -90,6 +90,11 @@ def start_gpu_queue_poller(interval: float | None = None) -> bool:
                 except Exception as exc:
                     log_warning("update check failed: %s", exc)
                 try:
+                    from services import pending_install_service
+                    pending_install_service.auto_apply_tick()
+                except Exception as exc:
+                    log_warning("queued install restart check failed: %s", exc)
+                try:
                     from services import device_token_service
                     device_token_service.periodic_tick()
                 except Exception as exc:

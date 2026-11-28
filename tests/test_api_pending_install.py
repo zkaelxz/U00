@@ -388,3 +388,81 @@ def test_restart_says_why_a_copy_cannot_restart_itself(client, env, monkeypatch)
     assert client.get(BASE).json()["restart"]["available"] is False
     r = client.post(f"{BASE}/restart", json={"confirm": True})
     assert r.status_code >= 400 and "Setup" in r.text and started == []
+
+
+# --- the boot service restarts itself for a queued install ------------------------------
+
+def _service_env(monkeypatch, capable=True, jobs=()):
+    asked = []
+    monkeypatch.setattr(svc.source_update_service, "runs_as_service", lambda: True)
+    monkeypatch.setattr(svc.app_update_service, "updater_present", lambda: True)
+    monkeypatch.setattr(svc.app_update_service, "updater_restarts_for_packages", lambda: capable)
+    monkeypatch.setattr(svc.app_update_service, "request_package_restart", lambda: asked.append(1))
+    monkeypatch.setattr(svc.background_jobs, "active_job_ids", lambda: list(jobs))
+    return asked
+
+
+def test_the_service_restart_button_asks_the_helper(client, env, monkeypatch):
+    asked = _service_env(monkeypatch)
+    queue(client, accept_risk=True)
+    info = client.get(BASE).json()["restart"]
+    assert info["available"] is True and info["automatic"] is True
+    assert client.post(f"{BASE}/restart", json={"confirm": True}).status_code == 202
+    assert asked == [1]
+
+
+def test_an_older_helper_says_to_run_setup_once(client, env, monkeypatch):
+    asked = _service_env(monkeypatch, capable=False)
+    queue(client, accept_risk=True)
+    info = client.get(BASE).json()["restart"]
+    assert info["available"] is False and "Setup" in info["reason"]
+    assert client.post(f"{BASE}/restart", json={"confirm": True}).status_code >= 400 and asked == []
+
+
+def test_the_automatic_restart_waits_for_the_cancel_grace_and_for_idle(client, env, monkeypatch):
+    asked = _service_env(monkeypatch)
+    queue(client, accept_risk=True)
+    created = svc.pending_install.read_pending()[0]["created"]
+    svc.auto_apply_tick(now=created + 10)
+    assert asked == []
+    monkeypatch.setattr(svc.background_jobs, "active_job_ids", lambda: ["live_1"])
+    svc.auto_apply_tick(now=created + svc.AUTO_GRACE_SECONDS + 1)
+    assert asked == []
+    monkeypatch.setattr(svc.background_jobs, "active_job_ids", lambda: [])
+    env["jobs"] = True
+    svc.auto_apply_tick(now=created + svc.AUTO_GRACE_SECONDS + 2)
+    assert asked == []
+    env["jobs"] = False
+    svc.auto_apply_tick(now=created + svc.AUTO_GRACE_SECONDS + 3)
+    svc.auto_apply_tick(now=created + svc.AUTO_GRACE_SECONDS + 60)
+    assert asked == [1]
+
+
+def test_the_automatic_restart_does_nothing_without_the_service_helper(client, env, monkeypatch):
+    asked = _service_env(monkeypatch, capable=False)
+    queue(client, accept_risk=True)
+    svc.auto_apply_tick(now=10**10)
+    assert asked == []
+
+
+def test_queueing_is_refused_for_a_locked_folder_unless_the_service_helper_installs(client, env, monkeypatch):
+    from services import diagnostics_installs_service as installs
+    monkeypatch.setattr(installs, "_writable", lambda folder: False)
+    monkeypatch.setattr(svc, "service_can_restart", lambda: False)
+    r = client.post(f"{BASE}/queue", json={"packages": ["paddleocr"], "confirm": True, "accept_risk": True})
+    assert r.status_code >= 400 and "locked" in r.text
+    assert svc.pending_install.read_pending()[0] is None
+    monkeypatch.setattr(svc, "service_can_restart", lambda: True)
+    r = client.post(f"{BASE}/queue", json={"packages": ["paddleocr"], "confirm": True, "accept_risk": True})
+    assert r.status_code == 200 and r.json()["queued"] is True
+
+
+def test_a_queue_the_helper_already_handled_is_removed_and_not_asked_for_again(client, env, monkeypatch):
+    asked = _service_env(monkeypatch)
+    queue(client, accept_risk=True)
+    created = svc.pending_install.read_pending()[0]["created"]
+    monkeypatch.setattr(svc.app_update_service, "read_package_restart_result",
+                        lambda: {"outcome": "ok", "queued_created": created, "downtime_seconds": 30})
+    svc.auto_apply_tick(now=created + 10**6)
+    assert asked == [] and svc.pending_install.read_pending()[0] is None
+    assert client.get(BASE).json()["last_restart"]["outcome"] == "ok"

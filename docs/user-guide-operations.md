@@ -542,8 +542,11 @@ and Reset library are left out away from the main PC.
   whether the library folder is writable, problems first. The Playwright package and browser rows only count
   as problems once a saved source has worked only through a browser; until then a missing one is not listed.
 - **Packages and installs** -- every install lives here. If Baihe runs as a Windows service, its install
-  folder is locked and installs are refused, and the page says so; turning the services off does not unlock it
-  (see "Locked install folder" in the runbook). **Packages** has installed versions, install-by-task presets
+  folder is locked: an install you confirm is queued, and a few minutes later, once no job or Live session
+  is running, the update helper stops Baihe, installs the packages (wheels only) and starts it again by
+  itself; Diagnostics then says how many packages and how many seconds Baihe was away. A PC whose helper
+  is from an older Setup says so and needs the new Setup run once. Turning the services off does not unlock
+  the folder (see "Locked install folder" in the runbook). **Packages** has installed versions, install-by-task presets
   (on an NVIDIA PC without PyTorch, a task that needs it sets up GPU PyTorch first, then installs the rest),
   per-package Install / Update (PC only) with "Check for package updates", a "Test first" upgrade check and
   the GPU PyTorch set-up. **Browser support**, **ffmpeg**, **CUDA runtime for GPU Whisper** and **JavaScript

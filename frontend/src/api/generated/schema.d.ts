@@ -12262,6 +12262,12 @@ export interface components {
         /** PendingInstallRestart */
         PendingInstallRestart: {
             /**
+             * Automatic
+             * @description Baihe restarts itself to run the queued install once no job or Live session is running.
+             * @default false
+             */
+            automatic: boolean;
+            /**
              * Available
              * @description Baihe can restart itself (a start.bat copy on Windows).
              */
@@ -12318,6 +12324,13 @@ export interface components {
             };
             /** Created */
             created: number | null;
+            /**
+             * Last Restart
+             * @description The service helper's last automatic restart: outcome word, seconds of downtime and package counts.
+             */
+            last_restart: {
+                [key: string]: string | number;
+            } | null;
             /** Packages */
             packages: string[];
             /**

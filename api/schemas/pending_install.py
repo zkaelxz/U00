@@ -1,6 +1,6 @@
 """Pydantic models for api/routers/pending_install_routes.py."""
 
-from typing import Annotated, Dict, List, Optional
+from typing import Union, Annotated, Dict, List, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, StrictBool
 
@@ -71,6 +71,8 @@ class PendingInstallRestart(BaseModel):
     reason: Optional[str] = Field(None, description="Plain words why it can't.")
     running_jobs: List[str] = Field(description="Jobs a restart would stop.")
     other_jobs: bool = Field(description="Another Baihe process has a job; a restart waits for it.")
+    automatic: bool = Field(False, description="Baihe restarts itself to run the queued install once "
+                            "no job or Live session is running.")
     service: bool = Field(False, description="The background service runs this copy: closing "
                           "its window doesn't restart it.")
 
@@ -94,3 +96,6 @@ class PendingInstallStatus(BaseModel):
     result: Optional[PendingInstallOutcome] = None
     applying: bool
     restart: PendingInstallRestart
+    last_restart: Optional[Dict[str, Union[str, int]]] = Field(
+        None, description="The service helper's last automatic restart: outcome word, seconds of "
+                          "downtime and package counts.")

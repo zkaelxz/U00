@@ -8,6 +8,8 @@ nothing starts. Windows can't run here: what these pin is the decisions
 
 import base64
 import json
+from pathlib import Path
+import types
 import os
 import zipfile
 
@@ -525,3 +527,183 @@ def test_a_refusal_with_no_readable_request_writes_nothing(env):
     layout, _, _ = env
     su.record_refusal(layout, Log())
     assert sw.read_result(layout.root) is None
+
+
+# --- install of a queued package batch, as LocalSystem --------------------------------
+
+class FakeRun:
+    """subprocess.run for the install step: records it and plays pending_install's result."""
+
+    def __init__(self, result=None, code=0):
+        self.calls, self.result, self.code = [], result, code
+
+    def __call__(self, argv, **kw):
+        self.calls.append((argv, kw))
+        state = Path(kw["env"]["BAIHE_DATA_DIR"]) / "pending_install"
+        assert (state / "pending.json").is_file()
+        if self.result is not None:
+            (state / "result.json").write_text(json.dumps(self.result))
+        return types.SimpleNamespace(returncode=self.code, stdout="ok", stderr="")
+
+
+def _queue_file(layout, keys=("budoux", "pypdf"), created=1000):
+    folder = layout.data / "pending_install"
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / "pending.json").write_text(json.dumps({"payload": {"packages": list(keys), "created": created}}))
+    (layout.root / "python/Lib/site-packages").mkdir(parents=True, exist_ok=True)
+
+
+def _restart_request(layout, body="{}"):
+    (layout.data / "library" / "updates" / su.RESTART_REQUEST_NAME).write_text(body)
+
+
+def _restart_result(layout):
+    return json.loads((sw.work_dir(layout.root) / su.RESTART_RESULT_NAME).read_text())
+
+
+def _install(layout, svc, runner, **kw):
+    return su.restart_for_packages(layout, Log(), 8600, health=svc.health, sleep=lambda s: None,
+                                   owner=_admin_owner, hold=_Held(), sddl=_good_sddl, runner=runner, **kw)
+
+
+OK_RESULT = {"status": "ok", "packages": ["a", "b"], "restored": [], "finished": 2**31}
+
+
+def test_the_queued_install_runs_in_an_admin_only_copy_while_the_app_is_stopped(env):
+    layout, svc, _ = env
+    _queue_file(layout)
+    run = FakeRun(OK_RESULT)
+    assert "Installed 2" in _install(layout, svc, run)
+    (argv, kw), = run.calls
+    assert argv[1:] == ["-s", "-m", "pending_install"] and kw["cwd"] == str(layout.app)
+    env_ = kw["env"]
+    assert env_["PIP_ONLY_BINARY"] == ":all:" and env_["PIP_CONFIG_FILE"] == os.devnull
+    assert "PYTHONPATH" not in env_ and not any(k.startswith("PIP_INDEX") for k in env_)
+    state = Path(env_["BAIHE_DATA_DIR"])
+    assert sw.work_dir(layout.root) in state.parents and layout.data not in state.parents
+    assert svc.stops == 1 and svc.starts == 1 and svc.running
+    result = _restart_result(layout)
+    assert result["outcome"] == "ok" and result["packages"] == 2 and result["queued_created"] == 1000
+    assert not (layout.data / "library" / "updates" / su.RESTART_RESULT_NAME).exists()
+
+
+def test_the_data_folders_state_files_are_never_touched_by_the_install(env):
+    layout, svc, _ = env
+    _queue_file(layout)
+    before = sorted(p.relative_to(layout.data).as_posix() for p in layout.data.rglob("*"))
+    _install(layout, svc, FakeRun(OK_RESULT))
+    assert sorted(p.relative_to(layout.data).as_posix() for p in layout.data.rglob("*")) == before
+
+
+def test_the_request_is_dispatched_and_spent_and_its_content_ignored(env, monkeypatch):
+    layout, svc, _ = env
+    _queue_file(layout)
+    _restart_request(layout, json.dumps({"command": "calc.exe", "version": "9.9.9"}))
+    run = FakeRun(OK_RESULT)
+    monkeypatch.setattr(su.subprocess, "run", run)
+    su.apply_update(layout, Log(), 8600, health=svc.health, sleep=lambda s: None,
+                    owner=_admin_owner, sddl=_good_sddl, hold=_Held())
+    assert not any("calc" in " ".join(map(str, c[0])) for c in run.calls)
+    assert len(run.calls) == 1
+
+
+def test_a_request_behind_a_linked_updates_folder_is_ignored_and_nothing_is_deleted(env, monkeypatch):
+    layout, svc, _ = env
+    _restart_request(layout)
+    monkeypatch.setattr(su, "is_reparse_point", lambda p: p.name == "updates")
+    assert su._restart_requested(layout) is False
+    assert (layout.data / "library" / "updates" / su.RESTART_REQUEST_NAME).exists()
+
+
+def test_the_helper_never_deletes_in_the_data_folder_and_skips_a_queue_it_already_ran(env):
+    layout, svc, _ = env
+    _queue_file(layout)
+    _restart_request(layout)
+    _install(layout, svc, FakeRun(OK_RESULT))
+    assert (layout.data / "library" / "updates" / su.RESTART_REQUEST_NAME).exists()
+    again = FakeRun(OK_RESULT)
+    with pytest.raises(service_layout.ServiceError, match="already run"):
+        _install(layout, svc, again)
+    assert again.calls == []
+
+
+@pytest.mark.parametrize("keys", [[], ["x" * 81], ["ok", "--index-url=http://evil"], ["a b"],
+                                  [f"p{i}" for i in range(su.MAX_QUEUED_KEYS + 1)], [1]])
+def test_a_queue_that_is_empty_oversized_or_not_package_keys_is_not_run(env, keys):
+    layout, svc, _ = env
+    _queue_file(layout, keys=keys)
+    run = FakeRun()
+    with pytest.raises(service_layout.ServiceError, match="No valid package install"):
+        _install(layout, svc, run)
+    assert run.calls == [] and svc.stops == 0
+    assert not (sw.work_dir(layout.root) / su.RESTART_RESULT_NAME).exists()
+
+
+def test_nothing_queued_leaves_the_app_alone(env):
+    layout, svc, _ = env
+    with pytest.raises(service_layout.ServiceError):
+        _install(layout, svc, FakeRun())
+    assert svc.stops == 0
+
+
+@pytest.mark.parametrize("linked", ["pending_install", "library"])
+def test_a_linked_data_folder_on_the_way_is_not_read(env, monkeypatch, linked):
+    layout, svc, _ = env
+    _queue_file(layout)
+    monkeypatch.setattr(su, "is_reparse_point", lambda p: p.name == linked)
+    with pytest.raises(service_layout.ServiceError):
+        _install(layout, svc, FakeRun())
+    assert svc.stops == 0
+
+
+def test_an_install_folder_the_user_could_write_is_not_installed_into(env):
+    layout, svc, _ = env
+    _queue_file(layout)
+    run = FakeRun()
+    with pytest.raises(service_layout.ServiceError):
+        su.restart_for_packages(layout, Log(), 8600, health=svc.health, sleep=lambda s: None,
+                                owner=lambda p: "S-1-5-21-1-2-3-1001", hold=_Held(),
+                                sddl=_good_sddl, runner=run)
+    assert run.calls == [] and svc.stops == 0
+    assert not (sw.work_dir(layout.root) / su.RESTART_RESULT_NAME).exists()
+
+
+def test_a_write_right_for_the_app_service_on_site_packages_is_not_trusted(env, monkeypatch):
+    layout, svc, _ = env
+    _queue_file(layout)
+    seen = []
+    monkeypatch.setattr(su, "write_access_problem",
+                        lambda sddl, trusted, protected=False: seen.append(trusted) or None)
+    _install(layout, svc, FakeRun(OK_RESULT))
+    assert seen and all(service_layout.APP_SERVICE not in str(t) and len(t) == 4 for t in seen)
+
+
+def test_a_failed_install_is_reported_with_how_many_packages_were_put_back(env):
+    layout, svc, _ = env
+    _queue_file(layout)
+    run = FakeRun({"status": "failed", "packages": ["a"], "restored": ["a"], "restore_failed": [],
+                   "finished": 2**31})
+    assert "failed" in _install(layout, svc, run)
+    assert _restart_result(layout)["restored"] == 1 and svc.running
+
+
+def test_an_app_that_does_not_come_back_is_reported_not_hidden(env, monkeypatch):
+    layout, svc, _ = env
+    svc.healthy_after_start = False
+    monkeypatch.setattr(su, "HEALTH_WAIT_SECONDS", 2)
+    _queue_file(layout)
+    with pytest.raises(service_layout.ServiceError, match="did not come back"):
+        _install(layout, svc, FakeRun(OK_RESULT))
+    assert _restart_result(layout)["outcome"] == "not_healthy"
+
+
+def test_a_stale_request_without_a_valid_queue_does_not_block_an_app_update(env, key):
+    layout, svc, _ = env
+    _restart_request(layout)
+    _release(layout, key)
+    assert "0.1.0 to 0.2.0" in _apply(layout, svc)
+
+
+def test_the_apps_queue_cap_is_the_helpers():
+    from services import pending_install_service
+    assert pending_install_service.MAX_QUEUED_KEYS == su.MAX_QUEUED_KEYS

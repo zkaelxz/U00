@@ -172,9 +172,11 @@ export function PendingInstallBanner({ status, onCancel, onDismiss, onRestarted 
         <div className="diag-stack" role="status" data-testid="pending-install">
           <p>
             <Badge tone="warn">pending install (restart)</Badge>{' '}
-            {status.packages.join(', ')} will install when you restart Baihe.
+            {status.restart.automatic
+              ? `${status.packages.join(', ')} will install by themselves: Baihe restarts once no job or Live session is running (a few minutes after you queued it).`
+              : `${status.packages.join(', ')} will install when you restart Baihe.`}
             {/* The service's reason, shown below, says how it restarts: closing a window doesn't. */}
-            {status.restart.service ? '' : ` ${RESTART_HELP}`}
+            {status.restart.service || status.restart.automatic ? '' : ` ${RESTART_HELP}`}
           </p>
           <div className="actions">
             <button type="button" className={buttonClass('secondary', 'sm')} onClick={onCancel}>
@@ -183,6 +185,13 @@ export function PendingInstallBanner({ status, onCancel, onDismiss, onRestarted 
           </div>
           <RestartAndInstall status={status} onBack={onRestarted} />
         </div>
+      )}
+      {status.last_restart && (
+        <p className={status.last_restart.outcome === 'ok' ? undefined : 'error'} role="status" data-testid="pending-install-last-restart">
+          {status.last_restart.outcome === 'ok'
+            ? `Baihe restarted itself to install ${status.last_restart.packages ?? 0} packages and was back after ${status.last_restart.downtime_seconds ?? 0} seconds.`
+            : 'Baihe tried to restart itself to install packages, but it did not finish cleanly. Check Packages, or run Setup again to repair.'}
+        </p>
       )}
       {status.problem && <p className="error" role="alert" data-testid="pending-install-problem">{status.problem}</p>}
       {result && (

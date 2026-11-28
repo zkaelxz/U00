@@ -290,6 +290,10 @@ def _apply_pending_install():
     queued from Diagnostics runs here, before anything heavy is imported."""
     try:
         import pending_install
+        if not pending_install.site_packages_writable():
+            print("Queued install left for the BaiheUpdate helper (the install folder is locked).",
+                  flush=True)
+            return
         pending_install.apply(echo=True)
     except Exception as exc:        # the server start comes first
         print(f"Queued install skipped: {type(exc).__name__}", flush=True)
