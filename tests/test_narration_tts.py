@@ -602,6 +602,11 @@ class TestListenWhileItIsMade:
         log = types.SimpleNamespace(warning=lambda msg: seen.append(("warning", msg)),
                                     info=lambda msg: seen.append(("info", msg)))
         monkeypatch.setattr(applog, "get_logger", lambda: log)
+        # The run's progress lines (pinned in test_dub.py) would probe the fake track and log that
+        # it can't be read; these tests pin only the track-in-use lines.
+        monkeypatch.setattr(dub_narration, "_RunLog", lambda drama_dir: types.SimpleNamespace(
+            started=lambda *a: None, tick=lambda *a: None, finished=lambda *a: None,
+            limit_hit=lambda *a: None))
         return seen
 
     def _hold(self, monkeypatch, *held_names):
