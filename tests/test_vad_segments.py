@@ -1,4 +1,5 @@
 import builtins
+import sys
 
 import numpy as np
 import pytest
@@ -154,7 +155,11 @@ def test_a_file_scored_once_is_not_scored_again_and_gets_the_same_scores(monkeyp
 
 
 def test_remembered_scores_give_the_same_spans_as_scoring_afresh(monkeypatch):
-    pytest.importorskip("faster_whisper")
+    # Other tests leave a stand-in faster_whisper module behind; this one needs the real package.
+    if not hasattr(sys.modules.get("faster_whisper"), "__path__"):
+        for name in [n for n in sys.modules if n == "faster_whisper" or n.startswith("faster_whisper.")]:
+            monkeypatch.delitem(sys.modules, name)
+    pytest.importorskip("faster_whisper.vad")
     from faster_whisper.vad import SileroVADModel, get_vad_model
     # The model is shared by the whole test process, so start from the plain method and no scores.
     fresh = getattr(SileroVADModel.__call__, "unwrapped", SileroVADModel.__call__)
