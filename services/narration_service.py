@@ -269,7 +269,7 @@ def _pending_tail(drama_id: int, text: str) -> str:
     chars, length = waiting.chars, waiting.length
     if length != len(text):
         raise ConflictError("The translation text changed after the chapters were added, so their lines "
-                            "can't be cut on their own. Run Split and name speakers again from the Media tab.")
+                            "can't be cut on their own. Run Split and name speakers again in Media.")
     saved = db.load_lines(drama_id)
     if not saved:
         raise InvalidInputError("This title has no lines to add to; run Split and name speakers first.")
@@ -478,7 +478,7 @@ def _save_chapters(job_id, drama_id, lines, chapters, whole_text, notice=None):
     for label in sorted({ln.speaker or "Narrator" for ln in lines}):
         db.upsert_character(drama_id, label, character_name=label)
     if existing:
-        db.save_line_history_snapshot(drama_id, existing, "before chunk & tag chapters")
+        db.save_line_history_snapshot(drama_id, existing, "before split and name speakers (chapters)")
     db.save_lines(drama_id, result_lines, expect_unchanged=existing)
     db.update_drama(drama_id, status="aligned")
     finish_tagging_checkpoint(drama_id)
@@ -497,7 +497,7 @@ def _save_lines(job_id, drama_id, lines, notice=None):
     background_jobs.cancel_line_jobs(drama_id)
     existing = db.load_line_objects(drama_id)
     if existing:
-        db.save_line_history_snapshot(drama_id, existing, "before chunk & tag speakers")
+        db.save_line_history_snapshot(drama_id, existing, "before split and name speakers")
     _carry_over_existing(lines, existing)
     # Full sync on purpose: the list is the drama's lines now; text that is
     # gone loses its row, unchanged text keeps its row through the carry-over.

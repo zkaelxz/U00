@@ -2,7 +2,7 @@
 import type { Route } from '../../router'
 import { isActive, isFinished } from '../diagnosticsFormat'
 import { shownStatus, type JobKind, type JobPage, type JobRecord, type JobLike } from '../../types/jobs'
-import { STAGE_LABELS, type StageId } from '../workspace/stages'
+import { STAGE_LABELS, stageLabel, type StageId } from '../workspace/stages'
 
 type StatusFilter = 'active' | 'failed' | 'finished' | 'cancelled' | 'all'
 export type KindFilter = 'all' | 'transcribe' | 'translate' | 'review' | 'dub' | 'export' | 'sources' | 'other'
@@ -158,7 +158,6 @@ const STAGE_BY_KIND: Partial<Record<JobKind, StageId>> = {
   translate: 'translate',
   review: 'review',
   align: 'review',
-  dub: 'export',
   export: 'export',
 }
 
@@ -186,12 +185,22 @@ export function jobLinks(j: JobLike<'drama_id' | 'kind' | 'page'> & { job_id?: s
       stage: { label: STAGE_LABELS.review, route: { name: 'drama', id: j.drama_id, stage: 'review', tools: 'problems', focus: 'compare' } },
     }
   }
-  // Narration is the one dub-kind job started from the Media stage; voices, dubs and audiobooks are in Export.
-  const stage = j.job_id?.startsWith('narration_') ? 'source' : j.kind ? STAGE_BY_KIND[j.kind] : undefined
-  return {
-    title: { name: 'drama', id: j.drama_id, stage: null },
-    stage: stage ? { label: STAGE_LABELS[stage], route: { name: 'drama', id: j.drama_id, stage } } : null,
+  const title: Route = { name: 'drama', id: j.drama_id, stage: null }
+  const dub = j.kind === 'dub' ? dubStageLink(j.drama_id, j.job_id ?? '') : undefined
+  if (dub !== undefined) return { title, stage: dub }
+  const stage = j.kind ? STAGE_BY_KIND[j.kind] : undefined
+  return { title, stage: stage ? { label: STAGE_LABELS[stage], route: { name: 'drama', id: j.drama_id, stage } } : null }
+}
+
+// The dub kind covers jobs started from four different places, so only the job id says where its result is.
+function dubStageLink(id: number, jobId: string): JobLinks['stage'] | undefined {
+  if (jobId.startsWith('narration_')) return { label: stageLabel('source', 'novel'), route: { name: 'drama', id, stage: 'source' } }
+  if (jobId.startsWith('audiobook_')) return { label: STAGE_LABELS.export, route: { name: 'drama', id, stage: 'export' } }
+  if (jobId.startsWith('voiceref_')) {
+    return { label: STAGE_LABELS.review, route: { name: 'drama', id, stage: 'review', focus: 'voices', tools: 'change' } }
   }
+  if (jobId.startsWith('dub_')) return { label: 'Read', route: { name: 'read', id, page: null } }
+  return undefined
 }
 
 export const progressPercent = (j: JobLike<'status' | 'progress'>): number | null =>

@@ -142,7 +142,8 @@ export function ThreeRunReview({ dramaId, jobRunning, onChanged }: { dramaId: nu
   const undoLast = () => {
     const last = undoStack[undoStack.length - 1]
     if (!last) return
-    pickThreeRun(dramaId, [{ line_id: last.lineId, run: last.prev }]).then(() => {
+    pickThreeRun(dramaId, [{ line_id: last.lineId, run: last.prev }]).then((r) => {
+      if (!r.applied.length) setError(new Error('That line was edited since the pick, so it was left as it is.'))
       setUndoStack((s) => s.slice(0, -1))
       const at = items.findIndex((i) => i.line_id === last.lineId)
       if (at >= 0) setCurrent(at)

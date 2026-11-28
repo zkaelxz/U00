@@ -155,8 +155,10 @@ describe('links and display helpers', () => {
       label: 'Review', route: { name: 'drama', id: 7, stage: 'review', tools: 'problems', focus: 'compare' },
     })
     expect(jobLinks({ drama_id: 7, kind: 'align' }).stage?.label).toBe('Review')
-    expect(jobLinks({ drama_id: 7, kind: 'dub', job_id: 'dub_7' }).stage?.route).toEqual({ name: 'drama', id: 7, stage: 'export' })
-    expect(jobLinks({ drama_id: 7, kind: 'dub', job_id: 'narration_7' }).stage?.route).toEqual({ name: 'drama', id: 7, stage: 'source' })
+    expect(jobLinks({ drama_id: 7, kind: 'dub', job_id: 'dub_7' }).stage).toEqual({ label: 'Read', route: { name: 'read', id: 7, page: null } })
+    expect(jobLinks({ drama_id: 7, kind: 'dub', job_id: 'narration_7' }).stage).toEqual({ label: 'Media', route: { name: 'drama', id: 7, stage: 'source' } })
+    expect(jobLinks({ drama_id: 7, kind: 'dub', job_id: 'audiobook_7' }).stage).toEqual({ label: 'Export', route: { name: 'drama', id: 7, stage: 'export' } })
+    expect(jobLinks({ drama_id: 7, kind: 'dub', job_id: 'voiceref_7_2' }).stage?.route).toEqual({ name: 'drama', id: 7, stage: 'review', focus: 'voices', tools: 'change' })
     expect(jobLinks({ drama_id: 7, kind: 'import' }).stage?.label).toBe('Transcribe')
   })
   it('has no stage for a kind without one, and no links without a title', () => {

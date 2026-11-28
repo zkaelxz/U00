@@ -700,7 +700,7 @@ def add_new_chapters_from_sources(drama_id: int, from_chapter: int | None = None
             # The text changed after the earlier chapters were added, so where their lines start is not known;
             # starting a new marker would leave them without lines for good.
             raise ConflictError("The translation text changed after the last chapters were added without lines, "
-                                "so more can't be added yet. Run chunk & tag again from the Source stage.")
+                                "so more can't be added yet. Run Split and name speakers again in Media.")
         # Before the write, like a replace: only the chapters read above are settled, so one the phone saves
         # meanwhile stays counted.
         _settle_phone_added(drama_id, folder, phone_seen)
