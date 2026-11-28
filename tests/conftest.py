@@ -299,16 +299,6 @@ def _echo_engine_off_after_each_test():
 
 
 @pytest.fixture(autouse=True)
-def _line_rescoring_finished():
-    """A restore starts the line rescoring on a thread; left running, it writes its marker
-    into whichever database the next test opens."""
-    yield
-    backfill = sys.modules.get("services.confidence_backfill_service")
-    if backfill is not None:
-        backfill.wait(10.0)
-
-
-@pytest.fixture(autouse=True)
 def _home_addresses_forgotten():
     """url_guard refuses the home's own public addresses process-wide; one
     test's remote-health check must not make the next test's fetch refused."""
