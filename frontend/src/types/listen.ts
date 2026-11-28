@@ -35,6 +35,12 @@ function missingVoices(engine: ListenConfig['tts_engines'][number] | undefined):
   return `${names.join(', ')} ${names.length === 1 ? 'has' : 'have'} no voice yet. ${engine!.label} needs a reference clip or a voice description for every speaker; only OmniVoice picks voices on its own.`
 }
 
+// While a run goes on, how many lines the part joined so far lets you hear (the server joins it at chapter ends).
+export function playableLines(job: { result?: { [key: string]: unknown } | null } | null): number {
+  const n = job?.result?.playable_lines
+  return typeof n === 'number' ? n : 0
+}
+
 // What a finished run left out: the server lists each skipped line ("line 5: ...") in the job result.
 export function skippedLines(job: { result?: { [key: string]: unknown } | null } | null): string[] {
   const errors = job?.result?.errors

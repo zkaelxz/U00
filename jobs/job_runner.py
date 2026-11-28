@@ -477,7 +477,8 @@ def _promote_one_queued_gpu_job(dropped):
                     run.get("owner_user_id"), start_method=entry.get("start_method"),
                     run_settings=run.get("run_settings"),
                     initial_result=run.get("result"), line_fields=_line_fields(run),
-                    daily_day=run.get("daily_day"), origin_device=run.get("origin_device"))
+                    daily_day=run.get("daily_day"), origin_device=run.get("origin_device"),
+                    on_partial=run.get("on_partial"))
                 run = _jobs[job_id]
             except Exception as exc:
                 # mp.Queue()/Process() can fail (no fds, no /dev/shm)
@@ -519,7 +520,7 @@ def _promote_one_queued_gpu_job(dropped):
 def _register_process_job(job_id, target, args, gpu_touching, description, owner_user_id=None,
                           start_method=None, run_settings=None,
                           initial_result=None, line_fields=None, daily_day=None,
-                          origin_device=None):
+                          origin_device=None, on_partial=None):
     """Caller must already hold _lock. Builds the Process and its result
     queue and records the job dict entry, but doesn't call proc.start()
     itself -- constructing a Process is cheap, but actually starting one
@@ -533,7 +534,7 @@ def _register_process_job(job_id, target, args, gpu_touching, description, owner
     _jobs[job_id] = _new_entry("running", "process", gpu_touching, description, owner_user_id,
                                run_settings, result=initial_result, process=proc,
                                line_fields=line_fields, daily_day=daily_day,
-                               origin_device=origin_device)
+                               origin_device=origin_device, on_partial=on_partial)
     _mirror_locked(job_id)
     return proc, result_queue
 
@@ -552,14 +553,18 @@ def _new_entry(status, kind, gpu_touching, description, owner_user_id, run_setti
     }
 
 
-def _apply_progress_item(job_id, item, stage=None) -> bool:
+def _apply_progress_item(job_id, item, stage=None, run=None) -> bool:
     """True if `item` was a ("progress", frac, message), ("stage", frac,
-    message) or ("unit", scope, unit_id, payload) tuple (applied to the job,
-    with the message secret-redacted; a unit is recorded as a checkpoint);
+    message), ("unit", scope, unit_id, payload) or ("partial", payload) tuple
+    (applied to the job, with the message secret-redacted; a unit is recorded
+    as a checkpoint; a partial goes to the run's on_partial hook);
     False for anything else, which is the worker's final result tuple.
     `stage` holds the watcher's running stage_ticker under "ticker": any
     progress or stage item stops it, a stage item with a message starts a
     new one."""
+    if isinstance(item, tuple) and item and item[0] == "partial":
+        _apply_partial(job_id, run, item[1] if len(item) > 1 else None)
+        return True
     if isinstance(item, tuple) and item and item[0] == "unit":
         try:
             db.record_checkpoint_unit(*item[1:])
@@ -582,6 +587,26 @@ def _apply_progress_item(job_id, item, stage=None) -> bool:
     except Exception:
         pass   # malformed progress must never kill the watcher
     return True
+
+
+def _apply_partial(job_id, run, payload) -> None:
+    """Hands a worker's work-so-far (process_worker.report_partial) to the run's
+    on_partial hook (start_process_job's), under the job's
+    line-field declaration as on_done is. Skipped once the run was cleared or a
+    cancel is pending: a stopped run applies nothing more. Never fails the watcher."""
+    hook = (run or {}).get("on_partial")
+    if hook is None:
+        return
+    with _lock:
+        if _jobs.get(job_id) is not run:
+            return
+    if is_cancel_requested(job_id):
+        return
+    try:
+        with db.job_line_fields(job_id, _line_fields(run)):
+            hook(job_id, payload)
+    except Exception as exc:
+        _warn(f"job {job_id}: work so far was not applied", exc)
 
 
 def _log_first_progress(job_id, stage):
@@ -651,7 +676,7 @@ def _process_watcher(job_id, proc, result_queue, gpu_touching=False, poll_interv
             if outcome is _STOPPED:
                 return
             if outcome is None:
-                outcome = _drain_after_exit(job_id, result_queue, stage)
+                outcome = _drain_after_exit(job_id, result_queue, stage, run)
             if outcome is not None or cpu_retry is None or crash is not None:
                 break
             restarted = _restart_on_cpu(job_id, run, proc, result_queue, cpu_retry,
@@ -791,14 +816,14 @@ def _poll_for_outcome(job_id, proc, result_queue, poll_interval, stage, kill_who
         except queue.Empty:
             pass
         else:
-            if _apply_progress_item(job_id, item, stage):
+            if _apply_progress_item(job_id, item, stage, run):
                 continue
             return item
         if not proc.is_alive():
             return None
 
 
-def _drain_after_exit(job_id, result_queue, stage):
+def _drain_after_exit(job_id, result_queue, stage, run=None):
     """The worker exited before its final item was read: the item (or None
     if it never arrives), applying any progress items queued ahead of it."""
     while True:
@@ -814,7 +839,7 @@ def _drain_after_exit(job_id, result_queue, stage):
             item = result_queue.get(timeout=1)
         except queue.Empty:
             return None
-        if not _apply_progress_item(job_id, item, stage):
+        if not _apply_progress_item(job_id, item, stage, run):
             if item is not None:
                 return item
 

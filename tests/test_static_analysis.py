@@ -810,7 +810,6 @@ OVERLONG_FUNCTION_LINES: dict[str, int] = {
     "asr_backend.py::Qwen3ASRVadBackend.transcribe": 144,
     "services/workspace_job_service.py::run_translate_job": 119,
     "video_download.py::download": 138,
-    "voice/dub_narration.py::build_narration_track": 128,
     "db/schema_system.py::_init_benchmark_lab_schema": 126,
     "jobs/job_launch.py::start_process_job": 121,
     "db/schema_system.py::_create_job_tables": 118,

@@ -16,6 +16,17 @@ export function ReadAlong({ dramaId, version, onError }: { dramaId: number; vers
   const [time, setTime] = useState(0)
   const audio = useRef<HTMLAudioElement | null>(null)
   const active = useRef<HTMLLIElement | null>(null)
+  // The track grows while Listen is still making it, and every version starts with the same audio,
+  // so a new one carries on from where the listener was instead of going back to the start.
+  useEffect(() => {
+    const el = audio.current
+    if (!el) return
+    const at = el.currentSrc ? el.currentTime : 0
+    const playing = !el.paused
+    el.src = version > 0 ? `${listenTrackUrl(dramaId)}?v=${version}` : listenTrackUrl(dramaId)
+    if (at > 0) el.currentTime = at
+    if (playing) void el.play().catch(() => {})
+  }, [dramaId, version])
 
   useEffect(() => {
     let cancelled = false
@@ -51,7 +62,6 @@ export function ReadAlong({ dramaId, version, onError }: { dramaId: number; vers
         ref={audio}
         controls
         preload="none"
-        src={version > 0 ? `${listenTrackUrl(dramaId)}?v=${version}` : listenTrackUrl(dramaId)}
         onTimeUpdate={(e) => setTime(e.currentTarget.currentTime)}
         onError={onError}
       />

@@ -402,7 +402,8 @@ def _stretch_times(lines, pace: float) -> None:
 
 def build_narration_track(lines, drama_dir: str, character_clone_map: dict, progress_cb=None,
                            pace: float = 1.0,
-                           narrate_original: bool = False, source_language: str = "zh"):
+                           narrate_original: bool = False, source_language: str = "zh",
+                           on_partial=None):
     """
     For novel-narration mode: there's no pre-existing timing to sync
     to, so clips are generated and simply concatenated in order with a
@@ -430,18 +431,16 @@ def build_narration_track(lines, drama_dir: str, character_clone_map: dict, prog
 
     pace below 1 slows the track (not the saved clips) and stretches line times to match.
 
+    on_partial: while the clips are made, the part spoken so far is joined into the title's
+    track at chapter ends (_Checkpoints) and on_partial(times) is called after each join.
+
     Returns (path_to_flac, errors) -- a line whose unit failed is skipped
     (silent gap inserted instead) rather than aborting the whole narration.
     RuntimeError, with the title's track left as it was, when more than half the
     spoken lines failed.
     """
-    from types import SimpleNamespace
-    from pydub import AudioSegment
-    from resegment import split_times
-
     clips_dir = os.path.join(drama_dir, "dub_clips")
     os.makedirs(clips_dir, exist_ok=True)
-    errors = []
 
     _check_pace(pace)
     steps = _narration_steps(lines, character_clone_map,
@@ -461,19 +460,38 @@ def build_narration_track(lines, drama_dir: str, character_clone_map: dict, prog
         unit["clip_path"] = os.path.join(clips_dir, f"line_{span}_{signature}.wav")
 
     finished = 0
+    checkpoints = _Checkpoints(steps, drama_dir, pace, narrate_original, on_partial)
 
     def record(unit, error):
         nonlocal finished
         unit["error"] = error
+        unit["done"] = True
         finished += 1
         if progress_cb:
             progress_cb(finished / len(units))
+        checkpoints.maybe_join()
 
     remove_partial_track(drama_dir)
     _generate_units(units, record, source_language if narrate_original else "en", clips_dir)
 
-    _refuse_mostly_failed(units, drama_dir)
+    _refuse_mostly_failed(units, drama_dir, checkpoints.joined_any)
+    errors = _join_track(steps, lines, drama_dir, pace, narrate_original)
+    # A regenerated title must not keep serving, or backing up, its old WAV copy.
+    legacy = os.path.join(drama_dir, NARRATION_TRACK_NAMES[1])
+    if os.path.isfile(legacy):
+        os.remove(legacy)
+    return os.path.join(drama_dir, NARRATION_TRACK_NAMES[0]), errors
 
+
+def _join_track(steps, lines, drama_dir: str, pace: float, narrate_original: bool) -> list:
+    """Joins the clips of `steps` (all of the title's, or the part spoken so far) into the
+    title's track and sets the times and clip of `lines` (theirs). Returns the failed lines' errors."""
+    from types import SimpleNamespace
+    from pydub import AudioSegment
+    from resegment import split_times
+
+    errors = []
+    units = [item for kind, item in steps if kind == "unit"]
     out_path = os.path.join(drama_dir, NARRATION_TRACK_NAMES[0])
     # Written beside the final name and renamed, so a kill mid-export can't leave a
     # truncated track that the Reader would serve as complete.
@@ -523,23 +541,99 @@ def build_narration_track(lines, drama_dir: str, character_clone_map: dict, prog
         remove_partial_track(drama_dir)
 
     _stretch_times(lines, pace)
-    # A regenerated title must not keep serving, or backing up, its old WAV copy.
-    legacy = os.path.join(drama_dir, NARRATION_TRACK_NAMES[1])
-    if os.path.isfile(legacy):
-        os.remove(legacy)
-    return out_path, errors
+    return errors
 
 
-def _refuse_mostly_failed(units, drama_dir: str) -> None:
+# A join of the part spoken so far reads all of its clips again, so the next join waits this many
+# times as long as the last one took: joining then costs about 1/JOIN_SPACING of the run.
+JOIN_SPACING = 30
+
+
+def _step_lines(kind, item) -> list:
+    return [item] if kind == "blank" else item["lines"]
+
+
+class _Checkpoints:
+    """While a run goes on, joins the units spoken so far (the first up to the first one not
+    spoken yet, cut back to a chapter start when the title has chapters) into the title's track,
+    so its start can be heard long before a whole book is spoken and a cancelled or failed run
+    keeps it. Each join is handed to on_partial(times): (line id, start, end, clip) for every
+    line, the lines not joined yet at the part's end with no clip."""
+
+    def __init__(self, steps, drama_dir, pace, narrate_original, on_partial):
+        self.steps, self.drama_dir = steps, drama_dir
+        self.pace, self.narrate_original, self.on_partial = pace, narrate_original, on_partial
+        self.joined_upto = 0
+        self.joined_any = False
+        self.next_after = 0.0
+        self.chapter_starts = sorted(i for i, (kind, item) in enumerate(steps)
+                                     if kind == "unit" and is_chapter_heading(item["lines"][0]))
+
+    def _spoken_upto(self) -> int:
+        i = self.joined_upto
+        while i < len(self.steps):
+            kind, item = self.steps[i]
+            if kind == "unit" and not item.get("done"):
+                break
+            i += 1
+        return i
+
+    def maybe_join(self) -> None:
+        if self.on_partial is None or time.monotonic() < self.next_after:
+            return
+        end = self._spoken_upto()
+        if end >= len(self.steps):
+            return  # the whole track is joined once, after the last clip
+        if self.chapter_starts:
+            end = max((i for i in self.chapter_starts if self.joined_upto < i <= end), default=0)
+        if end <= self.joined_upto:
+            return
+        part = self.steps[:end]
+        spoken = [item for kind, item in part if kind == "unit"]
+        # As _refuse_mostly_failed: mostly silence must not replace the title's track.
+        if not spoken or _mostly_failed(spoken):
+            return
+        began = time.monotonic()
+        _join_track(part, [ln for kind, item in part for ln in _step_lines(kind, item)],
+                    self.drama_dir, self.pace, self.narrate_original)
+        self.next_after = time.monotonic() + JOIN_SPACING * (time.monotonic() - began)
+        self.joined_upto, self.joined_any = end, True
+        self.on_partial(self._times(end))
+
+    def _times(self, end: int) -> list:
+        # Plain tuples made now: the result queue pickles later, by when the lines have moved on.
+        out, part_end = [], 0.0
+        for i, (kind, item) in enumerate(self.steps):
+            for ln in _step_lines(kind, item):
+                if i < end:
+                    failed = kind == "unit" and item["error"]
+                    out.append((ln.id, ln.start, ln.end, None if failed else ln.dub_filename))
+                    part_end = max(part_end, ln.end)
+                else:
+                    out.append((ln.id, part_end, part_end, None))
+        return out
+
+
+def _mostly_failed(units) -> bool:
+    total = sum(len(u["lines"]) for u in units)
+    return sum(len(u["lines"]) for u in units if u["error"]) * 2 > total
+
+
+def _refuse_mostly_failed(units, drama_dir: str, part_joined: bool = False) -> None:
     """Keeps the title's track when more than half the spoken lines failed (an engine that
-    would not start, say): a track that is mostly silence would replace a good one."""
+    would not start, say): a track that is mostly silence would replace a good one.
+    part_joined: the run already put the part it spoke well in place of that track."""
+    if not _mostly_failed(units):
+        return
     total = sum(len(u["lines"]) for u in units)
     failed = [u for u in units if u["error"]]
     failed_lines = sum(len(u["lines"]) for u in failed)
-    if failed_lines * 2 <= total:
-        return
-    kept = ("so the previous track was kept" if find_narration_track(drama_dir)
-            else "so no track was made")
+    if part_joined:
+        kept = "so only the part made before that can be played"
+    elif find_narration_track(drama_dir):
+        kept = "so the previous track was kept"
+    else:
+        kept = "so no track was made"
     raise RuntimeError(f"Narration failed on {failed_lines} of {total} lines, {kept}. {failed[0]['error']}")
 
 
@@ -676,7 +770,8 @@ def build_narration_subprocess_worker(lines, drama_dir, character_clone_map, res
     try:
         out_path, errors = build_narration_track(
             lines, drama_dir, character_clone_map, progress_cb=report, pace=pace,
-            narrate_original=narrate_original, source_language=source_language)
+            narrate_original=narrate_original, source_language=source_language,
+            on_partial=lambda times: process_worker.report_partial(result_queue, {"times": times}))
         # failed_count: the job result lists only the first errors.
         result_queue.put(("ok", {"lines": lines, "out_path": out_path, "errors": errors,
                                  "failed_count": len(errors)}))

@@ -446,6 +446,100 @@ class TestSequentialNarration:
         assert dub.clone_map_uses_local_model({"A": {"engine": engine}})
 
 
+class _Killed(BaseException):
+    """A cancel: the worker is killed, nothing after it runs."""
+
+
+class TestListenWhileItIsMade:
+    """The part spoken so far is joined into the track at chapter ends, so it can be played
+    (and a cancelled run keeps it) before the whole title is spoken."""
+
+    @pytest.fixture(autouse=True)
+    def _every_chapter(self, monkeypatch):
+        monkeypatch.setattr(dub_narration, "JOIN_SPACING", 0)
+
+    def _chapters(self, n):
+        lines = []
+        for c in range(n):
+            lines.append(Line(idx=len(lines), start=0, end=0, zh=f"第{c + 1}章", en=f"Chapter {c + 1}", speaker="N"))
+            lines.append(Line(idx=len(lines), start=0, end=0, zh="正文。", en=f"Body {c + 1}.", speaker="N"))
+        for i, ln in enumerate(lines):
+            ln.id = 100 + i
+        return lines
+
+    def _run(self, monkeypatch, tmp_path, lines, synth=None, parts=None):
+        speak_with(monkeypatch, synth or (lambda text, out_path, **kw: open(out_path, "w").close()))
+        return dub_narration.build_narration_track(
+            lines, str(tmp_path), NARRATORS, on_partial=None if parts is None else parts.append)
+
+    def test_each_chapter_end_joins_the_part_spoken_so_far(self, monkeypatch, fake_pydub, tmp_path):
+        track = tmp_path / "narration_track.flac"
+        heard_at = {}
+
+        def synth(text, out_path, **kw):
+            heard_at[text] = track.exists()
+            open(out_path, "w").close()
+        parts = []
+        lines = self._chapters(3)
+        self._run(monkeypatch, tmp_path, lines, synth, parts)
+        assert heard_at == {"Chapter 1": False, "Body 1.": False, "Chapter 2": True, "Body 2.": True,
+                            "Chapter 3": True, "Body 3.": True}
+        assert len(parts) == 2
+        first = {line_id: (start, end, clip) for line_id, start, end, clip in parts[0]}
+        # Chapter 1 is timed and has its clips; the rest waits at the part's end with none.
+        assert first[100][2] and first[101][2]
+        part_end = first[101][1]
+        assert all(first[i] == (part_end, part_end, None) for i in range(102, 106))
+        # The part's times are the ones the whole track gives those lines.
+        assert [first[ln.id] for ln in lines[:2]] == [(ln.start, ln.end, ln.dub_filename) for ln in lines[:2]]
+
+    def test_the_finished_track_is_the_same_as_without_listening_early(self, monkeypatch, fake_pydub, tmp_path):
+        early, plain = self._chapters(3), self._chapters(3)
+        (tmp_path / "a").mkdir()
+        (tmp_path / "b").mkdir()
+        self._run(monkeypatch, tmp_path / "a", early, parts=[])
+        self._run(monkeypatch, tmp_path / "b", plain)
+        assert [(ln.start, ln.end, ln.dub_filename) for ln in early] == [
+            (ln.start, ln.end, ln.dub_filename) for ln in plain]
+
+    def test_a_cancel_keeps_the_chapters_joined_before_it(self, monkeypatch, fake_pydub, tmp_path):
+        def synth(text, out_path, **kw):
+            if text == "Body 3.":
+                raise _Killed()
+            open(out_path, "w").close()
+        parts = []
+        with pytest.raises(_Killed):
+            self._run(monkeypatch, tmp_path, self._chapters(3), synth, parts)
+        assert (tmp_path / "narration_track.flac").exists()
+        last = {line_id: clip for line_id, _s, _e, clip in parts[-1]}
+        assert [bool(last[i]) for i in range(100, 106)] == [True, True, True, True, False, False]
+
+    def test_a_part_that_mostly_failed_does_not_replace_the_track(self, monkeypatch, fake_pydub, tmp_path):
+        (tmp_path / "narration_track.flac").write_bytes(b"old")
+
+        def synth(text, out_path, **kw):
+            if text in ("Chapter 1", "Body 1."):
+                raise RuntimeError("down")
+            open(out_path, "w").close()
+        parts = []
+        self._run(monkeypatch, tmp_path, self._chapters(4), synth, parts)
+        # Chapter 1 alone was all silence; with chapter 2 the part is half spoken.
+        assert len(parts) == 2
+        assert {line_id for line_id, _s, _e, clip in parts[0] if clip} == {102, 103}
+
+    def test_a_title_without_chapters_joins_at_any_line_end(self, monkeypatch, fake_pydub, tmp_path):
+        lines = [Line(idx=i, start=0, end=0, zh=str(i), en=f"Line {i}.", speaker="AB"[i % 2]) for i in range(3)]
+        parts = []
+        self._run(monkeypatch, tmp_path, lines, parts=parts)
+        assert len(parts) == 2
+
+    def test_joins_wait_in_proportion_to_how_long_the_last_took(self, monkeypatch, fake_pydub, tmp_path):
+        monkeypatch.setattr(dub_narration, "JOIN_SPACING", 10 ** 6)
+        parts = []
+        self._run(monkeypatch, tmp_path, self._chapters(4), parts=parts)
+        assert len(parts) == 1
+
+
 # ------------------------------------------------------ paragraphs & M4B
 
 class TestNovelParagraphEnds:
