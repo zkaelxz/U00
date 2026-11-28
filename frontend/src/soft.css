@@ -53,7 +53,7 @@ html[data-style='soft'] .drama-card,
 html[data-style='soft'] .tools-stack,
 html[data-style='soft'] .discover-panel,
 html[data-style='soft'] .sheet,
-html[data-style='soft'] details.section:not(.card details.section, details.section details.section, .tools-stack details.section) { background: var(--surface); border: 0; border-radius: var(--radius-panel); box-shadow: var(--soft-lift); }
+html[data-style='soft'] details.section:not(.card details.section, details.section details.section, .tools-stack details.section, .panel details.section, .discover-panel details.section, dialog.sheet details.section) { background: var(--surface); border: 0; border-radius: var(--radius-panel); box-shadow: var(--soft-lift); }
 html[data-style='soft'] .continue-item { padding: var(--space-2) var(--space-3); border-radius: var(--radius-panel); background: var(--surface); box-shadow: var(--soft-lift); }
 html[data-style='soft'] .drama-grid .drama-tile { margin-left: var(--space-3); }
 html[data-style='soft'] .continue-tile:not([class*='tile-h']) { background: var(--surface); border: 0; border-radius: var(--radius-panel); box-shadow: var(--soft-lift); }
@@ -80,8 +80,8 @@ html[data-style='soft'] textarea { border-radius: var(--radius-sm); }
 /* One box for every top-level block. The sections that Frost draws as a thin outline (Diagnostics, Jobs) get the same
    padding as a Card, and a Card a page flattens for Frost (Diagnostics' Models in memory) keeps its padding here
    instead of showing a raised box with text on its edge. */
-html[data-style='soft'] details.section:not(.card details.section, details.section details.section, .tools-stack details.section) { padding: var(--space-2) var(--space-5); margin: 0; }
+html[data-style='soft'] details.section:not(.card details.section, details.section details.section, .tools-stack details.section, .panel details.section, .discover-panel details.section, dialog.sheet details.section) { padding: var(--space-2) var(--space-5); }
 html[data-style='soft'] .diag-card > .card-fold { padding: var(--space-4) var(--space-5); }
-html[data-style='soft'] .review-toolbox,
+@media (max-width: 640px) { html[data-style='soft'] .review-toolbox { padding: var(--space-4) var(--space-5); } }
 html[data-style='soft'] .check-queue-footer { padding: var(--space-4) var(--space-5); }
 html[data-style='soft'] .check-queue-footer { background: var(--surface); border: 0; border-radius: var(--radius-panel); box-shadow: var(--soft-lift); }
