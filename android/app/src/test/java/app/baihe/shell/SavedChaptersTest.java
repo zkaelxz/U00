@@ -55,7 +55,8 @@ public class SavedChaptersTest {
     public void theOldestChapterIsDroppedPastTheLimitAndDeletingRemovesIt() throws Exception {
         File root = new File(tmp.getRoot(), "saved");
         for (int i = 0; i < SavedChapters.MAX_CHAPTERS + 2; i++) {
-            SavedChapters.save(root, pages(1), "c" + i);
+            SavedChapters.Saved saved = SavedChapters.save(root, pages(1), "c" + i);
+            assertEquals(i < SavedChapters.MAX_CHAPTERS ? 0 : 1, saved.removed);
             Thread.sleep(2);
         }
         List<SavedChapters.Saved> all = SavedChapters.list(root);

@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test'
 
-import { mockLive, openLive } from './liveMocks'
+import { SID, cue, mockLive, openLive } from './liveMocks'
 
 // Live > "Use glossary and packs from": a series or a title rides along with Start, is
 // remembered per browser (live.options), and a remembered one that is gone is not sent.
@@ -85,4 +85,29 @@ test('a remembered series that is no longer in the list is not sent', async ({ p
   await start(live)
   await expect.poll(() => m.posts.length).toBe(1)
   expect(m.posts[0].body).not.toHaveProperty('series_id')
+})
+
+test('a name fixed during the stream is sent, with the glossary save, and listed', async ({ page }) => {
+  const m = await mockLive(page)
+  const fixes: unknown[] = []
+  await page.route(`**/api/live/sessions/${SID}/names`, (route) => {
+    const body = route.request().postDataJSON() as { source: string; english: string }
+    fixes.push(body)
+    m.state.figures = { ...m.state.figures, name_fixes: [{ source: body.source, english: body.english }] }
+    return route.fulfill({ json: { session_id: SID, fixes: [{ source: body.source, english: body.english }] } })
+  })
+  const live = await openLive(page)
+  await live.getByLabel('Use glossary and packs from', { exact: true }).selectOption({ label: 'Series: Moonlit' })
+  m.state.status = 'running'
+  m.state.cues = [cue(1)]
+  m.state.figures = { can_fix_names: true, has_glossary: true, name_fixes: [] }
+  await start(live)
+  await live.getByRole('button', { name: 'Fix a name' }).click()
+  await live.getByLabel('Name as heard').fill('月岡')
+  await live.getByLabel('Right name in English').fill('Tsukioka')
+  await expect(live.getByLabel('Also save it to the glossary')).toBeChecked()
+  await live.getByRole('button', { name: 'Fix', exact: true }).click()
+  await expect(live.getByTestId('live-namefix-list')).toContainText('月岡 → Tsukioka')
+  expect(fixes).toEqual([{ source: '月岡', english: 'Tsukioka', save_to_glossary: true }])
+  expect(m.unmocked).toEqual([])
 })

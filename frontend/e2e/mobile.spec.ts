@@ -21,7 +21,7 @@ async function expectTall(page: Page, selector: string) {
 }
 
 async function visiblePrimaries(page: Page) {
-  return page.locator('button.primary, .btn-primary').evaluateAll((els) =>
+  return page.locator('.btn-primary').evaluateAll((els) =>
     els.filter((e) => (e as HTMLElement).offsetParent !== null).length,
   )
 }
@@ -30,7 +30,7 @@ async function checkScreen(page: Page, extra: string[] = []) {
   await expectNoSidewaysScroll(page)
   await expectTall(page, '.app-header .menu-btn, .phone-bar a, .phone-bar button')
   for (const sel of extra) await expectTall(page, sel)
-  if ((await visiblePrimaries(page)) > 0) await expectTall(page, 'button.primary, .btn-primary')
+  if ((await visiblePrimaries(page)) > 0) await expectTall(page, '.btn-primary')
 }
 
 test('Library: cards, title opens the workspace', async ({ page }) => {

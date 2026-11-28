@@ -44,6 +44,7 @@ def decode(monkeypatch):
             f.write(b"x" * 1000)
 
     monkeypatch.setattr(audio_extract, "extract_audio_slice", fake_slice)
+    monkeypatch.setattr(whisper_transcribe, "_decode_whole", lambda path: None)
 
     def run(tail_segments, **kwargs):
         monkeypatch.setattr(whisper_models, "load_whisper_model",

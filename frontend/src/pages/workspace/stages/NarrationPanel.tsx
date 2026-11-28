@@ -79,13 +79,13 @@ export function NarrationPanel({ dramaId, busy, onJobStarted }: Props) {
   const summary = !cfg.has_novel_source
     ? ATTACH_NOVEL
     : cfg.job_running
-      ? 'A chunk-and-tag job is already running'
+      ? 'A split-and-name job is already running'
       : choice.oneNarrator
         ? `One narrator${scope}`
         : `${engine ? humanize('engine', engine) : 'no engine'}${choice.model.trim() ? ` · ${choice.model.trim()}` : ''}${scope}`
 
   return (
-    <Section storageKey="dub.narration" title="Chunk and tag speakers" summary={summary}>
+    <Section storageKey="dub.narration" title="Split into lines and name speakers" summary={summary}>
       {!cfg.has_novel_source && <p className="muted">{ATTACH_NOVEL}.</p>}
       <TagChoices dramaId={dramaId} cfg={cfg} value={choice} onChange={setChoice} onBlocked={setBlocked} />
       <EngineGateNote gate={gate} />
@@ -101,11 +101,11 @@ export function NarrationPanel({ dramaId, busy, onJobStarted }: Props) {
           <Toggle checked={startOver} onChange={setStartOver} />
         </Field>
       </div>
-      {cfg.job_running && <p className="muted">A chunk-and-tag job is already running.</p>}
+      {cfg.job_running && <p className="muted">A split-and-name job is already running.</p>}
       {blocked && <p className="muted">{blocked}</p>}
       <div className="dub-actions">
         <button type="button" className={buttonClass('secondary')} disabled={disabled} onClick={start}>
-          Chunk and tag
+          Split and name speakers
         </button>
       </div>
       <ErrorBanner error={error} onDismiss={() => setError(null)} />

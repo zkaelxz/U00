@@ -1,7 +1,7 @@
 import { expect, test, type Page } from '@playwright/test'
 
-// The drawer below 600px at a desktop browser's narrow window, and the
-// hand-over to the dock when the window grows past 600px.
+// The drawer at 640px and below at a desktop browser's narrow window, and the
+// hand-over to the dock when the window grows past 640px.
 
 const menuButton = (page: Page) => page.getByRole('button', { name: /^(Menu|More)$/ })
 const drawer = (page: Page) => page.getByRole('dialog', { name: 'Main menu' })
@@ -36,7 +36,7 @@ test.describe('500px wide', () => {
     await expect(drawer(page)).toBeHidden()
   })
 
-  test('crossing 600px keeps the open page mounted and swaps the drawer for the dock', async ({ page }) => {
+  test('crossing 640px keeps the open page mounted and swaps the drawer for the dock', async ({ page }) => {
     await page.goto('/#/library')
     await menuButton(page).click()
     await expect(drawer(page)).toBeVisible()

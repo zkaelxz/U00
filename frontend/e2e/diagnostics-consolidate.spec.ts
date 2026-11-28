@@ -48,7 +48,7 @@ test('Models on disk holds one model list with sizes and Delete; speaker detecti
   await page.goto('/#/diagnostics')
   await openDiagTab(page, 'Speaker detection')
   const speaker = fold(page, /^Speaker detection/)
-  await expect(diagSectionHead(page, /^Speaker detection/)).toContainText('Ready')
+  await expect(diagSectionHead(page, /^Speaker detection/)).toContainText('pyannote: ready')
   await expect(speaker.getByRole('group', { name: 'Speaker detection' })).toContainText('Pyannote: installed')
   await expect(page.locator('summary', { hasText: /^Model cache/ })).toHaveCount(0)
 

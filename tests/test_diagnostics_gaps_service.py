@@ -992,3 +992,13 @@ def test_a_commit_failure_whose_retry_also_fails_tells_the_user(isolated_db, mon
     monkeypatch.setattr(src_store, "unlink_all_dramas", still_locked)
     result = admin_svc.reset_library(confirm=True)
     assert result["ok"] is True and "followed-series links" in result["warning"]
+
+
+def test_log_filter_looks_past_the_lines_a_plain_view_shows(isolated_db):
+    log_dir = os.path.join(db.LIBRARY_DIR, "logs")
+    os.makedirs(log_dir, exist_ok=True)
+    with open(os.path.join(log_dir, "app.log"), "w", encoding="utf-8") as f:
+        f.write("ERROR early failure\n")
+        f.write("".join(f"INFO line {i}\n" for i in range(300)))
+    assert all("early failure" not in ln for ln in svc.get_log_tail(svc.LOG_TAIL_MAX))
+    assert svc.get_log_tail(50, keyword="ERROR") == ["ERROR early failure"]

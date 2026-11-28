@@ -251,7 +251,7 @@ button.review-en:focus-visible { background: none; outline: 1px dashed var(--bor
   button.review-en:hover:not(:disabled) { background: none; outline: 1px dashed var(--border); outline-offset: 2px; }
 }
 @media (hover: none) {
-  .stage-review button:hover:not(:disabled):not(.primary):not(.btn):not(.toggle) { background: var(--surface); border-color: var(--border); }
+  .stage-review button:hover:not(:disabled):not(.btn):not(.toggle) { background: var(--surface); border-color: var(--border); }
   .stage-review button.review-en:hover, .stage-review button.review-more:hover, .stage-review button.check-queue-link:hover { background: none; border-color: transparent; }
 }
 .review-en-edit { display: grid; gap: var(--space-1); min-width: 0; }

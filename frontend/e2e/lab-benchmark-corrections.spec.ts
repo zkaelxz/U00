@@ -1,5 +1,5 @@
 import { expect, test } from './fixtures'
-import { openBenchTab } from './benchSections'
+import { flatSection, openBenchTab } from './benchSections'
 import { enableDeveloperMode } from './sourceHelpers'
 
 // The Benchmark Lab page is behind Developer Mode.
@@ -7,7 +7,7 @@ test.beforeEach(async ({ page }) => {
   await enableDeveloperMode(page)
 })
 
-// "Add a title's corrections to a test set" on the Golden sets tab: the title's stats show once it is
+// "Add a title's corrections to a test set" under Add cases: the title's stats show once it is
 // picked, a preview counts without adding, and adding says unedited lines were skipped. The corrections
 // routes are mocked (the seeded library has no raw transcript or audio to clip); the form is real.
 const stats = { drama_id: 1, raw_available: true, lines_compared: 200, lines_corrected: 14, raw_to_edited_cer: 0.084 }
@@ -27,8 +27,8 @@ for (const theme of ['light', 'dark', 'sepia', 'oled']) {
       return r.fulfill({ json: added(body.dry_run) })
     })
     await page.goto('/#/benchmark')
-    await openBenchTab(page, 'Golden sets')
-    const section = page.locator('details', { hasText: "Add a title's corrections to a test set" })
+    await openBenchTab(page, 'Add cases')
+    const section = flatSection(page, "Add a title's corrections to a test set")
     await section.getByLabel('Title', { exact: true }).selectOption({ index: 1 })
     await expect(section.getByTestId('corrections-stats')).toHaveText(
       '14 of 200 lines corrected. The raw transcript was 8.4% off your text.')
@@ -69,8 +69,8 @@ test(`Benchmark Lab: include all lines of a title adds unedited lines with their
     })
   })
   await page.goto('/#/benchmark')
-  await openBenchTab(page, 'Golden sets')
-  const section = page.locator('details', { hasText: "Add a title's corrections to a test set" })
+  await openBenchTab(page, 'Add cases')
+  const section = flatSection(page, "Add a title's corrections to a test set")
   await section.getByLabel('Title', { exact: true }).selectOption({ index: 1 })
   await section.getByLabel('New set name').fill('timed')
   await expect(section.getByTestId('corrections-reason')).toHaveText('This title has no original transcription to compare with.')
