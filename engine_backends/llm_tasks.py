@@ -654,7 +654,7 @@ def rewrite_for_pacing_llm(lines_to_fix, engine, batch_size: int = 15, usage_cb=
         rewritten = request_translations_with_retry([ln.en for ln in batch], None, call_model)
         for ln, new_text in zip(batch, rewritten):
             if new_text.strip():
-                ln.en = drop_em_dashes(new_text.strip())
+                ln.en = drop_em_dashes(new_text.strip(), ln.zh)
     return lines_to_fix
 
 

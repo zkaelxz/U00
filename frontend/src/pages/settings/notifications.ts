@@ -80,6 +80,9 @@ export function isConfigured(status: NotificationStatus, channel: NotificationCh
   return channel === 'discord' ? status.discord_configured : status.ntfy_configured
 }
 
+export const NO_DESKTOP_POPUPS =
+  'Baihe is running as the Windows boot service, which has no desktop, so pop-ups can’t show. Discord and ntfy still work.'
+
 // The folded card and the open card show this same line, so it counts the PC pop-up as well as the channels.
 export function notificationSummary(status: NotificationStatus | null, popupOn = false): string {
   const on = [
