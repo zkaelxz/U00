@@ -41,6 +41,7 @@ class TestTranslationArms:
     def test_options_list_what_the_form_offers(self, isolated_db):
         choices = _local().get(f"{BASE}/options").json()["translate_choices"]
         assert {p["key"] for p in choices["style_presets"]} >= {"audio_drama", "novel"}
+        assert "manhua" not in {p["key"] for p in choices["style_presets"]}
         assert choices["defaults"] == {"context_window": 10, "context_window_ahead": 6,
                                        "batch_size": 30, "reflect": False, "style_preset": "audio_drama",
                                        "memory_examples": False}

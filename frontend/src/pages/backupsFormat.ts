@@ -23,7 +23,7 @@ export const FREQUENCY_OPTIONS: readonly [BackupFrequency, string][] = [
 ]
 
 export const ROTATION_NOTE =
-  'Keeps one copy a day for the last 7 days, plus the first copy of each of the last 4 weeks. Older copies this library made are deleted after each backup.'
+  'Keeps up to 11 copies: the newest from each of the 7 most recent days with a backup, plus the first of each of the 4 weeks before. Older copies this library made are deleted after each backup.'
 export const SAME_DRIVE_NOTE =
   'These copies are on the same drive as your library, so one failing drive loses both. Pick a backup folder on another drive.'
 

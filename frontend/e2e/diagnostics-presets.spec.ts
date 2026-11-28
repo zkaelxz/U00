@@ -305,6 +305,23 @@ test('installed packages show versions; Update appears only after a check, with 
   expect(unmocked).toEqual([])
 })
 
+test('a single package update shows its progress and Cancel, like an install', async ({ page }) => {
+  const { unmocked } = await mockPage(page)
+  await mockDependencyInstall(page, () => ({ ok: true, output_tail: [] }), { hold: new Promise<void>(() => undefined) })
+  await page.goto('/#/diagnostics')
+  await openSection(page, /^Packages/)
+  await openSection(page, /^Installed packages/)
+  await page.getByRole('button', { name: 'Check for package updates' }).click()
+  const pinyin = page.getByRole('list', { name: 'Installed packages' }).locator('li', { hasText: 'pypinyin' })
+  await pinyin.getByRole('button', { name: 'Update pypinyin to 0.55.0' }).click()
+  await page.getByRole('button', { name: 'Confirm update pypinyin to 0.55.0' }).click()
+  await page.getByTestId('install-plan').getByRole('button', { name: 'Install now' }).click()
+  await expect(page.getByTestId('install-running')).toHaveText(
+    'Updating pypinyin… this can take several minutes. Cancel it below if needed.')
+  await expect(page.getByRole('button', { name: 'Cancel updating pypinyin' })).toBeEnabled()
+  expect(unmocked).toEqual([])
+})
+
 test('tasks label each package Required / Recommended / Optional with the app\'s minimum version', async ({ page }) => {
   const { unmocked } = await mockPage(page)
   await page.goto('/#/diagnostics')

@@ -419,7 +419,7 @@ export function PackagesSection({ overview, pc, jobsActive, busy, onBusy, onChan
         )}
         <ErrorBanner error={queuedError} describe={{ pcOnly: true, serverText: true }} onDismiss={() => setQueuedError(null)} />
         {planView}
-        {busy?.kind === 'install' && <InstallProgress job={busy.job} name={busy.name} />}
+        {(busy?.kind === 'install' || busy?.kind === 'upgrade') && <InstallProgress job={busy.job} name={busy.name} kind={busy.kind} />}
         {outcome && <OutcomeBlock outcome={outcome} onRecheck={changed} />}
         {noTranscription && presets && (
           <div className="diag-stack" data-testid="transcription-missing" role="group" aria-labelledby={`${tasksId}-tr`} ref={noTranscriptionRef}>
