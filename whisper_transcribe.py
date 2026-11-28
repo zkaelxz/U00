@@ -727,7 +727,7 @@ def _transcribe_in_lanes(m, model, which, audio, kwargs, prompt_keys, progress_c
         def on_segment(s):
             if stop.is_set() and not alone:
                 raise _LaneStopped()
-            reached[i] = s.end
+            reached[i] = max(reached[i], s.end)   # a half heard again starts from its first line
             if i == 0 or alone:
                 report()
         try:
@@ -745,27 +745,34 @@ def _transcribe_in_lanes(m, model, which, audio, kwargs, prompt_keys, progress_c
 
     second = threading.Thread(target=lane, args=(1,), name="whisper-lane-2", daemon=True)
     second.start()
+    real = []
     try:
-        lane(0)
-        while second.is_alive():
-            second.join(0.5)
-            if not stop.is_set():
-                report()
-    except BaseException:
-        stop.set()
-        second.join()
-        raise
-    real = [e for e in failed.values() if not _out_of_memory(e)] or (
-        list(failed.values()) if len(failed) == 2 else [])
-    if real:
-        raise real[0]
-    for i in list(failed):
-        if i == 0:
-            resume.restart()
-        del failed[i]
-        lane(i, alone=True)
-        if i in failed:
-            raise failed[i]
+        try:
+            lane(0)
+            while second.is_alive():
+                second.join(0.5)
+                if not stop.is_set():
+                    report()
+        except BaseException:
+            stop.set()
+            second.join()
+            raise
+        real.extend([e for e in failed.values() if not _out_of_memory(e)] or (
+            list(failed.values()) if len(failed) == 2 else []))
+        if real:
+            raise real[0]
+        for i in list(failed):
+            if i == 0:
+                resume.restart()
+            del failed[i]
+            lane(i, alone=True)
+            if i in failed:
+                raise failed[i]
+    finally:
+        # A raised error's traceback holds this frame; kept in these containers it would keep
+        # the decode's buffers alive until the next garbage collection instead of freeing them.
+        failed.clear()
+        real.clear()
     return _LaneSegments(heard[0] + [_shifted(s, at / 16000) for s in heard[1]]), None
 
 

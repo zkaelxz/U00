@@ -148,6 +148,18 @@ def test_a_half_that_ran_out_of_memory_is_heard_again_alone(run):
     assert [s["start"] for s in out] == [1.0, 2.0, 3.0, 6.0, 7.0, 8.0]
 
 
+def test_a_first_half_that_ran_out_of_memory_is_heard_again_without_repeating_units(run, monkeypatch):
+    monkeypatch.setattr(whisper_transcribe, "CHECKPOINT_UNIT_SECONDS", 0.2)
+    model = _Model(lanes=2, fail_on={5.0: RuntimeError("CUDA failed with error out of memory")},
+                   lines=3)
+    units, progress = [], []
+    out = run(model, on_unit=units.append, progress_cb=progress.append)
+    assert sorted(model.heard) == [5.0, 5.0, 7.0]
+    assert [s["start"] for s in out] == [1.0, 2.0, 3.0, 6.0, 7.0, 8.0]
+    assert [[s["start"] for s in u] for u in units] == [[1.0], [2.0], [3.0]]
+    assert progress == sorted(progress)   # the bar never moves back for the re-run
+
+
 def test_both_halves_out_of_memory_fails_the_run(run):
     oom = RuntimeError("CUDA failed with error out of memory")
     model = _Model(lanes=2, fail_on={5.0: oom, 7.0: oom}, lines=3)
