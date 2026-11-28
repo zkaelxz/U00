@@ -198,7 +198,10 @@ class TestHappyPath:
                       "user": {"id": user["id"], "email": "kid@example.com", "display_name": "",
                                "is_admin": False, "is_local_owner": False},
                       "permissions": sorted(auth_service.HOUSEHOLD_DEFAULT_PERMISSIONS),
-                      "own_ollama_key": False, "paid_limit_reached": False}
+                      "own_ollama_key": False, "paid_limit_reached": False,
+                      "limits": {"daily_job_limit": None, "jobs_today": 0,
+                                 "monthly_paid_cap_usd": None, "month_paid_spend_usd": 0.0,
+                                 "title_limit": 200, "titles_owned": 0}}
         # The code exchange carried our client id, secret and redirect URI.
         ex = fake.exchanges[-1]
         assert (ex["client_id"], ex["client_secret"], ex["redirect_uri"]) == (

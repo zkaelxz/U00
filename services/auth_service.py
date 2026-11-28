@@ -651,6 +651,21 @@ def refuse_if_paid_limit_reached(user_id) -> None:
         raise UnsupportedOperationError(paid_limits.PAID_LIMIT_MESSAGE)
 
 
+def own_limits(user_id) -> dict | None:
+    """A member's own limits and how much of each is used, numbers only; None for an
+    admin, whom none of them hold back."""
+    row = db.auth_get_user(user_id) if isinstance(user_id, int) else None
+    if not row or row["is_admin"]:
+        return None
+    from services import drama_service   # imports most of the services layer
+    return {"daily_job_limit": user_caps.jobs_per_day(user_id),
+            "jobs_today": user_caps.jobs_today(user_id),
+            "monthly_paid_cap_usd": paid_limits.paid_limit_usd(user_id),
+            "month_paid_spend_usd": round(db.get_user_month_spend(user_id), 2),
+            "title_limit": drama_service.MEMBER_TITLE_LIMIT,
+            "titles_owned": db.count_dramas_owned_by(user_id)}
+
+
 def paid_engines_held_back(user_id) -> bool:
     """The member was given `engines.paid` but their own limit is used up,
     so working_permissions leaves it out for now."""

@@ -149,6 +149,16 @@ describe('settingsEntries', () => {
     expect(new Set(cards)).toEqual(new Set(['sharing', 'display', 'customize-menu', 'devices', 'extension-devices']))
   })
 
+  it('offers Your limits only to someone the Settings page shows it to', () => {
+    const limits = { daily_job_limit: 5, jobs_today: 1, monthly_paid_cap_usd: null, month_paid_spend_usd: 0, title_limit: 20, titles_owned: 2 }
+    const withLimits = member.session.status === 'ready'
+      ? { ...member, session: { ...member.session, me: { ...member.session.me, limits } as AuthMe } }
+      : member
+    const cards = (ctx: NavContext) => settingsEntries(ctx).map((e) => e.href.split('card=')[1])
+    expect(cards(withLimits)).toContain('limits')
+    expect(cards(member)).not.toContain('limits')
+  })
+
   it('offers the update card away from the PC only to someone holding system.update', () => {
     const away = (permissions: string[]): NavContext => ({ ...member, session: sessionOf(permissions) })
     expect(settingsHits(away(['library.read', 'system.update']), 'update')).toContain('#/settings?card=updates')
