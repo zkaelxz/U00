@@ -12,11 +12,13 @@ text (an upload or an old title), chapter headings in the lines are used instead
 Read-only; returns counts and titles, never text or paths. No FastAPI import.
 """
 import bisect
+import os
 import re
 
 import db
 import novel_text
 from services import novel_chapters_service, ownership_service
+from sources import chapter_manifest as manifest
 
 
 def norm(text) -> str:
@@ -65,6 +67,20 @@ def _starts_from_headings(rows: list) -> list:
             starts.append((number, pending[1], pending[0]))
             pending = None
     return starts
+
+
+def chapters_stamp(drama_id: int) -> tuple:
+    """A value that changes when the saved chapters (the manifest or the raw novel it
+    describes) change, read from the files' size and time only: for caches built on
+    start_positions."""
+    out = []
+    for path in (manifest.manifest_path(drama_id), manifest.raw_path(drama_id)):
+        try:
+            st = os.stat(path)
+            out.append((st.st_size, st.st_mtime_ns))
+        except OSError:
+            out.append(None)
+    return tuple(out)
 
 
 def start_positions(drama_id: int, texts: list) -> list:

@@ -980,3 +980,32 @@ class TestChapterPages:
         isolated_db.save_lines(did, [Line(idx=i, start=float(i), end=float(i + 1), zh="第1章 x" if i == 5 else "你好",
                                           en="x") for i in range(45)])
         assert reader_service.get_reader_page(did, page=1, chapter_size=20)["page_starts"] == [0, 20, 40]
+
+
+def test_the_page_plan_is_rebuilt_when_the_saved_chapters_change(isolated_db, monkeypatch):
+    """The saved chapters can change (a chapter list re-imported) while every line stays
+    as it was; the cached plan must not outlive them."""
+    from services import novel_line_chapters_service as chapters
+    _stub_render(monkeypatch)
+    did, _heads, _ends, _total = _chaptered_novel(isolated_db, TestChapterPages.SHAPES)
+    stamp, found = ["a"], [[0, 10]]
+    monkeypatch.setattr(chapters, "chapters_stamp", lambda _d: tuple(stamp))
+    monkeypatch.setattr(chapters, "start_positions", lambda _d, _t: list(found[0]))
+    first = reader_service.get_reader_page(did, page=1, chapter_size=20)["page_starts"]
+    found[0] = [0, 5]
+    assert reader_service.get_reader_page(did, page=1, chapter_size=20)["page_starts"] == first
+    stamp[0] = "b"
+    assert 5 in reader_service.get_reader_page(did, page=1, chapter_size=20)["page_starts"]
+
+
+def test_chapters_stamp_follows_the_manifest_file(isolated_db):
+    import os
+    from services import novel_line_chapters_service as chapters
+    from sources import chapter_manifest
+    did = _drama(isolated_db, title_en="N")
+    before = chapters.chapters_stamp(did)
+    path = chapter_manifest.manifest_path(did)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        f.write("{}")
+    assert chapters.chapters_stamp(did) != before

@@ -165,7 +165,8 @@ def page_plan(drama_id: int, drama: dict, chapter_size: int, total: int) -> list
         return list(range(0, total, chapter_size))
     ends = _narration_paragraph_ends(drama_id) if drama.get("content_mode") == "novel_narration" else None
     ends_key = _PARAGRAPH_ENDS[drama_id][0] if ends is not None and drama_id in _PARAGRAPH_ENDS else None
-    key = (db.line_text_stamp(drama_id), chapter_size, ends_key)
+    key = (db.line_text_stamp(drama_id), novel_line_chapters_service.chapters_stamp(drama_id),
+           chapter_size, ends_key)
     cached = _PAGE_PLANS.get(drama_id)
     if cached is not None and cached[0] == key:
         return cached[1]
