@@ -11,7 +11,7 @@ export function useChartReadout() {
     onFocus: () => setText(label),
     onClick: () => setText(label),
     // A touch has no leave until the next tap, so only a real mouse clears the readout.
-    onPointerLeave: (e: { pointerType: string }) => { if (e.pointerType === 'mouse') setText('') },
+    onPointerLeave: (e: { pointerType: string; currentTarget: Element }) => { if (e.pointerType === 'mouse' && document.activeElement !== e.currentTarget) setText('') },
   })
   return { text, point }
 }

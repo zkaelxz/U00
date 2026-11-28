@@ -1288,3 +1288,4 @@ dialog.sheet details.section { border: 0; padding-inline: 0; margin: 0; }
 }
 
 .chart-readout { min-height: 1.5em; margin: var(--space-1) 0; font-size: var(--text-sm, 0.85rem); }
+.chart-readout:empty { display: none; }
