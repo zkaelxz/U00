@@ -76,7 +76,7 @@ from api.auth import (is_auth_enabled, authenticated, clear_session_cookie, clie
                       set_session_cookie)
 from api.no_store import NO_STORE, no_store_json
 from api.remote_uploads import away_principal
-from api.schemas import AccountPreferences
+from api.schemas import AccountPreferences, MemberLimits
 from services import account_prefs_service, auth_service, member_key_service, oidc_service
 from lib.errors import DependencyUnavailableError, NotFoundError, RateLimitedError
 
@@ -118,6 +118,9 @@ class MeResponse(BaseModel):
     paid_limit_reached: bool = False
     # What the account keeps for every device (theme); only for a signed-in account.
     preferences: Optional[AccountPreferences] = None
+    # The signed-in member's own limits, so a refusal is not the first they hear of one;
+    # absent for an admin and the PC owner, who have none.
+    limits: Optional[MemberLimits] = None
 
 
 class LogoutResponse(BaseModel):
@@ -272,10 +275,13 @@ def me(request: Request):
                         paid_limit_reached=auth_service.paid_engines_held_back(principal["user_id"]),
                         # Left out until the account has saved something, so the body is unchanged for most.
                         preferences=account_prefs_service.get(principal["user_id"]) or None,
+                        limits=auth_service.own_limits(principal["user_id"]),
                         user={"id": principal["user_id"], "email": principal["email"],
                               "display_name": display, "is_admin": principal["is_admin"],
                               "is_local_owner": False})
     shown = MeResponse(**body).model_dump()
+    if shown["limits"] is None:
+        del shown["limits"]
     if shown["preferences"] is None:
         del shown["preferences"]
     else:

@@ -9,7 +9,7 @@ from lib.errors import ForbiddenError, InvalidInputError
 from services import artifact_service, queue_service as q, translate_run_service
 
 
-pytestmark = pytest.mark.usefixtures("local_ollama_default")
+pytestmark = pytest.mark.usefixtures("isolated_db")
 
 
 def _drama(lines=(("你好", ""),), **fields):
