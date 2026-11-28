@@ -490,3 +490,13 @@ def test_a_failed_redo_keeps_the_parts_first_english(subtitles, monkeypatch):
     assert errors == []
     assert lines[9].en.startswith("EN s9 #") and lines[21].en.startswith("EN s21 #")
     assert all(ln.en.strip() for ln in lines)
+
+
+def test_a_shorter_pause_cuts_when_no_long_one_is_near_an_even_split(subtitles, monkeypatch):
+    pauses = {4: 25.0, 15: 12.0}
+    _run_subtitles(_subtitles(pauses), 2)
+    monkeypatch.setattr(tp, "SCENE_SHORT_PAUSE_FALLBACK", True)
+    _run_subtitles(_subtitles(pauses), 2)
+    _run_subtitles(_subtitles({14: 25.0, 15: 12.0}), 2)   # a long pause near the middle still wins
+    assert subtitles == [[list(range(4)), list(range(4, 30))], [list(range(15)), list(range(15, 30))],
+                         [list(range(14)), list(range(14, 30))]]
