@@ -1049,7 +1049,7 @@ def _start_next(now: float, deferred=frozenset()) -> None:
         # Resting and Tonight items still count as waiting below, so the queue doesn't go idle and forget them.
         night_ok = any(i.get("tonight") for i in waiting) and queue_night.in_window(doc["night"], now) \
             and queue_night.pc_idle()
-        # A Tonight step holds back the later steps of its run, which would otherwise start now and be skipped.
+        # A Tonight step holds back its whole run: a later step started now would only be skipped for it.
         tonight_chains = {i["chain"] for i in waiting if i.get("tonight") and i["chain"]}
         ready = [i for i in waiting if (i.get("not_before") or 0) <= now
                  and (night_ok or not (i.get("tonight") or i["chain"] in tonight_chains))]

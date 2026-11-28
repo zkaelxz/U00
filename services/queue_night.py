@@ -180,9 +180,9 @@ def _paid_check() -> Optional[dict]:
         return None
     except Exception as e:  # any engine failure is what this check is for
         return _engine_result(engine, str(e) or type(e).__name__)
-    if stopped:   # the call would have passed the cap
-        return None
-    return _engine_result(engine, "" if text.strip() else "The engine gave no answer.")
+    if stopped and stopped.startswith(translate_service.CAP_STOP_MESSAGE.split("{")[0]):
+        return None   # the call would have passed the cap
+    return _engine_result(engine, "" if text.strip() and not stopped else "The engine gave no usable answer.")
 
 
 def _engine_result(engine: str, reason: str) -> dict:

@@ -1315,6 +1315,13 @@ def test_the_paid_check_is_skipped_without_a_key_a_cap_or_room_under_it(night_en
     assert _usage_rows() == 0
 
 
+def test_a_blank_answer_fails_the_paid_check(night_engine, monkeypatch):
+    from services import queue_night as n
+    engine, _status, _cap = night_engine
+    monkeypatch.setattr(engine, "translate_batch", lambda texts, context=None: ["" for _ in texts])
+    assert n._paid_check()["status"] == "fail"
+
+
 def test_a_refused_key_fails_the_paid_check_without_showing_it(night_engine):
     from services import queue_night as n
     engine, _status, _cap = night_engine
