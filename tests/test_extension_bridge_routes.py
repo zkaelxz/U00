@@ -614,8 +614,8 @@ class TestSendVideo:
 class TestStartLive:
     """POST /live starts Live on a stream link with the PC's defaults, under the token's rights."""
 
-    def _live_member(self, email, perms=("media.import_url",)):
-        u, _ = _member(email)
+    def _live_member(self, email, perms=("media.import_url",), paid=False):
+        u, _ = _member(email, paid=paid)
         for p in perms:
             auth_service.grant_permission(u["id"], p)
         token = svc.create_token(dict(user_id=u["id"], is_admin=False,
@@ -623,8 +623,9 @@ class TestStartLive:
         return u, token
 
     def test_starts_with_safe_defaults(self, isolated_db, monkeypatch):
-        from services import live_service, model_readiness_service
+        from services import live_service, model_readiness_service, translate_service
         seen = {}
+        monkeypatch.setattr(translate_service, "default_hosted_engine", lambda: "ollama")
 
         def fake_start(url, **kw):
             seen.update(url=url, **kw)
@@ -645,6 +646,31 @@ class TestStartLive:
         assert not seen.get("delayed_player")
         assert ready == [False]
         assert seen["engine"] == "ollama" and seen["use_gpu"] is False
+
+    def test_follows_the_pc_default_engine_when_ollama_is_down(self, isolated_db, monkeypatch):
+        # The Live page runs on the PC's default (OpenAI when Ollama does not answer and a key
+        # is saved); the extension's Start Live must not insist on Ollama and get a 503.
+        from services import live_service, model_readiness_service, translate_service
+        seen = {}
+
+        def fake_start(url, **kw):
+            seen.update(kw)
+            return {"session_id": "live_" + "a" * 32}
+
+        monkeypatch.setattr(live_service, "start_session",
+                            functools.wraps(live_service.start_session)(fake_start))
+        monkeypatch.setattr(model_readiness_service, "require_ready", lambda *a, **k: None)
+        monkeypatch.setattr(live_service, "gpu_available", lambda: False)
+        monkeypatch.setattr(translate_service, "default_hosted_engine", lambda: "openai")
+        _, token = self._live_member("paid@example.com", paid=True)
+        r = _client().post(f"{BASE}/live", headers=_auth(token), json={"url": "https://www.twitch.tv/x"})
+        assert r.status_code == 200, r.text
+        assert seen["engine"] == "openai"
+
+        _, member_token = self._live_member("free@example.com")
+        r = _client().post(f"{BASE}/live", headers=_auth(member_token), json={"url": "https://www.twitch.tv/x"})
+        assert r.status_code == 200, r.text
+        assert seen["engine"] == "ollama"
 
     def test_import_right_is_required(self, isolated_db, monkeypatch):
         from services import live_service
