@@ -81,6 +81,8 @@ import './comic/comic.css'
 import { browserStorage } from '../hooks/usePersistedState'
 
 const PROGRESS_DELAY_MS = 1000
+// A page with no text boxes has nothing to fetch, and its picture is described as having no text.
+const NO_REGIONS = { regions: [] }
 
 // In-viewer moves replace the history entry, so Back leaves the comic
 // instead of stepping back through every page.
@@ -341,8 +343,7 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
   const applyMarks = useChapterMarks(id, setData, current === null || !moved ? null : finishedChapter(pages, chapters, spread ?? [current], visibleAll))
 
   // Text boxes for the page(s) in view, fetched once each.
-  const wantText = prefs.text || linesOpen
-  const textKey = current === null || !wantText ? '' : (spread ?? textPages(current, count, prefs.mode)).join(',')
+  const textKey = current === null ? '' : (spread ?? textPages(current, count, prefs.mode)).join(',') // with Text off too: it is the picture's description
   const [textTick, setTextTick] = useState(0)
   // A failed request is forgotten, so asking again fetches it again.
   const retryText = (pageId: number) => {
@@ -364,11 +365,11 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
   }, [textKey, pages, id, textTick])
 
   const regionsFor = (p: ComicPageInfo): RegionsState | undefined | 'none' => (!p.has_regions ? 'none' : regions[p.id])
-  const overlayFor = (p: ComicPageInfo) => {
-    if (!prefs.text) return null
+  const loadedText = (p: ComicPageInfo) => {
     const r = regions[p.id]
     return r && !('error' in r) ? r : null
   }
+  const overlayFor = (p: ComicPageInfo) => (prefs.text ? loadedText(p) : null)
 
   const libraryHref = '#/library'
   const empty = data !== null && count === 0
@@ -503,6 +504,7 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
               eager={paged || Math.abs(n - (current ?? 1)) <= 1}
               mounted={paged || inRenderWindow(n, current ?? 1)}
               regions={overlayFor(p)}
+              described={p.has_regions ? loadedText(p) : NO_REGIONS}
               boxText={!phone}
               flashBoxes={flash?.page === n ? flash.boxes : undefined}
               onLineTap={canEdit ? (idx) => setEditing({ pageId: p.id, number: n, idx }) : undefined}
