@@ -162,17 +162,19 @@ def _drop_marks_running_off_edge(mask, roi=None) -> None:
         chroma = np.hypot(ab[..., 0], ab[..., 1])
         coloured = (mask > 0) & (chroma >= _RESCUE_MIN_CHROMA)
         if coloured.any():
-            # The most common chroma among the marks is the lettering's: art is
-            # varied, and a share cap stops a plain art blob being taken whole.
-            bins = (ab[coloured] // _RESCUE_MAX_COLOUR_GAP)
+            # Lettering that stayed sets the colour; when it all joined the art, the most
+            # common chroma is taken, since art is varied. The share cap stops a plain blob.
+            stayed = coloured & ~dropped
+            bins = ab[stayed if stayed.any() else coloured] // _RESCUE_MAX_COLOUR_GAP
             keys, counts = np.unique(bins, axis=0, return_counts=True)
             colour = (keys[counts.argmax()] + 0.5) * _RESCUE_MAX_COLOUR_GAP
             gap = np.hypot(ab[..., 0] - colour[0], ab[..., 1] - colour[1])
             rescued = dropped & (chroma >= _RESCUE_MIN_CHROMA) & (gap <= _RESCUE_MAX_COLOUR_GAP)
             if rescued.sum() <= _RESCUE_MAX_DROPPED_SHARE * dropped.sum():
                 dropped &= ~rescued
-                # The lettering's anti-aliased rim is paler than its core, so a bare core mask left it as ghost outlines.
-                rim = cv2.dilate(rescued.astype(np.uint8), np.ones((3, 3), np.uint8), iterations=2) > 0
+                # The anti-aliased rim is paler than the core and left ghost outlines; only
+                # pixels already marked are added, so unmarked art stays.
+                rim = (cv2.dilate(rescued.astype(np.uint8), np.ones((3, 3), np.uint8), iterations=2) > 0) & dropped
     mask[dropped] = 0
     if rim is not None:
         mask[rim] = 255
