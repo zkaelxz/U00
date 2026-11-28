@@ -46,6 +46,7 @@ export interface AssExportRequest {
   wrap_chars_source?: number
   reading_line?: boolean
   karaoke?: boolean
+  ear_placement?: boolean
 }
 
 export type AssStyleOptions = Schemas['AssStyleOptions']
