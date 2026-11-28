@@ -202,19 +202,18 @@ def _updater_takes_wheels() -> bool:
     Only Setup replaces the helper's code (the app layer can't reach the
     admin folder), so one from an older Setup still wants the same wheels;
     offering it such an update would only end in a refusal."""
-    return _helper_source_has(b"def base_accepts(")
+    return _helper_source_has(b"def base_accepts(", app_swap.HELPER_NAME)
 
 
 def updater_restarts_for_packages() -> bool:
     """Whether the BaiheUpdate helper (replaced only by Setup) can restart the
     app service for a queued package install."""
-    return _helper_source_has(b"def restart_for_packages(")
+    return _helper_source_has(b"def restart_for_packages(", "service_update.py")
 
 
-def _helper_source_has(marker: bytes) -> bool:
+def _helper_source_has(marker: bytes, module: str) -> bool:
     program_files = os.environ.get("ProgramFiles", r"C:\Program Files")
-    path = os.path.join(program_files, ADMIN_FOLDER, "helper", "lib", "installer",
-                        app_swap.HELPER_NAME)
+    path = os.path.join(program_files, ADMIN_FOLDER, "helper", "lib", "installer", module)
     try:
         with open(path, "rb") as fh:
             return marker in fh.read(1024 * 1024)

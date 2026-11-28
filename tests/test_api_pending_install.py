@@ -477,3 +477,15 @@ def test_the_last_restart_line_goes_away_when_dismissed_and_status_is_read_only(
     assert svc.pending_install.read_pending()[0] is not None     # reading never settles the queue
     assert client.post(f"{BASE}/dismiss", json={}).status_code == 200
     assert client.get(BASE).json()["last_restart"] is None
+
+
+def test_the_helper_capability_is_read_from_the_module_that_holds_the_code(tmp_path, monkeypatch):
+    lib = tmp_path / "Baihe Studio Services" / "helper" / "lib" / "installer"
+    lib.mkdir(parents=True)
+    monkeypatch.setenv("ProgramFiles", str(tmp_path))
+    aus = svc.app_update_service
+    assert aus.updater_restarts_for_packages() is False
+    (lib / "app_swap.py").write_text("def base_accepts(manifest, installed):\n    pass\n")
+    assert aus._updater_takes_wheels() is True and aus.updater_restarts_for_packages() is False
+    (lib / "service_update.py").write_text("def restart_for_packages(layout, run, port):\n    pass\n")
+    assert aus.updater_restarts_for_packages() is True
