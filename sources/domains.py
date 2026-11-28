@@ -257,7 +257,7 @@ class SiteDomains:
                 tried += 1
                 try:
                     home = self.client.get(f"https://{candidate}/", action="Checking a possible new address",
-                                           use_cache=False)
+                                           use_cache=False, record_health=False)
                     if hostport(home.url or "") == candidate and self.adapter.verify_site(home.text):
                         found = store.propose_domain(self.source, candidate) or found
                         break

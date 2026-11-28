@@ -299,6 +299,14 @@ class TestNextNumbers:
         assert site._try_next_numbers(now=self.DAY + 5) is False
         assert self._probed(t) == []
 
+    def test_nine_dead_numbers_do_not_stop_the_tenth(self, world):
+        dead = {f"https://xbanxia{n}.org/": _down() for n in range(11, 20)}
+        site, t = self._site({**dead, "https://xbanxia20.org/": _moved("https://xbanxia20.org/")})
+        site._try_next_numbers(now=0.0)
+        assert site._try_next_numbers(now=self.DAY) is True
+        assert _hosts() == ["xbanxia20.org"]
+        assert health.get("xbanxia") is None or health.get("xbanxia").get("state") != "backoff"
+
     def test_a_host_that_redirects_elsewhere_is_not_proposed(self, world):
         site, t = self._site({"https://xbanxia11.org/": _moved("https://other.example/")})
         site._try_next_numbers(now=0.0)
