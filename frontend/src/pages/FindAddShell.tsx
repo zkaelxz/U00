@@ -24,7 +24,7 @@ function findAddTabs(sourcesOn: boolean): { id: FindAddTab; label: string; href:
 }
 
 export function FindAddShell({ current, className, children }: { current: FindAddTab; className?: string; children: ReactNode }) {
-  const features = useFeatures()
+  const sourcesOn = featureOn('sources', useFeatures())
   return (
     <PageShell
       width="wide"
@@ -32,10 +32,11 @@ export function FindAddShell({ current, className, children }: { current: FindAd
       label="Find & Add"
       meta="Search by name, or add a video link, a file or a title by hand."
       className={className}
-      actions={<ButtonLink href={sourcesHref('manage')}>Manage sources</ButtonLink>}
+      // The Sources tab carries its own Manage sources tab, so a second link there would be a duplicate.
+      actions={sourcesOn && current !== 'sources' ? <ButtonLink href={sourcesHref('manage')}>Manage sources</ButtonLink> : undefined}
       tabs={(
         <nav className="ui-tabs" aria-label="Find & Add">
-          {findAddTabs(featureOn('sources', features)).map((t) => (
+          {findAddTabs(sourcesOn).map((t) => (
             <a key={t.id} className="ui-tab" href={t.href} aria-current={t.id === current ? 'page' : undefined}>
               {t.label}
             </a>

@@ -10,7 +10,7 @@ test('hiding Find removes it from the rail, the address still loads and the choi
   await expectDiscoverGone(page)
 
   await page.goto('/#/discover')
-  await expect(page.getByRole('region', { name: 'Discover' }).or(page.getByRole('heading', { name: 'Discover' })).first()).toBeVisible()
+  await expect(page.getByRole('navigation', { name: 'Find & Add' }).getByRole('link', { name: 'Discover' })).toHaveAttribute('aria-current', 'page')
   await page.reload()
   await expectDiscoverGone(page)
 

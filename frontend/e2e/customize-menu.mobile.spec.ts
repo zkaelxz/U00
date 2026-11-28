@@ -12,7 +12,7 @@ test('hiding Discover removes it from the drawer, the address still loads and th
   }
   await expectDiscoverGone(page)
   await page.goto('/#/discover')
-  await expect(page.getByRole('heading', { name: 'Discover' }).first()).toBeVisible()
+  await expect(page.getByRole('navigation', { name: 'Find & Add' }).getByRole('link', { name: 'Discover' })).toHaveAttribute('aria-current', 'page')
   await page.reload()
   await expectDiscoverGone(page)
 })
