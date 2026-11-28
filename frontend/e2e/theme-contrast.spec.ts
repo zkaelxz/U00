@@ -14,7 +14,7 @@ const SCREENS = [
 
 // What this check exists for must be on the screens it walks, or a green run proves nothing.
 // The header's view-mode switch is a segmented control on every screen with its own colours, so it does not count.
-const MUST_SEE = ['.pill', '.segmented:not(.view-mode-switch) label:has(input:checked)', '.stage-blocker', '.source-needed']
+const MUST_SEE = ['.pill', '.segmented:not(.view-mode-switch) label:has(input:checked)', '.stage-blocker', '.transcribe-needed']
 
 type Scan = { problems: string[]; checked: number; seen: string[]; drawn: string }
 
