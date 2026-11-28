@@ -247,14 +247,17 @@ def test_lines_the_engine_left_empty_are_asked_for_again_and_the_rest_are_counte
 
     def translate(bubbles, engine, drama_meta, **kwargs):
         calls.append([b["source_text"] for b in bubbles])
-        # The first call answers one line; the retry answers one of the two still missing.
-        target = next(b for b in bubbles if not b["translated_text"])
-        target["translated_text"] = "Goodbye, Yeon Dana" if len(calls) == 1 else "Hello"
-        raise ValueError("2 of 3 regions weren't translated")
+        # The first call answers one line; the group retry leaves the other two out again;
+        # asked alone, "안녕" is answered and "뭐라고" still is not.
+        if len(calls) == 1:
+            bubbles[0]["translated_text"] = "Goodbye, Yeon Dana"
+        elif len(bubbles) == 1 and bubbles[0]["source_text"] == "안녕":
+            bubbles[0]["translated_text"] = "Hello"
+        raise ValueError("regions weren't translated")
 
     monkeypatch.setattr(scanlate_translate, "translate_page_bubbles", translate)
     page = _send(token, drama).payload["pages"][0]
-    assert len(calls) == 2 and len(calls[1]) == 2
+    assert [len(c) for c in calls] == [3, 2, 1, 1]
     assert page["untranslated_lines"] == 1
     assert any("still had no translation after a retry" in n[1] for n in page["notes"])
     assert [r["translated_text"] for r in page["regions"]].count("") == 1
