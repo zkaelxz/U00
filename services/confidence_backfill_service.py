@@ -1,11 +1,40 @@
 """services/confidence_backfill_service.py -- one pass at startup that gives lines saved before per-sentence
 scoring their own Whisper confidence, from the word probabilities stored with them."""
+import threading
 from types import SimpleNamespace
 
 import db
 import segment_splitting
 
 _MARKER = "backfills.per_line_confidence"
+_thread = None
+
+
+def start_in_background() -> None:
+    """run_once on a daemon thread: on a large library it takes seconds, and the launcher rolls an
+    update back if the server misses its health-check window."""
+    global _thread
+    _thread = threading.Thread(target=_run_logged, name="confidence-backfill", daemon=True)
+    _thread.start()
+
+
+def wait(timeout: float) -> bool:
+    """True once no background pass is running, so a restore never swaps the database under one."""
+    t = _thread
+    if t is not None:
+        t.join(timeout)
+    return t is None or not t.is_alive()
+
+
+def _run_logged() -> None:
+    try:
+        run_once()
+    except Exception:   # noqa: BLE001 -- the marker stays unset, so the next start tries again
+        try:
+            import applog
+            applog.get_logger().warning("Line scores were not rescored", exc_info=True)
+        except OSError:
+            pass
 
 
 def run_once() -> int:
