@@ -56,6 +56,25 @@ def default_speaker_colors(speakers) -> dict:
             for i, sp in enumerate(sorted(s for s in set(speakers) if s))}
 
 
+def colors_by_label(colors: dict, speaker_names: dict) -> dict:
+    """Typed speaker colours keyed by speaker label. The Export form asks for the
+    name the file shows, the character's, while lines carry labels such as
+    SPEAKER_00: a key that is a character's name (case ignored) colours every
+    label with that name, and any other key is kept as a label."""
+    labels_by_name: dict = {}
+    for label, name in speaker_names.items():
+        if str(name or "").strip():
+            labels_by_name.setdefault(str(name).strip().casefold(), []).append(label)
+    out = {}
+    for key, color in colors.items():
+        for label in labels_by_name.get(key.strip().casefold(), ()):
+            out[label] = color
+    # A key typed as a known label (or matching no name) is that label, and wins over a name mapped to it.
+    out.update({key: color for key, color in colors.items()
+                if key in speaker_names or key.strip().casefold() not in labels_by_name})
+    return out
+
+
 def ass_color(hex_rgb: str) -> str:
     """#RRGGBB -> ASS &H00BBGGRR (ASS is BGR, with a leading alpha byte)."""
     h = (hex_rgb or "#FFFFFF").lstrip("#")
