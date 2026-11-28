@@ -12,7 +12,7 @@ import weakref
 import sentence_groups
 from .engine_registry import default_batch_size, default_reply_guard, novel_batch_chars
 from . import glossary_check
-from .fallback import FallbackEngine
+from .fallback import FallbackEngine, SlowSwitchEngine
 from . import medium_prompts
 from . import stream_recipe
 from .novel_batches import chapter_start_idxs, novel_paragraph_ends, plan_paragraph_batches
@@ -616,6 +616,10 @@ class _TranslateRun:
             self.args.detail_cb(self.last_frac, message)
 
     def _set_batch_context(self, batch):
+        begin_chapter = getattr(self.engine, "begin_chapter", None)
+        starts = getattr(self, "chapter_starts", ())
+        if begin_chapter and (self.bi == 0 or not starts or batch[0].idx in starts):
+            begin_chapter()
         # Recomputed each batch (not just once outside the loop) since
         # more lines have been translated -- including by this very
         # loop -- by the time later batches run.
@@ -1011,6 +1015,8 @@ PARALLEL_ENGINE_NAMES = ("claude", "deepseek", "openai", "gemini")
 
 
 def can_run_in_parallel(engine) -> bool:
+    if isinstance(engine, SlowSwitchEngine):
+        return all(can_run_in_parallel(e) for e in engine.engines)
     if isinstance(engine, FallbackEngine) or getattr(engine, "free_tier", False):
         return False
     name = getattr(engine, "name", "")
@@ -1018,6 +1024,8 @@ def can_run_in_parallel(engine) -> bool:
 
 
 def _clone_engine(engine):
+    if isinstance(engine, SlowSwitchEngine):
+        return engine.lane_copy(_clone_engine)
     clone = copy.copy(engine)
     if isinstance(getattr(engine, "last_usage", None), dict):
         clone.last_usage = dict.fromkeys(engine.last_usage, 0)
@@ -1061,7 +1069,7 @@ class _LaneRun(_TranslateRun):
 
     def run_chapter(self, number, batches, bi_offset) -> bool:
         parent = self.parent
-        for name in ("context", "size", "guard_enabled", "groups", "split_by_length"):
+        for name in ("context", "size", "guard_enabled", "groups", "split_by_length", "chapter_starts"):
             setattr(self, name, getattr(parent, name))
         self.context = dict(parent.context)
         self.n_batches = len(batches)

@@ -518,7 +518,7 @@ def start_translate_run(drama_id: int, engine_name: str | None = None, model: st
         drama_id, bulk, engine_name, model, caps[0], reflect, force_retranslate, gemini_free_tier,
         job_cost_cap_usd)
 
-    engines, engine, cost_cap = translate_run_options.instantiate_engines(built, chain, caps)
+    engines, engine, cost_cap = translate_run_options.instantiate_engines(built, chain, caps, not (reflect or bulk))
 
     resp, run_settings, novel_reference, glossary_terms, style_guidelines = _prepare_run(
         job_id, drama_id, drama, lines, eligible, engines, chain, opts, reflect, bulk,

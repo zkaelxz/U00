@@ -755,6 +755,24 @@ def _inside_in_crop(inside, box: dict, x: int, y: int, bw: int, bh: int):
     return keep
 
 
+def _extend_inside_to_page_edge(keep, box: dict, x: int, y: int, page_shape) -> None:
+    """Fills, in place, the strip between a box and the page's edge with the box's last row or
+    column of `keep`. Detection boxes stop a pixel or two short of the page, and lettering the
+    page cuts runs on into that strip, so it was left unerased."""
+    h, w = page_shape[:2]
+    bh, bw = keep.shape
+    bottom, right = box["y"] + box["h"] - y, box["x"] + box["w"] - x
+    top, left = box["y"] - y, box["x"] - x
+    if y + bh == h and 0 < bottom < bh:
+        keep[bottom:] = keep[bottom - 1]
+    if x + bw == w and 0 < right < bw:
+        keep[:, right:] = keep[:, right - 1:right]
+    if y == 0 and 0 < top:
+        keep[:top] = keep[top]
+    if x == 0 and 0 < left:
+        keep[:, :left] = keep[:, left:left + 1]
+
+
 def _lettering_glyphs(gray_roi):
     """Label image, stats and centres of the dark marks of `gray_roi`, and the ids of those
     that look like a glyph: of letter size and sitting on pale paper (a ring round them
@@ -1027,6 +1045,8 @@ def inpaint_region(image_path: str, box: dict, out_path: str | None = None, padd
     roi = img[y:y + bh, x:x + bw]
     gray_roi = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
     keep = _inside_in_crop(inside, box, x, y, bw, bh) if inside is not None else None
+    if keep is not None:
+        _extend_inside_to_page_edge(keep, box, x, y, img.shape)
     mask, line_only = _erase_mask(gray_roi, keep, spare_art, on_art, roi)
     drop_colour_rules(mask, roi)
     mask = _grown_erase_mask(mask, grow, keep if inside is not None else None)
