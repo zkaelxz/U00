@@ -544,6 +544,18 @@ class TestProblem:
         abs_.set_settings(enabled=False)
         assert abs_.settings_overview()["problem"] is None
 
+    def test_titles_are_not_counted_once_the_note_cannot_show(self, isolated_db, monkeypatch):
+        def no_count(n):
+            raise AssertionError("counted titles")
+        abs_.dismiss_same_drive_note()
+        monkeypatch.setattr(db, "has_at_least_dramas", no_count)
+        assert abs_.settings_overview()["problem"] is None
+
+    def test_counting_titles_stops_at_the_threshold(self, isolated_db):
+        self._titles(3)
+        assert db.has_at_least_dramas(3) is True
+        assert db.has_at_least_dramas(4) is False
+
     def test_a_failing_backup_wins_over_the_same_drive_note(self, isolated_db, monkeypatch):
         self._titles(abt_.SAME_DRIVE_NOTE_MIN_TITLES)
         monkeypatch.setattr(abs_, "_get_state", lambda: {"last_error": "boom"})

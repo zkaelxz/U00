@@ -225,12 +225,14 @@ SAME_DRIVE_NOTE_MIN_TITLES = 5
 SAME_DRIVE_DISMISSED_KEY = "auto_backup.same_drive_note_dismissed"
 
 
-def same_drive_note_due(settings: dict, title_count: int) -> bool:
+def same_drive_note_due(settings: dict) -> bool:
     """The one-time note that the copies sit on the library's own drive (the
-    default folder always does): until the owner dismisses it."""
-    return (settings["enabled"] and title_count >= SAME_DRIVE_NOTE_MIN_TITLES
-            and not db.get_app_setting(SAME_DRIVE_DISMISSED_KEY, False)
-            and same_drive_as_library(settings["folder"]))
+    default folder always does): until the owner dismisses it. The titles are
+    counted last because the settings page asks on every load."""
+    return bool(settings["enabled"]
+                and not db.get_app_setting(SAME_DRIVE_DISMISSED_KEY, False)
+                and same_drive_as_library(settings["folder"])
+                and db.has_at_least_dramas(SAME_DRIVE_NOTE_MIN_TITLES))
 
 
 def dismiss_same_drive_note() -> None:

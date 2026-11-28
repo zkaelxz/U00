@@ -1,7 +1,7 @@
 /*
  * BackupHealthBanner: in the app shell, on the main PC only (usePcOnly 'local'; the backup routes are PC only),
- * while the last automatic backup failed or none has succeeded for a long while
- * (GET /api/backups/settings `problem`). Dismissing hides it for this page load only, so a lasting problem
+ * while the last automatic backup failed, none has succeeded for a long while, or the copies share the
+ * library's drive (GET /api/backups/settings `problem`). Dismissing hides it for this page load only, so a lasting problem
  * comes back after a reload; the one-time same-drive note is dismissed on the server, for good.
  * A refusal or a server without the route stops the reads.
  */

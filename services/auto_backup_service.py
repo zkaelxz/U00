@@ -144,8 +144,7 @@ def settings_overview() -> dict:
 
 
 def _same_drive_problem(settings: dict):
-    count = db.get_library_stats()["total_dramas"]
-    return "same_drive" if same_drive_note_due(settings, count) else None
+    return "same_drive" if same_drive_note_due(settings) else None
 
 
 def dismiss_same_drive_note() -> dict:
