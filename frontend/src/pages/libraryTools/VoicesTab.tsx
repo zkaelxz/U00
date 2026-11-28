@@ -97,7 +97,7 @@ export function VoicesTab({ pc }: { pc: PcMode }) {
           No enrolled voices yet. In a title's Characters step, name a speaker and choose Remember as a known character, or accept a suggested match.
         </p>
       )}
-      <ul className="tool-list voice-list">
+      <ul className="tool-list voice-list scroll-box" tabIndex={0}>
         {items?.map((v) => (
           <VoiceRow key={`${v.series_id}/${v.character_id}`} voice={v} canChange={pc !== 'remote'} onChanged={() => setReloadKey((k) => k + 1)} />
         ))}

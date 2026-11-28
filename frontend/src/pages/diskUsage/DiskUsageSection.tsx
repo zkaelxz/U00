@@ -83,7 +83,7 @@ export function DataFolderPanel({ usage }: { usage: DiskUsage }) {
         {scan && split && scan.items.length > 0 && (
           <>
             <Treemap scan={scan} onOpen={(p) => load(p)} />
-            <ul className="du-list" aria-label={`Items in ${crumbs(here).at(-1)?.label ?? 'folder'}`}>
+            <ul className="du-list scroll-box" tabIndex={0} aria-label={`Items in ${crumbs(here).at(-1)?.label ?? 'folder'}`}>
               {split.own.map((item) => (
                 <ItemRow
                   key={item.path}
@@ -113,7 +113,7 @@ function ProgramFiles({ items, bytes }: { items: DiskUsageItem[]; bytes: number 
         <span className="du-size num">{formatDecimalBytes(bytes)}</span>
       </summary>
       <p className="muted du-why">Part of the program, not your data. They can&apos;t be moved or cleared from here.</p>
-      <ul className="du-program-list">
+      <ul className="du-program-list scroll-box" tabIndex={0}>
         {items.map((i) => (
           <li key={i.path}><span>{i.name}</span> <span className="muted num">{sizeLine(i)}</span></li>
         ))}

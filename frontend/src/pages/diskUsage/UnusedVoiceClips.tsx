@@ -76,7 +76,7 @@ export function UnusedVoiceClips({ clips, onChanged, onStale }: Props) {
           {clips.titles.map((t) => (
             <div key={`${t.title}:${t.clips[0]?.id}`} className="du-clip-title">
               <h2 className="du-clip-heading subhead">{`${clipTitle(t.title)} · ${clipsText(t.clips.length)} · ${formatDecimalBytes(t.size_bytes)}`}</h2>
-              <ul className="du-list" aria-label={`Unused clips in ${clipTitle(t.title)}`}>
+              <ul className="du-list scroll-box" tabIndex={0} aria-label={`Unused clips in ${clipTitle(t.title)}`}>
                 {t.clips.map((c, i) => (
                   <li key={c.id} className="du-row du-trash-row">
                     <div className="du-row-main">

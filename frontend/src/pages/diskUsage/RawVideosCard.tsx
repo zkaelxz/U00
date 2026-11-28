@@ -75,7 +75,7 @@ export function RawVideosCard({ onChanged }: { onChanged: (message: string) => v
               onConfirm={() => move('all', list.videos)}
             />
           </div>
-          <ul className="du-list" aria-label="Old source videos">
+          <ul className="du-list scroll-box" tabIndex={0} aria-label="Old source videos">
             {list.videos.map((v) => (
               <li key={v.id} className="du-row du-trash-row">
                 <div className="du-row-main"><span className="du-name">{`${v.title || 'Untitled'} · ${formatDecimalBytes(v.size_bytes)}`}</span></div>
