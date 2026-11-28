@@ -4,7 +4,7 @@ import time
 
 import db
 from services import ownership_service
-from services.jobs_service import scrub_text
+from jobs.job_results import scrub_text
 
 MAX_PAGE = 100
 MAX_SCAN = 1000     # rows read per page: a member's own jobs are sparse among everyone's
@@ -39,8 +39,8 @@ def list_activity(principal=None, limit: int = 50, before_id: int | None = None)
 
 
 def _kind(job_id) -> str:
-    from services import jobs_service
-    return jobs_service.job_kind(job_id)
+    from jobs import job_results
+    return job_results.job_kind(job_id)
 
 
 def gpu_daily(principal=None, days: int = DEFAULT_DAYS) -> dict:

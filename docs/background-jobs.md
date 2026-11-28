@@ -51,7 +51,7 @@ must be a top-level picklable function whose last parameter is a
   `background_jobs.get_status` while the job runs in this process.
 - Text going into `job_records` (it lands in backups) passes `job_store._storage_text`
   (`engine_backends.shared.redact_for_storage`); the result is stored as the allow-listed
-  projection (`jobs_service.project_result_json`).
+  projection (`jobs/job_results.project_result_json`).
 - A write also notifies change listeners (`add_change_listener`), which is how
   the SSE stream (`services/event_stream_service.py`) learns a job changed.
 
@@ -105,7 +105,7 @@ reach a client (`jobs_service._redact`).
 - A thread job that stops for a cancel ends `cancelled` with the progress it reached,
   whether it raised `JobCancelled` or (Translate) returned with its work kept and then
   raised it. A worker that returns a `failed_reason` from
-  `jobs_service.FAILED_REASON_MESSAGES` ends `error` with that sentence; partial
+  `job_results.FAILED_REASON_MESSAGES` ends `error` with that sentence; partial
   reasons (`no_lines`, `no_text`, `empty_kept_existing`) end `done`.
 - "Is such a job still on?" is `job_store.fresh_active`: live here, or a
   queued/running row heartbeated within `STALE_JOB_SECONDS`.
@@ -330,7 +330,7 @@ The guard decides when a job may start, not what device it uses. When a model ca
 load on the GPU, the job falls back to CPU, finishes `done`, and says so in its result:
 `gpu_fallback` (a short redacted reason) and `device_notice`
 (`whisper_models.gpu_fallback_notice`: "<Task> ran on the CPU because the GPU couldn't be used
-(...)"). `jobs_service.derive_outcome` reports such a job as `partial`, not `ok`.
+(...)"). `job_results.derive_outcome` reports such a job as `partial`, not `ok`.
 
 ## Cancel
 
@@ -600,7 +600,7 @@ A job closed by a restart reads `cancelled` with an `Interrupted: ...` error and
    for stages without progress). Check `is_cancel_requested` between units of work, and
    use `run_cancellable` for external commands.
 7. If a client needs result fields, put them in `set_result` and add the keys to
-   `jobs_service.RESULT_ALLOWED_KEYS`; add a `derive_outcome` case if the result means
+   `jobs/job_results.RESULT_ALLOWED_KEYS`; add a `derive_outcome` case if the result means
    `partial` or `failed`.
 8. Redact anything stored or shown (`redact_secrets`); never put keys, paths or URLs in
    results.

@@ -748,9 +748,9 @@ def test_on_done_says_when_a_nemotron_run_fell_back_to_pyannote(isolated_db, mon
 
 
 def test_the_fallback_sentence_shows_in_the_finished_jobs_outcome():
-    from services import jobs_service
-    out = jobs_service.project_result({"backend_fallback": "Nemotron speaker detection didn't run."})
-    outcome, message = jobs_service.derive_outcome("done", None, out)
+    from jobs import job_results
+    out = job_results.project_result({"backend_fallback": "Nemotron speaker detection didn't run."})
+    outcome, message = job_results.derive_outcome("done", None, out)
     assert outcome == "ok" and "Nemotron speaker detection didn't run." in message
 
 

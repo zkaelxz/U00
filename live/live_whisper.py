@@ -68,7 +68,7 @@ def _log(level: str, text: str) -> None:
         pass
 
 
-# Same shape as services.jobs_service.URL_PATTERN: a stream URL can carry a
+# Same shape as jobs.job_results.URL_PATTERN: a stream URL can carry a
 # signed token, so a logged reason never keeps one.
 _URL_RE = re.compile(r"\b[a-z][a-z0-9+.-]*://\S+", re.IGNORECASE)
 
