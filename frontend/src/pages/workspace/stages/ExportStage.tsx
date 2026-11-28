@@ -115,7 +115,9 @@ export default function ExportStage() {
   const untranslated = r !== null && r.total_lines > 0 && !r.fully_translated
   const assStyle = options ? <ExportAss form={form} setForm={setForm} options={options} /> : <ErrorBanner error={optionsError} />
   const mediaRequest = () =>
-    options ? buildAssRequest(form, options) : { error: 'The style options have not loaded yet.' }
+    options
+      ? buildAssRequest({ ...form, soundCaptions: !!r?.sound_captioned_lines && form.soundCaptions }, options)
+      : { error: 'The style options have not loaded yet.' }
   const reasonOf = (id: ExportBlockId) => exportBlockReason(id, inputs) ?? (id === 'burned_video' && libass ? NO_LIBASS : null)
   const shown = shownExportBlocks(kind, simple, inputs)
   // Picked once, after the reads that decide the reasons have answered, and the blocks mount only then: a block that

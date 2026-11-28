@@ -522,27 +522,39 @@ def _sound_tags(drama_id: int) -> dict:
 
 
 def _sound_captioned_count(drama_id: int, lines) -> int:
-    tags = _sound_tags(drama_id)
-    return sum(1 for ln in lines if tags.get(ln.id) and ln.en.strip() and not ln.sfx)
+    return len(_caption_words(lines, _sound_tags(drama_id)))
 
 
-def _with_sound_captions(lines, field: str, tags: Optional[dict]):
-    """Copies of `lines` whose English starts "[laughs] " and so on; `lines` itself when the
-    option is off. Music is marked only on the first line of a run of tagged lines: SenseVoice
-    hears it under every line of a scored scene. The source-language export is left as it is,
-    since the captions are English words. SFX lines already say what the sound is."""
-    if tags is None or field == "zh":
-        return lines
-    shown, music_before = {}, False
+def _caption_words(lines, tags: dict) -> dict:
+    """{id(line): caption words} for the lines that get a caption. Music is marked only on the
+    first line of a run of tagged lines, since SenseVoice hears it under every line of a scored
+    scene. A line that can't carry a caption (SFX, no English) can end a run but not start
+    one, or the music would never be marked."""
+    words_by_line, music_before = {}, False
     for ln in sorted(lines, key=lambda ln: ln.start):
         words = tags.get(getattr(ln, "id", None)) or []
         music = "music" in words
-        shown[id(ln)] = [w for w in words if w != "music"] if music and music_before else words
+        if not ln.en.strip() or getattr(ln, "sfx", False):
+            music_before = music_before and music
+            continue
+        shown = [w for w in words if w != "music"] if music and music_before else words
         music_before = music
+        if shown:
+            words_by_line[id(ln)] = shown
+    return words_by_line
+
+
+def _with_sound_captions(lines, field: str, tags: Optional[dict]):
+    """Copies of `lines` whose English starts "[laughs] " and so on (_caption_words); `lines`
+    itself when the option is off. The source-language export is left as it is, since the
+    captions are English words. SFX lines already say what the sound is."""
+    if tags is None or field == "zh":
+        return lines
+    shown = _caption_words(lines, tags)
     out = []
     for ln in lines:
-        words = shown[id(ln)]
-        if words and ln.en.strip() and not getattr(ln, "sfx", False):
+        words = shown.get(id(ln))
+        if words:
             ln = copy.copy(ln)
             ln.en = " ".join(f"[{w}]" for w in words) + " " + ln.en
         out.append(ln)

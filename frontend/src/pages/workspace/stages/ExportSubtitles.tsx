@@ -73,13 +73,15 @@ export function ExportSubtitles({ fmt, setFmt, form, setForm, options, totalLine
     latest.current += 1
   }, [selection])
 
+  // A saved draft can hold the option while the toggle is hidden (no tagged lines, or readiness not in).
+  const sent = { ...form, soundCaptions: !!soundLines && form.soundCaptions }
   const fetchText = (): Promise<SubtitleFile> | null => {
     if (fmt === 'ass') {
       if (!options) {
         setProblem('The style options have not loaded yet.')
         return null
       }
-      const built = buildAssRequest(form, options)
+      const built = buildAssRequest(sent, options)
       setProblem(built.error ?? null)
       return built.request ? getAssText(dramaId, built.request) : null
     }
@@ -91,7 +93,7 @@ export function ExportSubtitles({ fmt, setFmt, form, setForm, options, totalLine
       fmt, field: form.field, includeNotes: form.includeNotes, wrapEn: en.value, wrapSource: src.value,
       tidyTiming: form.tidyTiming && fmt === 'srt',
       speakerNames: form.speakerNames,
-      soundCaptions: !!soundLines && form.soundCaptions,
+      soundCaptions: sent.soundCaptions,
     })
   }
 

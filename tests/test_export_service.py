@@ -1026,5 +1026,22 @@ class TestSoundCaptions:
             export_service.generate_subtitle_text(did, "srt", "en")
         assert export_service.get_export_readiness(did)["sound_captioned_lines"] == 0
         tagged = self._tagged(isolated_db)
-        # The SFX line's applause gives no caption, so it isn't counted.
-        assert export_service.get_export_readiness(tagged)["sound_captioned_lines"] == 4
+        # Counts what the export shows: "Mm." only continues the music and the SFX line's
+        # applause gives no caption.
+        assert export_service.get_export_readiness(tagged)["sound_captioned_lines"] == 3
+
+    def test_music_starting_under_an_uncaptioned_line_is_marked_on_the_next(self, isolated_db):
+        import sensevoice_tags
+        did = _drama(isolated_db)
+        isolated_db.save_lines(did, [
+            Line(idx=0, start=0.0, end=1.0, zh="砰", en="door", sfx=True),
+            Line(idx=1, start=1.0, end=2.0, zh="嗯", en=""),
+            Line(idx=2, start=2.0, end=3.0, zh="好", en="Fine."),
+            Line(idx=3, start=3.0, end=4.0, zh="嗯", en="Mm."),
+        ])
+        ids = [ln.id for ln in lines_from_rows(isolated_db.load_lines(did))]
+        sensevoice_tags.save_audio_tags(isolated_db.drama_dir(did),
+                                        {i: {"events": ["BGM"]} for i in ids})
+        srt = export_service.generate_subtitle_text(did, "srt", "en", sound_captions=True)
+        assert "\n[music] Fine.\n" in srt and "\nMm.\n" in srt
+        assert export_service.get_export_readiness(did)["sound_captioned_lines"] == 1
