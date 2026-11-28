@@ -161,6 +161,7 @@ def get_settings_overview(env_path: str | None = None) -> dict:
     URLs that pass validate_endpoint_url (no userinfo, query or fragment),
     so neither can carry a secret."""
     from services import media_upload_service  # imports this module at load
+    switch_on = remote_uploads_on()
     return {
         "engine_keys": key_status(env_path),
         "gpu_limit_enabled": job_settings.get_gpu_limit_enabled(),
@@ -171,9 +172,9 @@ def get_settings_overview(env_path: str | None = None) -> dict:
         "gemini_free_tier": get("gemini_free_tier"),
         "bulk_auto_resume": get("bulk_auto_resume"),
         "offer_provider_models": get("offer_provider_models"),
-        "remote_uploads": remote_uploads_on(),
-        "remote_uploads_since": _remote_uploads_since() if remote_uploads_on() else None,
-        "remote_uploads_auto_off": _auto_off_shown(),
+        "remote_uploads": switch_on,
+        "remote_uploads_since": _remote_uploads_since() if switch_on else None,
+        "remote_uploads_auto_off": _auto_off_shown(switch_on),
         "preferences": get_preferences(),
         "endpoints": endpoint_values(env_path),
         "upload_max_mb_from_env": media_upload_service.upload_limit_from_env(),
@@ -204,11 +205,11 @@ def remote_uploads_auto_off() -> bool:
     return bool(get("remote_uploads_auto_off"))
 
 
-def _auto_off_shown() -> bool:
+def _auto_off_shown(switch_on: bool) -> bool:
     """What the card ticks: the stored choice, except that a switch saved before the choice
     existed and still on shows the 7 day limit it has. While the switch is off it shows what
-    turning it on will record (stay on), so the tick never flips by itself."""
-    return remote_uploads_auto_off() or (_auto_off_never_chosen() and remote_uploads_on())
+    turning it on will record (stay on), so the tick does not flip when the switch is turned on."""
+    return remote_uploads_auto_off() or (_auto_off_never_chosen() and switch_on)
 
 
 def _auto_off_never_chosen() -> bool:
