@@ -532,3 +532,52 @@ def test_params_json_and_data_are_sent_on_the_first_hop_only(monkeypatch):
               params={"q": "1"}, data=b"d")
     assert calls[0][3] == {"params": {"q": "1"}, "data": b"d"}
     assert calls[1][3] == {}
+
+
+@pytest.fixture
+def keep_alive_server():
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+    seen = []
+
+    class Handler(BaseHTTPRequestHandler):
+        protocol_version = "HTTP/1.1"
+
+        def do_POST(self):
+            self.rfile.read(int(self.headers.get("Content-Length") or 0))
+            seen.append((self.client_address[1], self.headers.get("Cookie")))
+            self.send_response(200)
+            self.send_header("Content-Length", "2")
+            self.send_header("Set-Cookie", "vendor=1")
+            self.end_headers()
+            self.wfile.write(b"{}")
+
+        def log_message(self, *a):
+            pass
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    yield f"http://127.0.0.1:{server.server_address[1]}/", seen
+    server.shutdown()
+    server.server_close()
+
+
+def test_keep_alive_reuses_the_connection_and_keeps_no_cookies(keep_alive_server):
+    url, seen = keep_alive_server
+    for _ in range(3):
+        resp = http.post(url, timeout=5, max_bytes=100, guard=None, keep_alive=True,
+                         trust_env=False, json={"a": 1})
+        assert resp.status == 200 and resp.body == b"{}"
+    assert len({port for port, _ in seen}) == 1
+    assert all(cookie is None for _, cookie in seen)
+
+
+def test_without_keep_alive_each_call_opens_its_own_connection(keep_alive_server):
+    url, seen = keep_alive_server
+    for _ in range(2):
+        http.post(url, timeout=5, max_bytes=100, guard=None, trust_env=False, json={})
+    assert len({port for port, _ in seen}) == 2
+
+
+def test_keep_alive_is_refused_for_a_guarded_call():
+    with pytest.raises(ValueError):
+        http.post("http://a.example/", timeout=5, max_bytes=100, keep_alive=True)

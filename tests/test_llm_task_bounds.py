@@ -205,6 +205,27 @@ def test_sdk_clients_never_retry_on_their_own():
         assert client.timeout.connect == 10 and client.timeout.read == SDK_REQUEST_TIMEOUT
 
 
+def test_sdk_clients_are_shared_per_key_so_a_new_key_gets_a_new_client(monkeypatch):
+    import sys
+    import types
+    from engine_backends.shared import make_anthropic_client, make_openai_client
+
+    class Client:
+        def __init__(self, api_key, base_url=None, **kw):
+            self.api_key, self.base_url = api_key, base_url
+    for name, cls in (("anthropic", "Anthropic"), ("openai", "OpenAI")):
+        fake = types.ModuleType(name)
+        setattr(fake, cls, type(cls, (Client,), {}))
+        fake.Timeout = lambda **kw: kw
+        monkeypatch.setitem(sys.modules, name, fake)
+    assert make_anthropic_client("k1") is make_anthropic_client("k1")
+    assert make_anthropic_client("k1") is not make_anthropic_client("k2")
+    url = "https://example.invalid"
+    assert make_openai_client("k1", url) is make_openai_client("k1", url)
+    assert make_openai_client("k1", url) is not make_openai_client("k1", "https://other.invalid")
+    assert make_openai_client("k2", url).api_key == "k2"
+
+
 def test_abandoned_worker_stops_retrying_and_reports_nothing(no_abandoned):
     fail_now = threading.Event()
 

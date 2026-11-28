@@ -3,10 +3,12 @@ id-keyed request and parsing, content-moderation detection."""
 
 import contextlib
 import contextvars
+import hashlib
 from collections.abc import Callable
 import json
 import random
 import re
+import threading
 import time
 from typing import Optional
 
@@ -295,7 +297,7 @@ def post_json(url: str, payload: dict, *, timeout: float, headers: Optional[dict
     """
     import requests
     try:
-        resp = http.post(url, timeout=timeout, max_bytes=PROVIDER_RESPONSE_MAX_BYTES, guard=None,
+        resp = http.post(url, timeout=timeout, max_bytes=PROVIDER_RESPONSE_MAX_BYTES, guard=None, keep_alive=True,
                          deadline=2 * timeout, headers=headers, json=payload,
                          max_error_bytes=error_detail_bytes or _ERROR_BODY_DEFAULT_BYTES)
     except (http.ResponseTooLarge, http.ResponseTooSlow):
@@ -759,10 +761,32 @@ def _sdk_http_timeout(sdk):
 # wait and keep re-billing in a thread nobody can stop.
 def make_anthropic_client(api_key: str):
     import anthropic
-    return anthropic.Anthropic(api_key=api_key, timeout=_sdk_http_timeout(anthropic), max_retries=0)
+    return _shared_client(anthropic.Anthropic, api_key, None, lambda: anthropic.Anthropic(
+        api_key=api_key, timeout=_sdk_http_timeout(anthropic), max_retries=0))
 
 
 def make_openai_client(api_key: str, base_url: str | None = None):
     import openai
-    return openai.OpenAI(api_key=api_key, base_url=base_url, timeout=_sdk_http_timeout(openai),
-                         max_retries=0)
+    return _shared_client(openai.OpenAI, api_key, base_url, lambda: openai.OpenAI(
+        api_key=api_key, base_url=base_url, timeout=_sdk_http_timeout(openai), max_retries=0))
+
+
+# Engines are built per page or job so a key changed in Settings applies to the
+# next one; the SDK client underneath is shared, so each page doesn't pay a new
+# TLS handshake. The SDK clients are thread-safe and hold no per-call state.
+# Keyed by a hash of the key, so a new key gets a new client.
+_SHARED_CLIENTS_MAX = 8
+_shared_clients: dict = {}
+_shared_clients_lock = threading.Lock()
+
+
+def _shared_client(cls, api_key: str, base_url: str | None, build):
+    key = (cls, hashlib.sha256((api_key or "").encode()).hexdigest(), base_url)
+    with _shared_clients_lock:
+        client = _shared_clients.get(key)
+        if client is None:
+            client = build()
+            while len(_shared_clients) >= _SHARED_CLIENTS_MAX:
+                _shared_clients.pop(next(iter(_shared_clients)))
+            _shared_clients[key] = client
+        return client

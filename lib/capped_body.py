@@ -105,4 +105,8 @@ def read_capped(resp, cap_bytes: int, deadline_seconds: float,
     finally:
         if timer is not None:
             timer.cancel()
+            # A timer that fired just as the read ended must finish before the
+            # connection goes back to a keep-alive pool, or its shutdown could
+            # land on the next request that reuses it.
+            timer.join()
         resp.close()

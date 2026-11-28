@@ -35,6 +35,7 @@ from urllib.parse import urljoin, urlsplit
 
 import requests
 from requests.adapters import HTTPAdapter
+from requests.cookies import RequestsCookieJar
 
 from lib import capped_body, url_guard
 from lib.errors import DependencyUnavailableError, InvalidInputError
@@ -98,13 +99,17 @@ def check_public(url: str) -> str:
 
 def pinned_get(url: str, ip: Optional[str], headers: Optional[dict],
                timeout: float | tuple[float, float] = DEFAULT_TIMEOUT, method: str = "GET",
-               trust_env: bool = True, **kwargs):
+               trust_env: bool = True, session=None, **kwargs):
     """Streamed request connecting to the validated `ip` (not a fresh DNS
     lookup), or an ordinary request when `ip` is None. `trust_env=False` keeps
-    environment proxies out of it (a LAN or loopback address)."""
+    environment proxies out of it (a LAN or loopback address). `session`
+    (unpinned only) sends it on that session instead of a new one."""
     import requests
     from requests.adapters import HTTPAdapter
 
+    if session is not None:
+        return session.request(method, url, headers=headers, timeout=timeout,
+                               allow_redirects=False, stream=True, **kwargs)
     session = requests.Session()
     session.trust_env = trust_env
     # Session.send reads the whole body of a 3xx with a Location even with
@@ -170,12 +175,35 @@ def _read_truncated(resp, cap_bytes, deadline_seconds, clock) -> bytes:
                                    truncate=True)
 
 
+class _NoCookies(RequestsCookieJar):
+    """A shared session must not carry one vendor's cookies into another call."""
+
+    def set_cookie(self, cookie, *args, **kwargs):
+        return None
+
+
+_pooled: dict = {}
+_pooled_lock = threading.Lock()
+
+
+def _pooled_session(trust_env: bool) -> requests.Session:
+    with _pooled_lock:
+        session = _pooled.get(trust_env)
+        if session is None:
+            session = requests.Session()
+            session.trust_env = trust_env
+            session.cookies = _NoCookies()
+            session.get_redirect_target = lambda resp: None  # see pinned_get
+            _pooled[trust_env] = session
+        return session
+
+
 def request(method: str, url: str, *, timeout: Union[float, Tuple[float, float]], max_bytes: int,
             deadline: Optional[float] = None, headers: Optional[dict] = None,
             allow_redirects: Optional[bool] = None, max_redirects: int = MAX_REDIRECTS,
             guard: Optional[Callable[[str], Optional[str]]] = check_public,
             truncate: bool = False, max_error_bytes: Optional[int] = None,
-            trust_env: bool = True, clock=None, **kwargs) -> Response:
+            trust_env: bool = True, keep_alive: bool = False, clock=None, **kwargs) -> Response:
     """`timeout` is seconds, or a (connect, read) pair. `deadline` is the total
     seconds for all hops and the body (default 3 x the longer `timeout`). Extra `kwargs` (params, json, data, files) go to requests
     and are sent on the first hop; a 307/308 keeps the method and body, any other
@@ -185,8 +213,13 @@ def request(method: str, url: str, *, timeout: Union[float, Tuple[float, float]]
     `truncate` is set; with `max_error_bytes`, a 4xx/5xx body is cut to that
     instead of refused, so a vendor's error text stays small and keeps its status.
     `trust_env=False` bypasses environment proxies, for an address a proxy
-    must not be asked to reach (loopback, the user's LAN server)."""
+    must not be asked to reach (loopback, the user's LAN server).
+    `keep_alive` (guard=None only) reuses a pooled connection to the same
+    origin, for a vendor API called page after page."""
     import requests
+
+    if keep_alive and guard is not None:
+        raise ValueError("keep_alive is for unguarded calls: a pinned connection is per request")
 
     clock = clock or time.monotonic
     deadline = 3 * (max(timeout) if isinstance(timeout, tuple) else timeout) if deadline is None else deadline
@@ -196,6 +229,8 @@ def request(method: str, url: str, *, timeout: Union[float, Tuple[float, float]]
     if allow_redirects is None:
         allow_redirects = guard is not None
     session_kw = {} if trust_env else {"trust_env": False}
+    if keep_alive:
+        session_kw = {"session": _pooled_session(trust_env)}
     hop_method, hop_kwargs = method, kwargs
     # Sticky: once a hop left the first origin, a later hop back to it (A -> B -> A)
     # still must not get the credentials B could have read or redirected.
