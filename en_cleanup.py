@@ -150,13 +150,19 @@ def _cjk_punctuation(text: str, style):
 
 # An em dash, a horizontal bar, a run of them (CJK ——), or an en dash that
 # isn't joining two words or numbers ("1–3" and "Paris–London" stay).
-_DASH_RE = re.compile(r"[ \t]*(?:[\u2014\u2015]+|(?<!\w)\u2013|\u2013(?!\w))[ \t]*")
+# Private-use sentinels stand in for masked words, tags and labels in clean_text.
+_WORDISH = r"\w\uE000-\uF8FF"
+_DASH_RE = re.compile(r"[ \t]*(?:[\u2014\u2015]+[\u2013\u2014\u2015]*|[\u2013\u2014\u2015]{2,}"
+                      rf"|(?<![{_WORDISH}])\u2013|\u2013(?![{_WORDISH}]))[ \t]*")
 # Words that open a new sentence far more often than they continue a name or title.
 _SENTENCE_STARTERS = frozenset(
     "look wait stop run no yes come go get help hey listen please don't do what why how who "
     "where when this that it we you they he she there here never forget".split())
 # Afterthoughts that keep the comma: "I thought—never mind." is not an explanation.
 _NOT_A_COLON_TAIL = frozenset("never maybe again now please probably right okay ok too either".split())
+# A line that starts with formatting ("<i>—Hi", "{\\an8}—Hi") still starts there.
+_TAG_END_RE = re.compile(r"(?:^|\n)[ \t]*(?:<[^<>\n]{1,80}>|\{\\[^{}\n]{0,80}\})+[ \t]*$")
+_SENTINEL_PREFIX_RE = re.compile("(?:^|\n)[ \t]*[\uE000-\uF8FF]+[ \t]*$")
 _OPENERS = "\"'“‘([{"
 _CLOSERS = "”’)]}"
 
@@ -168,6 +174,8 @@ def _dash_replacement(text: str, m) -> str:
         return m.group(0)  # quoted source text, not English punctuation
     if not prev or prev == "\n" or prev in _OPENERS:
         return ""
+    if _TAG_END_RE.search(before) or _SENTINEL_PREFIX_RE.search(before):
+        return " " if m.group(0)[:1] in " \t" else ""
     closes_quote = nxt in _CLOSERS or (nxt in "\"'" and not re.match(r".\w", after))
     if not nxt or nxt == "\n" or closes_quote:
         return "" if prev in ".!?…,;:" else ("…" if "…" in text else "...")
@@ -175,8 +183,12 @@ def _dash_replacement(text: str, m) -> str:
         return ""
     if prev in ",;:.!?…":
         return " "
-    if prev.isdigit() and nxt.isdigit() and m.group(0).strip() == m.group(0):
-        return "-"
+    if prev.isdigit() and nxt.isdigit():
+        return "-" if m.group(0).strip() == m.group(0) else " - "
+    # "I—I can't": a stutter repeats the word before the dash.
+    last = re.search(r"([A-Za-z']+)\W*$", before)
+    if last and re.match(re.escape(last.group(1)) + r"\b", after, re.I):
+        return "... "
     # "I told him—Look out!": a capital that isn't "I" or a name starts a new
     # sentence, so the dash was a break-off.
     word = re.match(r"[A-Za-z']+", after)

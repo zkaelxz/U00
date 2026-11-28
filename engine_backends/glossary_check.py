@@ -8,6 +8,8 @@ request. What is still wrong afterwards is flagged for Review."""
 
 import re
 
+from en_cleanup import drop_em_dashes
+
 from .llm_feature_prompts import glossary_term_forms, source_spellings
 from .llm_tasks import matching_glossary_terms
 from .translation_guard import line_problems, unusable_reply
@@ -135,7 +137,7 @@ def enforce(lines, terms, ask, stop, allowed_runs=()) -> int:
         if replies is not None and len(replies) == len(asked):
             for ln, reply in zip(asked, replies):
                 if _acceptable(ln, reply, terms, allowed_runs):
-                    ln.en = reply
+                    ln.en = drop_em_dashes(reply)
                     misses[id(ln)] = []
     for ln in lines:
         left = misses.get(id(ln))

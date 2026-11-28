@@ -200,6 +200,10 @@ def test_a_plan_without_glossary_terms_passes_none():
     ("There is only one thing he wants—revenge.", "There is only one thing he wants: revenge."),
     ("I thought—never mind.", "I thought, never mind."),
     ("Pages 1—3", "Pages 1-3"),
+    ("pages 10 – 12", "pages 10 - 12"),
+    ("I—I can't", "I... I can't"),
+    ("Hello–—world", "Hello, world"),
+    ("<i>—Hi</i>", "<i>Hi</i>"),
     ("Line one—\nLine two——", "Line one...\nLine two..."),
     ("—", "..."),
 ])
@@ -215,3 +219,9 @@ def test_drop_em_dashes_leaves_ranges_hyphens_and_cjk_alone(text):
 def test_em_dash_rule_follows_the_title_ellipsis_style():
     assert only("em_dash", "Wait—") == "Wait..."
     assert clean("Wait——", CHAR_CURLY)[0] == "Wait…"
+
+
+def test_em_dash_rule_sees_masked_terms_tags_and_labels_as_words():
+    assert clean("Paris–London is far.", protected_terms=["Paris", "London"])[0] == "Paris–London is far."
+    assert clean("<i>Paris</i>–<i>London</i>")[0] == "<i>Paris</i>–<i>London</i>"
+    assert clean("JOHN: — hi")[0] == "JOHN: hi"

@@ -550,6 +550,18 @@ class TestFirstAlternative:
         translate_pipeline.translate_lines_with_engine(lines, Dashy(), {}, batch_size=1)
         assert lines[0].en == "I knew, no, I hoped."
 
+    def test_the_smaller_re_ask_saves_no_em_dashes_either(self):
+        lines = [Line(idx=0, start=0, end=1, zh="我知道", id=303), Line(idx=1, start=1, end=2, zh="他来了", id=304)]
+
+        class HalfThenDash(Scripted):
+            def translate_batch(self, zh_lines, context):
+                self.calls.append(list(context["line_ids"]))
+                if len(zh_lines) == 2:
+                    return ["I knew—no, I hoped.", ""]
+                return ["He—the king—came."]
+        translate_pipeline.translate_lines_with_engine(lines, HalfThenDash(), {}, batch_size=2)
+        assert [ln.en for ln in lines] == ["I knew, no, I hoped.", "He, the king, came."]
+
 
 class TestNovelImperialUnits:
     def test_metric_source_turned_imperial_is_detected(self):

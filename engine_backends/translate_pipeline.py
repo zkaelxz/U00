@@ -265,7 +265,7 @@ def _recheck_male_pronouns(engine, lines, translated, context, character_names, 
             continue
         for ln, tr in zip(chunk, redone):
             if (tr or "").strip():
-                ln.en = tr
+                ln.en = drop_em_dashes(tr)
                 retried.append(ln)
     if retried and save_cb:
         save_cb(lines)
@@ -850,7 +850,7 @@ class _TranslateRun:
             missed = []
             for ln, tr in zip(part, translations):
                 if (tr or "").strip():
-                    ln.en = tr
+                    ln.en = drop_em_dashes(tr)
                     source_change.clear_for_new_english(ln, self.args.replace_flags)
                     self._flag_if_split(ln)
                     self.translated.append(ln)
