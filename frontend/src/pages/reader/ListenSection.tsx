@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import { listenApi, listenTestVoiceUrl } from '../../api/listen'
 import { getCharacters } from '../../api/translateStage'
@@ -10,7 +10,7 @@ import { useChosenForYou, type ChosenForYou } from '../../hooks/useChosenForYou'
 import { useJob, useJobRun } from '../../hooks/useJob'
 import { useReattachJob } from '../../hooks/useReattachJob'
 import { useSession } from '../../hooks/useSession'
-import { chooseEngine, listenBlocker, skippedCount, skippedLines, type ListenConfig } from '../../types/listen'
+import { chooseEngine, listenBlocker, playableLines, skippedCount, skippedLines, type ListenConfig } from '../../types/listen'
 import type { CharacterEntry } from '../../types/translateStage'
 import { jobFailed, jobSucceeded } from '../../types/jobs'
 import { holds } from '../diagnostics/adminUsers'
@@ -19,7 +19,7 @@ import { buttonClass } from '../../components/uiClasses'
 
 interface Props {
   dramaId: number
-  // The narration track now exists: the Reader re-reads its media so the player appears.
+  // The narration track now exists, or has grown while the run goes on: the Reader re-reads its media so the player appears.
   onReady: () => void
 }
 
@@ -160,6 +160,16 @@ function ListenRun({ dramaId, cfg, onReady, remake }: Props & { cfg: ListenConfi
   })
 
   const busy = jobId !== null && !done && !pollError
+  const playable = playableLines(job)
+  const onReadyRef = useRef(onReady)
+  useEffect(() => {
+    onReadyRef.current = onReady
+  })
+  const heard = useRef(0)
+  useEffect(() => {
+    if (busy && playable > heard.current) onReadyRef.current()
+    heard.current = playable
+  }, [busy, playable])
   // This run just made the track: the player in Watch / listen takes over.
   if (!busy && done && jobSucceeded(job)) {
     const skipped = skippedLines(job)
@@ -180,7 +190,10 @@ function ListenRun({ dramaId, cfg, onReady, remake }: Props & { cfg: ListenConfi
   const engine = chooseEngine(cfg.tts_engines, cfg.default_engine, chosen.auto ? '' : pickedEngine)
   const narrationLanguage = cfg.narration_language_options.includes(pickedLanguage) ? pickedLanguage : cfg.narration_language
   const blocker = listenBlocker(cfg, engine)
-  const failedText = done && job && jobFailed(job) ? withoutExceptionNames(job.error || job.message || '') : null
+  const failedText = done && job && jobFailed(job)
+    ? withoutExceptionNames(job.error || job.message || '') + (playable > 0 ? ' The part made before that is in the player below.' : '')
+    : null
+  const busyText = (job?.message ?? '') + (busy && playable > 0 ? ' The part made so far is in the player below.' : '')
   const start = () =>
     listenApi.run(dramaId, { tts_engine: engine, narration_language: narrationLanguage }).then((r) => {
       setError(null)
@@ -196,7 +209,7 @@ function ListenRun({ dramaId, cfg, onReady, remake }: Props & { cfg: ListenConfi
           {remake ? 'Make again' : 'Listen'}
         </button>
         {(blocker || busy || failedText) && (
-          <span className="muted" role="status">{blocker ?? (busy ? (job?.message ?? '') : failedText)}</span>
+          <span className="muted" role="status">{blocker ?? (busy ? busyText : failedText)}</span>
         )}
       </div>
       <ErrorBanner error={error ?? pollError} onDismiss={() => setError(null)} />

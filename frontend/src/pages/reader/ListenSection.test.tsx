@@ -2,7 +2,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 
 import type { CharacterEntry } from '../../types/translateStage'
-import { chooseEngine, listenBlocker, skippedCount, skippedLines } from '../../types/listen'
+import { chooseEngine, listenBlocker, playableLines, skippedCount, skippedLines } from '../../types/listen'
 import type { ListenConfig } from '../../types/listen'
 import { ListenPicker } from './ListenSection'
 
@@ -103,6 +103,14 @@ describe('skippedLines', () => {
     expect(skippedLines({ result: { errors: [] } })).toEqual([])
     expect(skippedLines({ result: null })).toEqual([])
     expect(skippedLines(null)).toEqual([])
+  })
+})
+
+describe('playableLines', () => {
+  it('is how many lines the part made so far plays, and 0 before any part or after the run', () => {
+    expect(playableLines({ result: { playable_lines: 40 } })).toBe(40)
+    expect(playableLines({ result: { lines: [], errors: [] } })).toBe(0)
+    expect(playableLines(null)).toBe(0)
   })
 })
 

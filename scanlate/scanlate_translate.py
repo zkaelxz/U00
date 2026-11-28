@@ -403,6 +403,19 @@ def translate_regions_with_image(regions: list, image: bytes, mime: str, engine,
     return _matched_answer(text, ids, previous_context, names_out, sources)
 
 
+def picture_chunks(regions: list, character_notes: str = "") -> list:
+    """[(regions, character_notes)] for the picture calls of one page, REGIONS_PER_CALL regions
+    each. Each chunk goes with the picture, so a dense page keeps it; the note tells the model
+    the page's other regions are answered separately."""
+    chunks = [regions[i:i + REGIONS_PER_CALL] for i in range(0, len(regions), REGIONS_PER_CALL)]
+    if len(chunks) <= 1:
+        return [(chunks[0] if chunks else [], character_notes)]
+    return [(chunk, "\n\n".join(part for part in (
+        character_notes, f"This page has more regions than one answer holds: these are part "
+        f"{number} of {len(chunks)}, and the others are answered separately. Answer only the "
+        "listed ids.") if part)) for number, chunk in enumerate(chunks, 1)]
+
+
 # Kana, CJK ideographs and Hangul; CJK punctuation is left out because a translation
 # may keep a quote mark.
 _SOURCE_SCRIPT = re.compile(
@@ -499,49 +512,52 @@ def previous_page_block(lines) -> str:
             "line without '=>' was not translated yet:\n" + "\n".join(rows))
 
 
-
-def _log_lost_picture(regions: int, failure: str) -> None:
-    # Without these lines a page that lost its picture (worth 1-3 chrF) and
-    # paid a second call looked the same in the log as any other page.
-    import applog
-    logger = applog.get_logger()
-    if regions > REGIONS_PER_CALL:
-        logger.info("Comic translate: %d regions is over %d, page sent without its picture",
-                    regions, REGIONS_PER_CALL)
-    else:
-        logger.warning("Comic translate: no usable answer with the picture (%s), "
-                       "translating the page again from its text only",
-                       failure or "answer did not match the regions")
-
-def _translate_with_picture(by_key: dict, page_image: dict, engine, drama_meta: dict, *,
-                            previous_context, usage_cb, glossary_terms, character_notes,
-                            names_out, summary):
-    """The page's regions sent with its picture to each reader in turn, until one answers.
-    Returns (result or None, context, the last failure's type name or "")."""
+def _translate_with_page_image(by_key: dict, page_image: dict, engine, drama_meta: dict,
+                               previous_context: str, usage_cb, glossary_terms, character_notes: str,
+                               found_names, summary: bool = True):
+    """translate_page_bubbles' picture calls: ({id: translation} or None, new_context), each
+    chunk answered by the first reader that gives a usable answer."""
     scale = page_image["scale"]
     regions = [{"id": k, "text": b["source_text"],
                 "box": {n: round(b[n] * scale) for n in ("x", "y", "w", "h")},
                 **({"sound_effect": True} if b.get("kind") == "sfx" else {})}
                for k, b in by_key.items()]
-    readers = page_image.get("readers") or [
-        {"engine": page_image.get("engine"), "usage_cb": page_image.get("usage_cb")}]
-    failure = ""
-    for reader in readers:
-        try:
-            result, new_context = translate_regions_with_image(
-                regions, page_image["data"], page_image["mime"],
-                reader.get("engine") or engine, drama_meta, previous_context=previous_context,
-                usage_cb=reader.get("usage_cb") or usage_cb, glossary_terms=glossary_terms,
-                character_notes=character_notes, names_out=names_out, summary=summary)
-        except Exception as exc:
-            failure = type(exc).__name__
-            on_failure = reader.get("on_failure")
-            if on_failure is not None:
-                on_failure(exc)
-            continue
-        if result is not None:
-            return result, new_context, failure
-    return None, previous_context, failure
+    readers = list(page_image.get("readers") or [
+        {"engine": page_image.get("engine"), "usage_cb": page_image.get("usage_cb")}])
+    result, new_context, failure = None, previous_context, ""
+    for chunk, notes in picture_chunks(regions, character_notes):
+        for reader in list(readers):
+            try:
+                part, context = translate_regions_with_image(
+                    chunk, page_image["data"], page_image["mime"],
+                    reader.get("engine") or engine, drama_meta, previous_context=new_context,
+                    usage_cb=reader.get("usage_cb") or usage_cb, glossary_terms=glossary_terms,
+                    character_notes=notes, names_out=found_names, summary=summary)
+            except Exception as exc:
+                failure = type(exc).__name__
+                on_failure = reader.get("on_failure")
+                if on_failure is not None:
+                    on_failure(exc)
+                # A reader that is down would fail the same way for the page's next chunk.
+                readers.remove(reader)
+                continue
+            if part is not None:
+                result, new_context = {**(result or {}), **part}, context
+                break
+    if len(result or {}) < len(regions):
+        _log_lost_picture(failure, len(regions) - len(result or {}), len(regions))
+    return result, new_context
+
+
+def _log_lost_picture(failure: str, left: int, total: int) -> None:
+    # Without this line a page that lost its picture (worth 1-3 chrF) and
+    # paid a second call looked the same in the log as any other page.
+    import applog
+    what = ("the page again from its text only" if left == total
+            else f"the {left} of {total} regions it did not answer from their text only")
+    applog.get_logger().warning("Comic translate: no usable answer with the picture (%s), "
+                                "translating %s",
+                                failure or "answer did not match the regions", what)
 
 
 def translate_page_bubbles(bubbles: list, engine, drama_meta: dict, previous_context: str = "",
@@ -594,19 +610,19 @@ def translate_page_bubbles(bubbles: list, engine, drama_meta: dict, previous_con
     by_key = {str(i): b for i, b in enumerate(eligible)}
     result = None
     new_context = previous_context
-    failure = ""
-    if page_image is not None and len(by_key) <= REGIONS_PER_CALL:
-        result, new_context, failure = _translate_with_picture(
-            by_key, page_image, engine, drama_meta, previous_context=previous_context,
-            usage_cb=usage_cb, glossary_terms=glossary_terms, character_notes=character_notes,
-            names_out=found_names, summary=summary)
-    if page_image is not None and result is None and by_key:
-        _log_lost_picture(len(by_key), failure)
-    if result is None:
-        result, new_context = translate_regions_by_id(
-            {k: b["source_text"] for k, b in by_key.items()}, engine, drama_meta,
-            previous_context=previous_context, usage_cb=usage_cb, glossary_terms=glossary_terms,
+    if page_image is not None:
+        result, new_context = _translate_with_page_image(
+            by_key, page_image, engine, drama_meta, previous_context, usage_cb, glossary_terms,
+            character_notes, found_names, summary)
+    # Only the regions no picture answer covered go as text: all of them when there was none.
+    unanswered = {k: b["source_text"] for k, b in by_key.items() if k not in (result or {})}
+    if unanswered:
+        text_result, new_context = translate_regions_by_id(
+            unanswered, engine, drama_meta,
+            previous_context=new_context, usage_cb=usage_cb, glossary_terms=glossary_terms,
             character_notes=character_notes, names_out=found_names, summary=summary)
+        if text_result is not None:
+            result = {**(result or {}), **text_result}
     found_cast = (found_names or {}).pop(CAST_KEY, None)
     if result is not None:
         result, _ = recheck_source_script(

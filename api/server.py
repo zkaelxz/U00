@@ -216,10 +216,10 @@ async def _lifespan(app: FastAPI):
     except Exception:
         logging.getLogger(__name__).warning("Interrupted chapter move check failed", exc_info=True)
     from api.background import (start_background_services, start_gpu_queue_poller,
-                                start_reeval_scheduler, start_remote_health_monitor,
-                                start_resource_monitor, stop_gpu_queue_poller,
-                                stop_reeval_scheduler, stop_remote_health_monitor,
-                                stop_resource_monitor)
+                                start_keep_awake, start_reeval_scheduler,
+                                start_remote_health_monitor, start_resource_monitor,
+                                stop_gpu_queue_poller, stop_keep_awake, stop_reeval_scheduler,
+                                stop_remote_health_monitor, stop_resource_monitor)
     # First, so fetches made by the services below wait for the home's
     # own addresses (url_guard) instead of going out before they are known.
     start_remote_health_monitor(app.state.settings)
@@ -227,6 +227,7 @@ async def _lifespan(app: FastAPI):
     start_gpu_queue_poller()
     start_reeval_scheduler()
     start_resource_monitor(app.state.settings)
+    start_keep_awake(app.state.settings)
     from services import live_follow_poller, notification_service, queue_service
     queue_service.start_runner()
     try:
@@ -252,6 +253,7 @@ async def _lifespan(app: FastAPI):
         stop_reeval_scheduler()
         stop_remote_health_monitor()
         stop_resource_monitor()
+        stop_keep_awake()
 
 
 _ROUTER_MODULES = (

@@ -26,7 +26,16 @@ import java.io.File;
  */
 public class QuickReadActivity extends Activity {
     private final java.util.List<File> files = new java.util.ArrayList<>();
-    private LruCache<Integer, Bitmap> cache;
+    private LruCache<String, Bitmap> cache;
+    // Decoding a page takes tens of milliseconds, several frames, so it runs here and never on the thread that scrolls.
+    private final java.util.concurrent.ExecutorService decoder = java.util.concurrent.Executors.newSingleThreadExecutor();
+    // UI-thread only, like the cache: the keys being decoded, each page file's size, and each file's Redo count;
+    // and when a page's header or picture last failed to read, so a bind does not read it again each time.
+    private final java.util.Set<String> decoding = new java.util.HashSet<>();
+    private final java.util.Map<String, int[]> pageSizes = new java.util.HashMap<>();
+    private final java.util.Map<String, Long> headerFailedAt = new java.util.HashMap<>();
+    private final java.util.Map<String, Long> decodeFailedAt = new java.util.HashMap<>();
+    private final java.util.Map<String, Integer> redone = new java.util.HashMap<>();
     private PageAdapter adapter;
     // The footer is read from the grab's state, which its thread changes at any moment; ListView throws
     // if the count moves without notifyDataSetChanged, so the adapter reads this UI-thread copy instead.
@@ -34,7 +43,7 @@ public class QuickReadActivity extends Activity {
     private String footerSummary = "";
     private ListView list;
     private View tint;
-    // Pages the reader flipped to the original art; the cache holds one picture per position, so a flip drops it.
+    // Pages the reader flipped to the original art; the cache keys each file, so a flip back shows at once.
     static final String EXTRA_SAVED = "saved_chapter";
     /** Set when a chapter saved on the phone is open: it has no grab behind it and is never cleared. */
     private File savedDir;
@@ -47,7 +56,12 @@ public class QuickReadActivity extends Activity {
     protected void onCreate(Bundle state) {
         setTheme(GrabUi.Palette.saved(this).themeRes());
         super.onCreate(state);
-        cache = new LruCache<>(6);
+        cache = new LruCache<String, Bitmap>(PageDecode.cacheBytes(Runtime.getRuntime().maxMemory())) {
+            @Override
+            protected int sizeOf(String key, Bitmap bitmap) {
+                return bitmap.getAllocationByteCount();
+            }
+        };
         // Reading has long stretches with no touch, and the screen would otherwise dim mid-page.
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         list = new ListView(this);
@@ -126,7 +140,6 @@ public class QuickReadActivity extends Activity {
             return;
         }
         if (!showingOriginal.remove(position)) showingOriginal.add(position);
-        cache.remove(position);
         adapter.notifyDataSetChanged();
     }
 
@@ -379,7 +392,7 @@ public class QuickReadActivity extends Activity {
             runOnUiThread(() -> {
                 int at = files.indexOf(page);
                 if (at >= 0) {
-                    cache.remove(at);
+                    forget(page);
                     showingOriginal.remove(at);
                     adapter.notifyDataSetChanged();
                 }
@@ -553,6 +566,7 @@ public class QuickReadActivity extends Activity {
 
     @Override
     protected void onDestroy() {
+        decoder.shutdownNow();
         // A chapter still being translated keeps going without the reader; its pages stay for the next open.
         if (!savedMode && !QuickReadSession.detach()) {
             QuickReadSession.abandon();
@@ -581,22 +595,100 @@ public class QuickReadActivity extends Activity {
         return original.isFile() ? original : page;
     }
 
-    private Bitmap load(int position) {
-        Bitmap cached = cache.get(position);
-        if (cached != null) return cached;
-        File source = fileFor(position);
-        int width = getResources().getDisplayMetrics().widthPixels;
+    private String keyFor(int position) {
+        String path = fileFor(position).getPath();
+        Integer generation = redone.get(path);
+        return PageDecode.key(path, generation == null ? 0 : generation);
+    }
+
+    /** Drops a page's picture after a Redo rewrote its file; a decode of the old file still running is then ignored. */
+    private void forget(File page) {
+        String path = page.getPath();
+        Integer generation = redone.get(path);
+        cache.remove(PageDecode.key(path, generation == null ? 0 : generation));
+        redone.put(path, generation == null ? 1 : generation + 1);
+        pageSizes.remove(path);
+        headerFailedAt.remove(path);
+    }
+
+    /** The page's size from its header only, which is quick; remembered so a row is sized once. */
+    private int[] sizeOf(File source) {
+        String path = source.getPath();
+        int[] size = pageSizes.get(path);
+        if (size != null) return size;
+        long now = android.os.SystemClock.uptimeMillis();
+        if (!PageDecode.mayTry(headerFailedAt.get(path), now)) return new int[] {-1, -1};
+        size = headerSize(source);
+        // A header that could not be read (a file still being written) is read again after a pause; the
+        // background decode reads it too and fills the size in when it can.
+        if (size[0] > 0 && size[1] > 0) {
+            pageSizes.put(path, size);
+            headerFailedAt.remove(path);
+        } else {
+            headerFailedAt.put(path, now);
+        }
+        return size;
+    }
+
+    private static int[] headerSize(File source) {
         BitmapFactory.Options bounds = new BitmapFactory.Options();
         bounds.inJustDecodeBounds = true;
         BitmapFactory.decodeFile(source.getPath(), bounds);
-        int sample = 1;
-        // Pages are often much wider than the screen; half-size steps keep them sharp enough.
-        while (bounds.outWidth / (sample * 2) >= width) sample *= 2;
-        BitmapFactory.Options options = new BitmapFactory.Options();
-        options.inSampleSize = sample;
-        Bitmap bitmap = BitmapFactory.decodeFile(source.getPath(), options);
-        if (bitmap != null) cache.put(position, bitmap);
-        return bitmap;
+        return new int[] {bounds.outWidth, bounds.outHeight};
+    }
+
+    /** Starts decoding a page in the background unless it is cached or already on its way. */
+    private void decode(int position) {
+        if (position < 0 || position >= files.size()) return;
+        String key = keyFor(position);
+        if (cache.get(key) != null || decoding.contains(key)
+                || !PageDecode.mayTry(decodeFailedAt.get(key), android.os.SystemClock.uptimeMillis())) return;
+        decoding.add(key);
+        File source = fileFor(position);
+        int screenWidth = getResources().getDisplayMetrics().widthPixels;
+        try {
+            decoder.execute(() -> {
+                // Sized from the header read here, never from a failed one: a full-size decode of a
+                // long strip is what the sample size keeps from running out of memory.
+                int[] size = headerSize(source);
+                int width = size[0];
+                Bitmap bitmap = null;
+                if (width > 0) {
+                    BitmapFactory.Options options = new BitmapFactory.Options();
+                    options.inSampleSize = PageDecode.sampleSize(width, screenWidth);
+                    bitmap = BitmapFactory.decodeFile(source.getPath(), options);
+                }
+                Bitmap decoded = bitmap;
+                runOnUiThread(() -> shown(source.getPath(), key, size, decoded));
+            });
+        } catch (java.util.concurrent.RejectedExecutionException closing) {
+            decoding.remove(key);
+        }
+    }
+
+    private void shown(String path, String key, int[] size, Bitmap bitmap) {
+        decoding.remove(key);
+        if (isDestroyed()) return;
+        Integer generation = redone.get(path);
+        // A Redo landed while this decoded: the old picture must not take a cache slot.
+        if (!key.equals(PageDecode.key(path, generation == null ? 0 : generation))) return;
+        if (size[0] > 0 && size[1] > 0) {
+            pageSizes.put(path, size);
+            headerFailedAt.remove(path);
+        }
+        if (bitmap == null) {
+            decodeFailedAt.put(key, android.os.SystemClock.uptimeMillis());
+            return;
+        }
+        decodeFailedAt.remove(key);
+        cache.put(key, bitmap);
+        for (int i = 0; i < list.getChildCount(); i++) {
+            View row = list.getChildAt(i);
+            if (row instanceof ImageView && PageDecode.rowStillShows(row.getTag(), key)) {
+                ((ImageView) row).setImageBitmap(bitmap);
+                row.setMinimumHeight(0);
+            }
+        }
     }
 
     private final class PageAdapter extends BaseAdapter {
@@ -649,7 +741,22 @@ public class QuickReadActivity extends Activity {
             view.setScaleType(ImageView.ScaleType.FIT_CENTER);
             view.setLayoutParams(new ListView.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-            view.setImageBitmap(load(position));
+            String key = keyFor(position);
+            view.setTag(key);
+            Bitmap bitmap = cache.get(key);
+            if (bitmap != null) {
+                view.setImageBitmap(bitmap);
+                view.setMinimumHeight(0);
+            } else {
+                view.setImageDrawable(null);
+                int[] size = sizeOf(fileFor(position));
+                int rowWidth = parent.getWidth() > 0 ? parent.getWidth() : getResources().getDisplayMetrics().widthPixels;
+                view.setMinimumHeight(PageDecode.placeholderHeight(rowWidth, size[0], size[1],
+                        getResources().getDisplayMetrics().heightPixels));
+                decode(position);
+            }
+            // The next page is decoded while this one is read, so it is ready when it scrolls in.
+            decode(position + 1);
             return view;
         }
     }
