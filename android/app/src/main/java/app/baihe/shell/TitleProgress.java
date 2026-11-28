@@ -32,4 +32,9 @@ final class TitleProgress {
                 return null;
         }
     }
+
+    /** The last line when the phone stops following a run that has not finished, so no spinner is left turning. */
+    static String leftToPc(String title) {
+        return "Translating " + title + " is still going on the PC. See the Jobs page.";
+    }
 }
