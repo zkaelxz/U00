@@ -51,7 +51,7 @@ from urllib.parse import urlencode, urlsplit
 
 from services import auth_service
 from lib import capped_body
-from lib.errors import (ConflictError, DependencyUnavailableError, NotFoundError,
+from lib.errors import (ConflictError, DependencyUnavailableError, ForbiddenError, NotFoundError,
                                      RateLimitedError)
 
 GOOGLE_AUTHORIZE_URL = "https://accounts.google.com/o/oauth2/v2/auth"
@@ -484,8 +484,8 @@ class SignIn:
     def redeem_app_code(self, code, verifier, *, presented_session=None,
                         user_agent: str = "", client_ip: str = "") -> dict:
         """Swaps a code and its verifier for a session ({session_token,
-        csrf_token}) that ends when the confirming browser session would, and
-        only while that session is still signed in. The code is spent on the
+        csrf_token}) of the full sign-in length, given only while the
+        confirming browser session is still signed in. The code is spent on the
         first try, right or wrong. Any session the app already presented is
         revoked, as at the callback."""
         ip = auth_service.ip_prefix(client_ip)
@@ -504,6 +504,8 @@ class SignIn:
                     record["session_id"], record["user_id"], APP_SESSION_LABEL, client_ip)
             except NotFoundError:
                 raise LoginError("not_allowed", "login.denied", "app_inactive")
+            except ForbiddenError:
+                raise LoginError("expired", "login.error", "app_parent_is_hand_off")
             if session is None:
                 raise LoginError("expired", "login.error", "app_browser_signed_out")
         except LoginError as exc:
