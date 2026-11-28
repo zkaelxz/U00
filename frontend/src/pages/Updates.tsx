@@ -95,8 +95,7 @@ export default function UpdatesPage() {
 
   return (
     <FindAddShell current="updates">
-      <div className="updates-head">
-        <p className="muted">New chapters and channels that are live or scheduled, newest first.</p>
+      <div>
         <button type="button" className={buttonClass('secondary')} onClick={refresh} disabled={refreshing || !data}>{refreshing ? 'Refreshing…' : 'Refresh'}</button>
       </div>
       <RetryBanner error={error} what="updates" onRetry={refresh} busy={refreshing} />

@@ -23,6 +23,14 @@ function findAddTabs(sourcesOn: boolean): { id: FindAddTab; label: string; href:
   ]
 }
 
+// Each tab keeps the line its page had before the tabs, so the header describes the tab that is open.
+const TAB_META: Record<FindAddTab, string | undefined> = {
+  add: 'Search by name, or add a video link, a file or a title by hand.',
+  discover: 'Find baihe titles online and add the ones you want.',
+  sources: undefined,
+  updates: 'New chapters and channels that are live or scheduled, newest first.',
+}
+
 export function FindAddShell({ current, className, children }: { current: FindAddTab; className?: string; children: ReactNode }) {
   const sourcesOn = featureOn('sources', useFeatures())
   return (
@@ -30,7 +38,7 @@ export function FindAddShell({ current, className, children }: { current: FindAd
       width="wide"
       title="Find & Add"
       label="Find & Add"
-      meta="Search by name, or add a video link, a file or a title by hand."
+      meta={TAB_META[current]}
       className={className}
       // The Sources tab carries its own Manage sources tab, so a second link there would be a duplicate.
       actions={sourcesOn && current !== 'sources' ? <ButtonLink href={sourcesHref('manage')}>Manage sources</ButtonLink> : undefined}
