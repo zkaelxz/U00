@@ -904,6 +904,24 @@ class TestRequestTranslationsWithRetry:
         result = engine_shared.request_translations_with_retry(["a", "b"], None, call_model, max_retries=1)
         assert result == ["First.", ""]  # only the genuinely-missing line is blank
 
+    @pytest.mark.parametrize("shifted", ['{"0": "A.", "1": "B.", "2": "C."}',
+                                         '{"2": "A.", "3": "B.", "4": "C."}'])
+    def test_a_reply_numbered_from_0_or_shifted_by_one_is_asked_again(self, shifted):
+        calls = []
+
+        def call_model(numbered):
+            calls.append(numbered)
+            return shifted if len(calls) == 1 else '{"1": "A.", "2": "B.", "3": "C."}'
+        result = engine_shared.request_translations_with_retry(["a", "b", "c"], None, call_model)
+        assert result == ["A.", "B.", "C."]
+        assert len(calls) == 2
+
+    def test_a_reply_shifted_every_time_leaves_the_lines_blank(self):
+        def call_model(numbered):
+            return '{"0": "A.", "1": "B.", "2": "C."}'
+        result = engine_shared.request_translations_with_retry(["a", "b", "c"], None, call_model)
+        assert result == ["", "", ""]
+
     def test_extra_unexpected_ids_in_the_response_are_ignored(self):
         def call_model(numbered):
             return '{"1": "First.", "2": "Second.", "47": "bogus extra"}'
@@ -1267,7 +1285,8 @@ class TestReflectTranslateBatch:
         assert translations == ["Final one.", "Final two."]
         assert critiques == ["a critique", ""]
         for prompt in engine.prompts:
-            assert "1." in prompt and "100530" not in prompt
+            assert "100530" not in prompt and "100531" not in prompt
+        assert "1. 你好" in engine.prompts[0] and "2. 再见" in engine.prompts[0]
 
     def test_a_missing_id_in_one_pass_only_affects_that_lines_result(self):
         # Line 2's faithfulness draft never comes back (even after the

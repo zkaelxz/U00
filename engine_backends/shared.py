@@ -561,6 +561,18 @@ def _id_keyed_batch_request(ids: list, build_batch_text, call_model_fn, max_retr
 _CUT_AT_QUOTE = re.compile(r"[A-Za-z0-9,]\x20+\Z")
 
 
+def _shift_refused(call_model_fn, n: int):
+    """call_model_fn, except that a reply numbered from 0 (it holds key 0) or shifted by one
+    (key n+1 without key 1) comes back as "{}": with lines keyed 1..n, each of its keys may sit
+    on the neighbouring line, so every asked line counts as missing and is asked again. An
+    extra n+1 beside a 1 is a made-up number, ignored as any unknown key is."""
+    def call(*args):
+        text = call_model_fn(*args)
+        keys = parse_id_keyed_json(text, [0, 1, n + 1], recover=True)
+        return "{}" if "0" in keys or (str(n + 1) in keys and "1" not in keys) else text
+    return call
+
+
 def request_translations_with_retry(zh_lines: list, speaker_names, call_model_fn, max_retries: int = 1,
                                      engine_name: str | None = None, line_languages=None,
                                      sentence_groups=None, recover_replies: bool = False,
@@ -648,7 +660,7 @@ def request_translations_with_retry(zh_lines: list, speaker_names, call_model_fn
         return unusable_reply(zh_lines[p], value, allowed_runs)
 
     still_rejected = {}
-    result_map = _id_keyed_batch_request(ids, build_batch_text, call_model_fn, max_retries,
+    result_map = _id_keyed_batch_request(ids, build_batch_text, _shift_refused(call_model_fn, len(ids)), max_retries,
                                          engine_name=engine_name, recover=recover_replies,
                                          check_value=check_value if check_replies else None,
                                          rejected=still_rejected)
