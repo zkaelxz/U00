@@ -6,6 +6,7 @@ import { useEffect, useState } from 'react'
 
 import { getActivity, getGpuDaily, type ActivityItem, type GpuDaily } from '../../api/activity'
 import { ErrorBanner } from '../../components/ErrorBanner'
+import { Section } from '../../components/Section'
 import { buttonClass } from '../../components/uiClasses'
 import { activityDuration, barFractions, gpuHours } from './activityFormat'
 
@@ -46,8 +47,8 @@ export function ActivityLog() {
   const more = () => getActivity(next).then((r) => { setItems((cur) => [...(cur ?? []), ...r.items]); setNext(r.next_before_id) }, setError)
 
   return (
-    <details className="activity-log" data-testid="activity-log">
-      <summary>Activity log and GPU time</summary>
+    <div className="activity-log" data-testid="activity-log">
+    <Section title="Activity log and GPU time" keepFold>
       {error != null && <ErrorBanner error={error} />}
       {gpu && gpu.total_gpu_seconds > 0 && <GpuChart data={gpu} />}
       {items !== null && items.length === 0 && <p className="muted">Nothing has finished yet. Finished jobs show up here and stay after you clear the list above.</p>}
@@ -63,6 +64,7 @@ export function ActivityLog() {
         </ul>
       )}
       {next !== null && <button type="button" className={buttonClass('ghost', 'sm')} onClick={() => void more()}>Show older</button>}
-    </details>
+    </Section>
+    </div>
   )
 }

@@ -103,6 +103,28 @@ def test_a_paid_engine_is_held_for_the_person_and_noted(isolated_db, monkeypatch
     _wait_idle([free])
 
 
+def test_each_batch_gets_one_log_line_saying_what_the_restart_did(isolated_db, monkeypatch):
+    from tests.test_jobs_store import app_log_lines
+    logged = app_log_lines(monkeypatch, "Bulk translation batch")
+    did = _setup(monkeypatch)
+    paid = _pending_batch(did, engine="claude")
+    free = _pending_batch(did, engine="echo")
+    settings_service.set_settings({"bulk_auto_resume": True})
+    svc.resume_interrupted_at_startup()
+    assert sorted(logged) == sorted([
+        f"Bulk translation batch {paid} (title #{did}, submitted) after the restart: "
+        "left pending: paid engines wait until you press Resume.",
+        f"Bulk translation batch {free} (title #{did}, submitted) after the restart: resumed.",
+    ])
+    bulk_poll.cancel_bulk_job(free)
+    _wait_idle([free])
+    logged.clear()
+    settings_service.set_settings({"bulk_auto_resume": False})
+    svc.resume_interrupted_at_startup()
+    assert logged == [f"Bulk translation batch {paid} (title #{did}, submitted) after the restart: "
+                      "left pending: automatic resume is off."]
+
+
 def test_nothing_starts_while_a_restore_holds_the_library(isolated_db, monkeypatch):
     did = _setup(monkeypatch)
     bid = _pending_batch(did)

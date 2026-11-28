@@ -350,11 +350,13 @@ class TestMigrationFromPositionKeys:
         assert db.list_reading_history(1)[0]["line_id"] == 11
 
 
-class TestTranslationIdsAreLineIds:
-    def test_the_model_is_asked_for_the_lines_real_ids(self, isolated_db):
-        """R5's id-keyed prompts used 1..n within each batch; they now use
-        the permanent line id."""
+class TestTranslationKeysArePerRequest:
+    def test_saved_lines_are_asked_as_1_to_n_and_land_on_their_own_line(self, isolated_db):
+        """The model sees 1..n, not the lines' long database ids; each reply
+        key still lands on its own saved line, whatever order it comes in."""
         from engine_backends import shared, translate_pipeline
+        # Another title's lines first, so this title's ids are not 1 and 2.
+        isolated_db.save_lines(isolated_db.create_drama(title_en="Other"), _lines("a", "b", "c"))
         did = isolated_db.create_drama(title_en="D")
         untranslated = _lines("你好", "再见", short=False)
         for ln in untranslated:
@@ -365,17 +367,17 @@ class TestTranslationIdsAreLineIds:
 
         def call_model(numbered):
             seen["numbered"] = numbered
-            return "{" + ", ".join(f'"{ln.id}": "T{ln.idx}"' for ln in lines) + "}"
+            return '{"2": "T1", "1": "T0"}'
 
         class Engine:
             supports_reference = True
             def translate_batch(self, zh_lines, context):
                 return shared.request_translations_with_retry(
-                    zh_lines, context.get("speaker_labels"), call_model,
-                    line_ids=context.get("line_ids"))
+                    zh_lines, context.get("speaker_labels"), call_model)
 
         translate_pipeline.translate_lines_with_engine(lines, Engine(), drama_meta={})
-        assert f"{lines[0].id}. 你好" in seen["numbered"]
+        assert lines[0].id > 2
+        assert seen["numbered"] == "1. 你好\n2. 再见"
         assert [ln.en for ln in lines] == ["T0", "T1"]
 
 

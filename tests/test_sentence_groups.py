@@ -186,7 +186,7 @@ class ScriptedEngine:
             return self.reply(numbered)
         return request_translations_with_retry(
             zh_lines, context.get("speaker_labels"), call_model,
-            line_ids=context.get("line_ids"), engine_name="fake",
+            engine_name="fake",
             line_languages=context.get("line_languages"),
             sentence_groups=context.get("sentence_groups"))
 
@@ -212,7 +212,7 @@ class TestPipeline:
         lines = fragments()
         before = [(ln.start, ln.end, ln.zh, ln.speaker, ln.id, ln.flag) for ln in lines]
         engine = ScriptedEngine(distribute_reply(
-            {100: "I went", 101: "to the store", 102: "to shop.", 103: "Okay."}))
+            {1: "I went", 2: "to the store", 3: "to shop.", 4: "Okay."}))
         _, errors = run(engine, lines, translate_by_sentence=True)
         assert errors == []
         assert [ln.en for ln in lines] == ["I went", "to the store", "to shop.", "Okay."]
@@ -223,8 +223,8 @@ class TestPipeline:
 
     def test_reordered_reply_still_lands_by_id(self):
         lines = fragments()
-        reply = lambda p: json.dumps({"103": "Okay.", "102": "to shop.", "100": "I went",
-                                       "101": "to the store"})
+        reply = lambda p: json.dumps({"4": "Okay.", "3": "to shop.", "1": "I went",
+                                       "2": "to the store"})
         run(ScriptedEngine(reply), lines, translate_by_sentence=True)
         assert [ln.en for ln in lines] == ["I went", "to the store", "to shop.", "Okay."]
 
@@ -235,28 +235,28 @@ class TestPipeline:
         def reply(prompt):
             calls.append(prompt)
             if len(calls) == 1:
-                return json.dumps({"100": "I went", "102": "to shop.", "103": "Okay."})
-            return json.dumps({"101": "to the store"})
+                return json.dumps({"1": "I went", "3": "to shop.", "4": "Okay."})
+            return json.dumps({"2": "to the store"})
         run(ScriptedEngine(reply), lines, translate_by_sentence=True)
         assert [ln.en for ln in lines] == ["I went", "to the store", "to shop.", "Okay."]
-        assert "Sentence in 3 parts" in calls[1] and "103." not in calls[1]
+        assert "Sentence in 3 parts" in calls[1] and "4." not in calls[1]
 
     def test_unusable_group_falls_back_to_the_normal_path_for_that_group_only(self):
         lines = fragments()
 
         def reply(prompt):
-            if "Sentence in" in prompt:  # grouped request: fragment 101 never comes back
-                return json.dumps({"100": "I went", "102": "to shop.", "103": "Okay."})
+            if "Sentence in" in prompt:  # grouped request: fragment 2 never comes back
+                return json.dumps({"1": "I went", "3": "to shop.", "4": "Okay."})
             return json.dumps({str(i): f"plain {i}" for i in numbered_ids(prompt)})
         engine = ScriptedEngine(reply)
         _, errors = run(engine, lines, translate_by_sentence=True)
         assert errors == []
-        assert [ln.en for ln in lines] == ["plain 100", "plain 101", "plain 102", "Okay."]
-        assert "Sentence in" not in engine.prompts[-1] and numbered_ids(engine.prompts[-1]) == [100, 101, 102]
+        assert [ln.en for ln in lines] == ["plain 1", "plain 2", "plain 3", "Okay."]
+        assert "Sentence in" not in engine.prompts[-1] and numbered_ids(engine.prompts[-1]) == [1, 2, 3]
 
     def test_whole_sentence_in_one_id_is_split_deterministically(self):
         lines = fragments()[:3]
-        reply = distribute_reply({100: "I went to the store to shop", 101: "", 102: ""})
+        reply = distribute_reply({1: "I went to the store to shop", 2: "", 3: ""})
         _, errors = run(ScriptedEngine(reply), lines, translate_by_sentence=True)
         assert errors == []
         assert all(ln.en for ln in lines)
@@ -275,8 +275,8 @@ class TestPipeline:
         def reply(prompt):
             calls.append(prompt)
             if len(calls) == 1:
-                return json.dumps({"100": "I went to the store to shop", "101": "", "102": "",
-                                   "103": "Hmm", "104": ""})
+                return json.dumps({"1": "I went to the store to shop", "2": "", "3": "",
+                                   "4": "Hmm", "5": ""})
             raise RuntimeError("HTTP 500")
         _, errors = run(ScriptedEngine(reply), lines, translate_by_sentence=True)
         assert errors
@@ -286,7 +286,7 @@ class TestPipeline:
     def test_already_translated_neighbour_is_not_touched_or_grouped(self):
         lines = fragments()
         lines[1].en = "kept"
-        engine = ScriptedEngine(distribute_reply({100: "A", 102: "B", 103: "C"}))
+        engine = ScriptedEngine(distribute_reply({1: "A", 3: "B", 4: "C"}))
         run(engine, lines, translate_by_sentence=True)
         assert lines[1].en == "kept"
         assert "Sentence in" not in engine.prompts[0]
@@ -294,13 +294,13 @@ class TestPipeline:
     def test_batch_boundary_does_not_cut_a_sentence(self):
         lines = fragments()
         engine = ScriptedEngine(distribute_reply(
-            {100: "a", 101: "b", 102: "c", 103: "d"}))
+            {1: "a", 2: "b", 3: "c", 4: "d"}))
         run(engine, lines, translate_by_sentence=True, batch_size=2)
-        assert numbered_ids(engine.prompts[0]) == [100, 101, 102]
+        assert numbered_ids(engine.prompts[0]) == [1, 2, 3]
 
     def test_saved_choice_on_the_title_is_used_when_not_passed(self):
         lines = fragments()
-        engine = ScriptedEngine(distribute_reply({100: "a", 101: "b", 102: "c", 103: "d"}))
+        engine = ScriptedEngine(distribute_reply({1: "a", 2: "b", 3: "c", 4: "d"}))
         translate_pipeline.translate_lines_with_engine(
             lines, engine, {"title_en": "T", "translate_by_sentence": 1})
         assert "Sentence in" in engine.prompts[0]
@@ -308,11 +308,11 @@ class TestPipeline:
     def test_the_run_reports_which_lines_it_translated_as_one_sentence(self):
         lines = fragments()
         reported = []
-        run(ScriptedEngine(distribute_reply({100: "a", 101: "b", 102: "c", 103: "d"})), lines,
+        run(ScriptedEngine(distribute_reply({1: "a", 2: "b", 3: "c", 4: "d"})), lines,
             translate_by_sentence=True, sentence_groups_cb=reported.extend)
         assert reported == [[100, 101, 102]]
         reported.clear()
-        run(ScriptedEngine(distribute_reply({100: "a", 101: "b", 102: "c", 103: "d"})),
+        run(ScriptedEngine(distribute_reply({1: "a", 2: "b", 3: "c", 4: "d"})),
             fragments(), translate_by_sentence=False, sentence_groups_cb=reported.extend)
         assert reported == []
 
@@ -328,14 +328,14 @@ class TestPipeline:
 class TestOffIsUnchanged:
     def prompts(self, **kw):
         lines = fragments()
-        engine = ScriptedEngine(distribute_reply({100: "a", 101: "b", 102: "c", 103: "d"}))
+        engine = ScriptedEngine(distribute_reply({1: "a", 2: "b", 3: "c", 4: "d"}))
         translate_pipeline.translate_lines_with_engine(
             lines, engine, kw.pop("meta", {"title_en": "T"}), **kw)
         return engine.prompts
 
     def test_off_sends_the_plain_numbered_list(self):
         assert self.prompts() == [
-            "100. 我今天去了\n101. 商店\n102. 买东西。\n103. 好的。"]
+            "1. 我今天去了\n2. 商店\n3. 买东西。\n4. 好的。"]
 
     def test_unset_false_and_zero_are_all_identical(self):
         base = self.prompts()
@@ -345,8 +345,8 @@ class TestOffIsUnchanged:
 
     def test_on_with_nothing_to_group_is_identical_to_off(self):
         lines = [L(0, "好。", 0.0, 1.0), L(1, "行。", 5.0, 6.0)]
-        engine_on = ScriptedEngine(distribute_reply({100: "a", 101: "b"}))
-        engine_off = ScriptedEngine(distribute_reply({100: "a", 101: "b"}))
+        engine_on = ScriptedEngine(distribute_reply({1: "a", 2: "b"}))
+        engine_off = ScriptedEngine(distribute_reply({1: "a", 2: "b"}))
         translate_pipeline.translate_lines_with_engine(
             lines, engine_on, {}, translate_by_sentence=True)
         translate_pipeline.translate_lines_with_engine(

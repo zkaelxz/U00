@@ -531,7 +531,7 @@ def _translate_read_page(bubbles, config, drama, drama_id, source_url, notes, me
                     scanlate_translate.translate_page_bubbles(
                         group, engine, meta, previous_context="", glossary_terms=glossary,
                         usage_cb=usage, character_notes=extras.get("character_notes", ""),
-                        previous_lines=extras["previous_lines"],
+                        previous_lines=extras["previous_lines"], summary=in_order,
                         # Only the first retry pays for the picture: a second one would double the slowest case.
                         page_image=extras.get("page_image") if attempt == 0 else None)
                 except ValueError:

@@ -430,6 +430,35 @@ class TestProgressNotes:
         empty = _drama(isolated_db)
         assert reader_service.get_reading_overview(empty)["line_count"] == 0
 
+    def test_a_narrated_texts_length_is_its_narration_track(self, isolated_db, monkeypatch):
+        import media_inspect
+        did = _drama(isolated_db, media_type="novel")
+        isolated_db.save_lines(did, [Line(idx=0, start=0.0, end=0.0, zh="你", en="one two")])
+        os.makedirs(isolated_db.drama_dir(did), exist_ok=True)
+        track = os.path.join(isolated_db.drama_dir(did), "narration_track.flac")
+        with open(track, "wb") as f:
+            f.write(b"\x00" * 16)
+        lengths = {os.path.realpath(track): 3 * 3600 + 20 * 60}
+        monkeypatch.setattr(media_inspect, "duration_seconds", lambda path, **kw: lengths.get(os.path.realpath(path)))
+        assert reader_service.get_reading_overview(did)["length_display"] == "3h 20m"
+        with open(track, "ab") as f:   # a rebuilt track is probed again
+            f.write(b"\x00")
+        lengths.clear()   # unreadable: back to the reading time
+        assert reader_service.get_reading_overview(did)["length_display"] == "under a minute"
+
+    def test_a_timed_titles_length_never_probes_its_narration(self, isolated_db, monkeypatch):
+        import media_inspect
+        did = _drama(isolated_db, media_type="audio_drama")
+        isolated_db.save_lines(did, [Line(idx=0, start=0.0, end=120.0, zh="你", en="hi")])
+        os.makedirs(isolated_db.drama_dir(did), exist_ok=True)
+        with open(os.path.join(isolated_db.drama_dir(did), "dub_track.wav"), "wb") as f:
+            f.write(b"\x00" * 16)
+
+        def probe(*a, **k):
+            raise AssertionError("probed")
+        monkeypatch.setattr(media_inspect, "duration_seconds", probe)
+        assert reader_service.get_reading_overview(did)["length_display"] == "2m"
+
     def test_notes_round_trip_and_validation(self, isolated_db):
         did = _drama(isolated_db)
         assert reader_service.get_notes(did)["notes"] == ""

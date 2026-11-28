@@ -173,6 +173,23 @@ describe('status text on its own soft tint', () => {
   }
 })
 
+// The warning bar is an opaque yellow, not the translucent --warn-soft (which went grey-tan over the blue page).
+describe('warning bar (--warn-bar-bg)', () => {
+  for (const [name, theme] of Object.entries({ ...THEMES, soft: { ...LIGHT, ...SOFT_LIGHT } })) {
+    it(`${name}: --text on the bar`, () => {
+      expect(contrast(resolve(theme, '--text'), resolve(theme, '--warn-bar-bg'))).toBeGreaterThanOrEqual(4.5)
+    })
+    it(`${name}: the bar is a warm yellow, not a grey`, () => {
+      const [r, g, b] = rgb(resolve(theme, '--warn-bar-bg'))
+      expect(r).toBeGreaterThan(b + 20)
+      expect(g).toBeGreaterThan(b + 10)
+    })
+  }
+  it('the bar uses the token', () => {
+    expect(css).toMatch(/\n\.warn-bar \{[^}]*background: var\(--warn-bar-bg\)/)
+  })
+})
+
 // Glass panels are translucent, so the colour under the text is the glass blended over the wash blob over the page.
 // A blob is drawn at 60% (frost.css body rule); the worse of the two blobs is the one that counts.
 describe('text on frost glass over the wash', () => {

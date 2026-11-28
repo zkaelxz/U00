@@ -57,9 +57,11 @@ describe('review api', () => {
     const calls: { url: string }[] = []
     await review.listLines(1, 2, 40, 'flagged', fakeFetch(200, {}, calls))
     await review.searchLines(1, 'a b', fakeFetch(200, [], calls))
+    await review.searchLines(1, 'a b', fakeFetch(200, [], calls), 199)
     expect(calls.map((c) => c.url)).toEqual([
       '/api/review/dramas/1/lines?page=2&page_size=40&only=flagged',
       '/api/review/dramas/1/search?term=a%20b&limit=200',
+      '/api/review/dramas/1/search?term=a%20b&limit=200&after=199',
     ])
   })
   it('posts a patch and surfaces a 409 as ApiError', async () => {
@@ -73,8 +75,70 @@ describe('review api', () => {
   })
   it('applies only id/old/new of each match', async () => {
     const calls: { url: string; init?: RequestInit }[] = []
-    await review.applyFindReplace(1, [{ id: 7, idx: 3, old_text: 'a', new_text: 'b' }], fakeFetch(200, {}, calls))
+    const none = { applied: 0, stale: 0, applied_ids: [], stale_ids: [] }
+    await review.applyFindReplace(1, [{ id: 7, idx: 3, old_text: 'a', new_text: 'b' }], fakeFetch(200, none, calls))
     expect(JSON.parse(String(calls[0].init?.body))).toEqual({ matches: [{ id: 7, old_text: 'a', new_text: 'b' }] })
+  })
+  it('applies more matches than one request takes in chunks and adds up the results', async () => {
+    const bodies: { id: number }[][] = []
+    const f = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+      const sent = (JSON.parse(String(init?.body)) as { matches: { id: number }[] }).matches
+      bodies.push(sent)
+      // The server reports the first line of each request as edited since Preview.
+      const [first, ...rest] = sent.map((m) => m.id)
+      return new Response(JSON.stringify({ applied: rest.length, stale: 1, applied_ids: rest, stale_ids: [first] }), { status: 200 })
+    }) as typeof fetch
+    const matches = Array.from({ length: 2500 }, (_, i) => ({ id: i + 1, idx: i, old_text: 'Lin', new_text: 'Lyn' }))
+    const r = await review.applyFindReplace(1, matches, f)
+    expect(bodies.map((b) => b.length)).toEqual([1000, 1000, 500])
+    expect(r.applied).toBe(2497)
+    expect(r.stale).toBe(3)
+    expect(r.stale_ids).toEqual([1, 1001, 2001])
+    expect(r.applied_ids).toHaveLength(2497)
+  })
+  it('a failed later request keeps the unsent matches, and sending them again never replaces twice', async () => {
+    // A server that does compare-and-set like the real one; the second request fails after it saved.
+    const texts = new Map(Array.from({ length: 2500 }, (_, i) => [i + 1, 'Lin']))
+    let n = 0
+    let failSecond = true
+    const f = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+      n += 1
+      const sent = (JSON.parse(String(init?.body)) as { matches: { id: number; old_text: string; new_text: string }[] }).matches
+      const applied: number[] = []
+      const stale: number[] = []
+      for (const m of sent) {
+        if (texts.get(m.id) === m.old_text) {
+          texts.set(m.id, m.new_text)
+          applied.push(m.id)
+        } else if (texts.get(m.id) === m.new_text) applied.push(m.id)
+        else stale.push(m.id)
+      }
+      if (n === 2 && failSecond) return new Response(JSON.stringify({ error: { code: 'internal_error', message: 'lost' } }), { status: 500 })
+      return new Response(JSON.stringify({ applied: applied.length, stale: stale.length, applied_ids: applied, stale_ids: stale }), { status: 200 })
+    }) as typeof fetch
+    const matches = Array.from({ length: 2500 }, (_, i) => ({ id: i + 1, idx: i, old_text: 'Lin', new_text: 'Lin Zhou' }))
+    const r = await review.applyFindReplace(1, matches, f)
+    expect(n).toBe(2)
+    expect(r.applied).toBe(1000)
+    expect(r.rest.map((m) => m.id)).toEqual(matches.slice(1000).map((m) => m.id))
+    expect(r.error).toBeInstanceOf(ApiError)
+    expect(review.unsentNote(r)).toBe(' Stopped partway: 1500 lines were not changed. Apply the rest sends only those.')
+    // Apply the rest: the lost request's 1000 already hold the change and count as applied, not
+    // as lines changed since; the other 500 are replaced once.
+    failSecond = false
+    const rest = await review.applyFindReplace(1, r.rest, f)
+    expect(rest.rest).toEqual([])
+    expect(rest.applied).toBe(1500)
+    expect(rest.stale).toBe(0)
+    expect([...texts.values()].every((t) => t === 'Lin Zhou')).toBe(true)
+    // Sending the same matches yet again writes nothing: every line already holds its change.
+    const third = await review.applyFindReplace(1, r.rest, f)
+    expect(third.stale).toBe(0)
+    expect([...texts.values()].every((t) => t === 'Lin Zhou')).toBe(true)
+  })
+  it('a failed first request throws: nothing was changed', async () => {
+    const f = (async () => new Response(JSON.stringify({ error: { code: 'internal_error', message: 'x' } }), { status: 500 })) as typeof fetch
+    await expect(review.applyFindReplace(1, [{ id: 1, idx: 0, old_text: 'a', new_text: 'b' }], f)).rejects.toBeInstanceOf(ApiError)
   })
   it('starts a job and deletes a note', async () => {
     const calls: { url: string; init?: RequestInit }[] = []

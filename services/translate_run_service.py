@@ -806,14 +806,18 @@ def resume_interrupted_at_startup() -> dict:
     raises; returns {"enabled", "resumed", "skipped"} counts."""
     out = {"enabled": False, "resumed": 0, "skipped": 0}
     try:
+        pending = db.list_bulk_jobs(statuses=bulk_poll.RESUMABLE_STATUSES)
         if not settings_service.get("bulk_auto_resume"):
+            for job in pending:
+                _log_bulk_resume(job, "left pending: automatic resume is off")
             return out
         out["enabled"] = True
-        pending = db.list_bulk_jobs(statuses=bulk_poll.RESUMABLE_STATUSES)
         if not pending:
             return out
         if job_launch.exclusive_active() or job_launch.maintenance_active():
             out["skipped"] = len(pending)
+            for job in pending:
+                _log_bulk_resume(job, "left pending: a restore or maintenance holds the library")
             _notify_bulk_resume_skipped("the library is busy with a restore or maintenance")
             return out
         why = {}
@@ -832,12 +836,19 @@ def resume_interrupted_at_startup() -> dict:
                 why[engine_name] = "no API key is set for the engine"
             return engine
         cap = month_cap_usd() or None
+        by_id = {j["id"]: j for j in pending}
         for drama_id in sorted({j["drama_id"] for j in pending}):
-            for state in bulk_poll.resume_pending(drama_id, factory, cap).values():
+            for bulk_id, state in bulk_poll.resume_pending(drama_id, factory, cap).items():
+                job = by_id.get(bulk_id) or {"id": bulk_id, "drama_id": drama_id}
                 if state == "polling":
                     out["resumed"] += 1
+                    _log_bulk_resume(job, "resumed")
                 elif state == "needs_key":
                     out["skipped"] += 1
+                    _log_bulk_resume(job, "left pending: "
+                                     + why.get(job.get("engine"), "it could not be resumed"))
+                else:
+                    _log_bulk_resume(job, "already being polled")
         if out["skipped"]:
             _notify_bulk_resume_skipped("; ".join(sorted(set(why.values()))) or "not possible")
     except Exception as exc:
@@ -848,6 +859,16 @@ def resume_interrupted_at_startup() -> dict:
         except Exception:
             pass
     return out
+
+
+def _log_bulk_resume(job: dict, what: str) -> None:
+    try:
+        from applog import get_logger
+        get_logger().warning(
+            f"Bulk translation batch {job.get('id')} (title #{job.get('drama_id')}, "
+            f"{job.get('status') or 'unknown'}) after the restart: {what}.")
+    except Exception:
+        pass
 
 
 def _notify_bulk_resume_skipped(reason: str) -> None:
