@@ -249,19 +249,21 @@ test.describe('Details and Credits share one draft', () => {
     await expect(fill.getByRole('textbox', { name: 'Listing URL' })).toHaveCount(0)
   })
 
-  test('a plain page offers no paid AI read to an account that cannot save details', async ({ page }) => {
-    await page.route('**/api/auth/me', (r) => r.fulfill({ json: { ...ME.signedIn, permissions: ['library.read', 'lines.edit', 'media.import_url'] } }))
-    await page.route('**/api/media-link/probe', (r) => r.fulfill({ json: {
-      kind: 'page', title: '', channel: '', release_date: '', is_live: false, duration_seconds: null, summary: '',
-      platform: '', series_suggestion: '', note: 'Nothing could be read from this page.', display_url: 'https://example.com/p',
-    } }))
-    await gotoMedia(page, 'details')
-    const details = mediaPanel(page, 'details')
-    await details.locator('input[name="source_url"]').fill('https://example.com/p')
-    await details.getByRole('button', { name: 'Fill from link' }).click()
-    await expect(details.getByText('Nothing could be read from this page.')).toBeVisible()
-    await expect(details.getByRole('button', { name: 'Read with AI (paid)' })).toHaveCount(0)
-  })
+  for (const member of [false, true]) {
+    test(`a plain page offers the paid AI read only to an account that can save details (${member ? 'member' : 'owner'})`, async ({ page }) => {
+      if (member) await page.route('**/api/auth/me', (r) => r.fulfill({ json: { ...ME.signedIn, permissions: ['library.read', 'lines.edit', 'media.import_url'] } }))
+      await page.route('**/api/media-link/probe', (r) => r.fulfill({ json: {
+        kind: 'page', title: '', channel: '', release_date: '', is_live: false, duration_seconds: null, summary: '',
+        platform: '', series_suggestion: '', note: 'Nothing could be read from this page.', display_url: 'https://example.com/p',
+      } }))
+      await gotoMedia(page, 'details')
+      const details = mediaPanel(page, 'details')
+      await details.locator('input[name="source_url"]').fill('https://example.com/p')
+      await details.getByRole('button', { name: 'Fill from link' }).click()
+      await expect(details.getByText('Nothing could be read from this page.')).toBeVisible()
+      await expect(details.getByRole('button', { name: 'Read with AI (paid)' })).toHaveCount(member ? 0 : 1)
+    })
+  }
 
   test('a draft survives switching tabs, shows a dot on its tab, and one Save persists both', async ({ page }) => {
     const sent: Record<string, unknown>[] = []
