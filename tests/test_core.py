@@ -18,6 +18,18 @@ from novel_text import chunk_novel_text
 from tests.http_fakes import StreamedBody
 
 
+@pytest.fixture(autouse=True)
+def _drop_faster_whisper_stub():
+    """Several tests here put a plain-module faster_whisper stub in sys.modules; left
+    there, a later test's `import faster_whisper.vad` fails with "not a package"."""
+    before = sys.modules.get("faster_whisper")
+    yield
+    if before is None:
+        sys.modules.pop("faster_whisper", None)
+    else:
+        sys.modules["faster_whisper"] = before
+
+
 class TestFmtTs:
     def test_zero(self):
         assert fmt_ts(0) == "00:00:00,000"
