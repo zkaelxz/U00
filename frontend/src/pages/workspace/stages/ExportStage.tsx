@@ -116,7 +116,7 @@ export default function ExportStage() {
   // Ear placement fits only a stereo title whose lines have current ear marks, so it is offered and sent only then.
   const earMarks = (r?.ear_marked_lines ?? 0) > 0
   const sentForm = earMarks || !form.earPlacement ? form : { ...form, earPlacement: false }
-  const assStyle = options ? <ExportAss form={form} setForm={setForm} options={options} earMarks={earMarks} /> : <ErrorBanner error={optionsError} />
+  const assStyle = options ? <ExportAss form={form} setForm={setForm} options={options} earMarks={earMarks} sourceLanguage={drama.source_language} /> : <ErrorBanner error={optionsError} />
   const mediaRequest = () =>
     options ? buildAssRequest(sentForm, options) : { error: 'The style options have not loaded yet.' }
   const reasonOf = (id: ExportBlockId) => exportBlockReason(id, inputs) ?? (id === 'burned_video' && libass ? NO_LIBASS : null)

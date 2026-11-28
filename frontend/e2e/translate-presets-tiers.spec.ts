@@ -29,7 +29,7 @@ test('applying a tier fills the form and starts nothing', async ({ page }) => {
   const run = page.getByRole('region', { name: 'Translate run' })
   await pickStyle(run, /^Release/)
   await expect(run.getByRole('status')).toContainText('Nothing has started')
-  await expect(run.getByRole('status')).toContainText('Release recommends Auto QC; run it from the Export stage.')
+  await expect(run.getByRole('status')).toContainText('Release recommends Auto QC; run it in Review > Flag lines for review.')
   expect(tierBodies).toEqual([{ tier: 'release' }])
 
   await expect(run.getByLabel('AI engine', { exact: true })).toHaveValue('claude')

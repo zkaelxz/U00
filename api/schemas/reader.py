@@ -262,6 +262,8 @@ class StudyWord(BaseModel):
     word: str
     reading: Optional[str] = None
     meanings: List[str] = []
+    # When the word starts in the audio, from the line's stored word times; None without them.
+    start: Optional[float] = None
 
 
 class StudyLine(BaseModel):
