@@ -50,11 +50,14 @@ public class MainActivity extends Activity {
     private AlertDialog addressDialog;
     private boolean loadFailed;
     private int autoRetries;
-    /** When the server was last asked for a newer build; 0 before the first ask. */
-    private static final long UPDATE_RECHECK_MS = 60_000;
-    /** While the app stays open, a build the PC fetches later is still noticed. */
-    private static final long UPDATE_POLL_MS = 5 * 60_000;
-    private long updateCheckedAt;
+    /** When the server last answered an update check, and whether the latest check got no answer (kept across launches). */
+    private static final String UPDATE_ANSWERED_AT = "update_answered_at";
+    private static final String UPDATE_CHECK_FAILED = "update_check_failed";
+    /** The person was sent to Android's "Install unknown apps" setting; the update continues when they come back. */
+    private static final String UPDATE_WAITS_FOR_ALLOW = "update_waits_for_allow";
+    /** When this process last asked for a newer build; 0 before the first ask. */
+    private long updateTriedAt;
+    private boolean updateDownloading;
     private long declinedVersion;
     private boolean updateOffered;
     private View customView;
@@ -108,6 +111,7 @@ public class MainActivity extends Activity {
     }
 
     private void startUp() {
+        clearInstalledUpdate();
         web = new WebView(this);
         WebSettings s = web.getSettings();
         s.setJavaScriptEnabled(true);
@@ -609,6 +613,8 @@ public class MainActivity extends Activity {
                         prefs().edit().putString(ADDRESS, a).apply();
                         // Another PC's alert list starts from other numbers, so old marks would misread it.
                         AlertPoller.forget(prefs());
+                        // Another PC may hold a newer build than the one that last answered.
+                        prefs().edit().remove(UPDATE_ANSWERED_AT).remove(UPDATE_CHECK_FAILED).apply();
                     }
                     autoRetries = 0;
                     loadFailed = false;
@@ -677,34 +683,44 @@ public class MainActivity extends Activity {
     }
 
     /**
-     * Once per launch, after Baihe has loaded (so the session cookie exists): asks the server
-     * whether it holds a newer build. A server that offers none, or a signed-out one, is silent.
+     * After Baihe has loaded (so the session cookie exists), on each return to the app and hourly while it
+     * stays open: asks the server whether it holds a newer build, when {@link AppUpdate#checkDue} says a
+     * check is due. A server that offers none, or a signed-out one, is silent.
      */
     private void checkForUpdate(String address) {
-        // Reopening the app resumes the same process and WebView, so no page load fires again;
-        // onResume asks again, at most once a minute, so a build fetched meanwhile is offered.
         long now = System.currentTimeMillis();
-        if (updateOffered || now - updateCheckedAt < UPDATE_RECHECK_MS) return;
-        updateCheckedAt = now;
+        SharedPreferences p = prefs();
+        if (updateOffered || !AppUpdate.checkDue(now, p.getLong(UPDATE_ANSWERED_AT, 0),
+                p.getBoolean(UPDATE_CHECK_FAILED, false), updateTriedAt)) return;
+        updateTriedAt = now;
         String cookie = CookieManager.getInstance().getCookie(address);
         new Thread(() -> {
             // The PC only looks at GitHub when asked, so an unforced ask would hear the old build first.
             long offered = AppUpdate.check(address, cookie, true);
-            // A failed ask (no network, a restarting PC) is tried again at the next chance, not a minute later.
-            if (offered == AppUpdate.CHECK_FAILED) updateCheckedAt = 0;
+            noteCheck(offered);
             if (offered <= 0 || !AppUpdate.isNewer(installedVersion(), offered) || offered == declinedVersion) return;
             runOnUiThread(() -> offerUpdate(address, cookie, offered));
         }).start();
     }
 
+    private void noteCheck(long offered) {
+        SharedPreferences.Editor e = prefs().edit().putBoolean(UPDATE_CHECK_FAILED, offered == AppUpdate.CHECK_FAILED);
+        if (offered != AppUpdate.CHECK_FAILED) e.putLong(UPDATE_ANSWERED_AT, System.currentTimeMillis());
+        e.apply();
+    }
+
     /** The Check for updates button: asks right away, and answers either way instead of staying silent. */
     private void checkForUpdateNow() {
         String address = savedAddress();
-        if (address == null) return;
+        if (address == null) {
+            toast("Set your PC's address first, then check for updates.");
+            return;
+        }
         String cookie = CookieManager.getInstance().getCookie(address);
         toast("Checking for updates…");
         new Thread(() -> {
             long offered = AppUpdate.check(address, cookie, true);
+            noteCheck(offered);
             if (offered == AppUpdate.CHECK_FAILED) {
                 runOnUiThread(() -> toast("Could not reach Baihe to check. Try again in a minute."));
             } else if (offered <= 0 || !AppUpdate.isNewer(installedVersion(), offered)) {
@@ -731,31 +747,147 @@ public class MainActivity extends Activity {
         }
     }
 
+    /** The build of a saved APK as Android reads it, or 0 when it is missing or not an APK. */
+    @SuppressWarnings("deprecation")
+    private long apkVersion(File apk) {
+        if (!apk.isFile()) return 0;
+        PackageInfo info = getPackageManager().getPackageArchiveInfo(apk.getPath(), 0);
+        return info == null ? 0 : info.versionCode;
+    }
+
+    /** Why the saved APK must not be installed, or null when it is a newer build of this app. */
+    @SuppressWarnings("deprecation")
+    private String apkProblem(File apk) {
+        PackageInfo info = apk.isFile() ? getPackageManager().getPackageArchiveInfo(apk.getPath(), 0) : null;
+        return AppUpdate.apkProblem(getPackageName(), info == null ? null : info.packageName,
+                info == null ? 0 : info.versionCode, installedVersion());
+    }
+
     private void offerUpdate(String address, String cookie, long offered) {
         if (isFinishing() || isDestroyed()) return;
         updateOffered = true;
         new AlertDialog.Builder(this)
                 .setTitle("Update Available")
                 .setMessage("A newer Baihe app is on your PC. It downloads from there, then Android asks you to install it.")
-                .setPositiveButton("Install update", (d, w) -> new Thread(() -> {
-                    File apk = updateFile();
-                    if (AppUpdate.download(address, cookie, apk)) AppUpdate.install(getApplicationContext(), apk);
-                    else runOnUiThread(() -> android.widget.Toast.makeText(this,
-                            "Could not download the update. Try again in a minute.", android.widget.Toast.LENGTH_LONG).show());
-                }).start())
+                .setPositiveButton("Install update", (d, w) -> downloadAndInstall(address, cookie, offered))
                 // Asking again at every return to the app would nag; the Check for updates button still offers it.
                 .setNegativeButton(android.R.string.cancel, (d, w) -> declinedVersion = offered)
                 .setOnDismissListener(d -> updateOffered = false)
                 .show();
     }
 
+    /** Install update: downloads (or reuses a saved copy of the same build), checks the file, then installs. */
+    private void downloadAndInstall(String address, String cookie, long offered) {
+        // A second press would write into the file the first download is still filling.
+        if (updateDownloading) {
+            toast("The update is already downloading.");
+            return;
+        }
+        updateDownloading = true;
+        toast("Downloading the update…");
+        new Thread(() -> {
+            File apk = AppUpdate.savedApk(this);
+            String problem = apkVersion(apk) < offered ? AppUpdate.download(address, cookie, apk) : null;
+            if (problem == null) problem = apkProblem(apk);
+            if (problem != null) apk.delete();
+            String failed = problem;
+            runOnUiThread(() -> {
+                updateDownloading = false;
+                if (failed != null) updateFailed(failed);
+                else installOrAskToAllow(apk);
+            });
+        }).start();
+    }
+
+    /**
+     * Android refuses an install from an app the person has not allowed under "Install unknown apps", and its
+     * own prompt for that can drop the install on the way back, so Baihe sends the person to the setting
+     * itself and continues from onResume.
+     */
+    private void installOrAskToAllow(File apk) {
+        if (isFinishing() || isDestroyed()) return;
+        if (getPackageManager().canRequestPackageInstalls()) {
+            install(apk);
+            return;
+        }
+        new AlertDialog.Builder(this)
+                .setTitle("Allow Baihe to install its update")
+                .setMessage("Android asks you once to allow app installs from Baihe. On the next screen turn on "
+                        + "\"Allow from this source\", then come back: the update carries on.")
+                .setPositiveButton("Open setting", (d, w) -> {
+                    prefs().edit().putBoolean(UPDATE_WAITS_FOR_ALLOW, true).apply();
+                    try {
+                        startActivity(new Intent(android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                                Uri.parse("package:" + getPackageName())));
+                    } catch (RuntimeException e) {
+                        prefs().edit().remove(UPDATE_WAITS_FOR_ALLOW).apply();
+                        updateFailed("This phone did not open the setting. In Android's Settings, open Apps > Special app "
+                                + "access > Install unknown apps > Baihe, turn it on, then press Check for updates again.");
+                    }
+                })
+                .setNegativeButton(android.R.string.cancel, (d, w) -> toast(
+                        "The update was not installed. Check for updates in Settings > Phone app offers it again."))
+                .show();
+    }
+
+    /** Back from the "Install unknown apps" setting: installs the saved update, or says why it can't. */
+    private void resumeAfterAllow() {
+        if (!prefs().getBoolean(UPDATE_WAITS_FOR_ALLOW, false)) return;
+        prefs().edit().remove(UPDATE_WAITS_FOR_ALLOW).apply();
+        if (!getPackageManager().canRequestPackageInstalls()) {
+            updateFailed("Baihe still isn't allowed to install apps, so the update was not installed. "
+                    + "Press Check for updates in Settings > Phone app to try again.");
+            return;
+        }
+        new Thread(() -> {
+            File apk = AppUpdate.savedApk(this);
+            String problem = apkProblem(apk);
+            if (problem != null) {
+                apk.delete();
+                runOnUiThread(() -> updateFailed(problem));
+            } else {
+                runOnUiThread(() -> install(apk));
+            }
+        }).start();
+    }
+
+    private void install(File apk) {
+        new Thread(() -> {
+            if (!AppUpdate.install(getApplicationContext(), apk)) {
+                runOnUiThread(() -> updateFailed("Android would not start installing the update. "
+                        + "Press Check for updates in Settings > Phone app to try again."));
+            }
+        }).start();
+    }
+
+    private void updateFailed(String text) {
+        if (isFinishing() || isDestroyed()) {
+            toast(text);
+            return;
+        }
+        new AlertDialog.Builder(this)
+                .setTitle("Update not installed")
+                .setMessage(text)
+                .setPositiveButton(android.R.string.ok, null)
+                .show();
+    }
+
+    /** Once this app is on the saved APK's build or newer, the file has served its purpose. */
+    private void clearInstalledUpdate() {
+        new Thread(() -> {
+            File apk = AppUpdate.savedApk(this);
+            if (apk.isFile() && AppUpdate.savedApkDone(apkVersion(apk), installedVersion())) apk.delete();
+        }).start();
+    }
+
+    /** Hourly while the app is in front; each return to the app also asks, from onResume. */
     private final Runnable poll = new Runnable() {
         @Override
         public void run() {
             String address = savedAddress();
             String shown = web.getUrl();
             if (address != null && shown != null && ServerAddress.sameOrigin(address, shown)) checkForUpdate(address);
-            web.postDelayed(this, UPDATE_POLL_MS);
+            web.postDelayed(this, AppUpdate.POLL_EVERY_MS);
         }
     };
 
@@ -767,6 +899,7 @@ public class MainActivity extends Activity {
         refreshAfterResize();
         // A start Android refused while the app was in the background can go through now that it is in front.
         MediaPlayback.retryIfRefused(this);
+        resumeAfterAllow();
         web.removeCallbacks(poll);
         poll.run();
     }
@@ -792,12 +925,6 @@ public class MainActivity extends Activity {
         String script = MediaState.pageScript(action, value);
         if (web != null && script != null) web.evaluateJavascript(script, null);
     };
-
-    private File updateFile() {
-        File dir = new File(getCacheDir(), "updates");
-        dir.mkdirs();
-        return new File(dir, "baihe-shell.apk");
-    }
 
     @Override
     protected void onStart() {

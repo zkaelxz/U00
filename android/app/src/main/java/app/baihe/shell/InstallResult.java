@@ -8,6 +8,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageInstaller;
 import android.os.Build;
+import android.widget.Toast;
 
 /** Shows Android's own confirmation for an update the installer session is waiting to start, and says when an update failed. */
 public class InstallResult extends BroadcastReceiver {
@@ -22,11 +23,16 @@ public class InstallResult extends BroadcastReceiver {
             return;
         }
         if (status != PackageInstaller.STATUS_PENDING_USER_ACTION) {
-            notify(context, "The update did not install. Open Baihe and try Check for updates again.", null);
+            // Install update reuses a saved file of the offered build, so one Android refused must go.
+            AppUpdate.savedApk(context).delete();
+            tell(context, failureText(status));
             return;
         }
         Intent confirm = intent.getParcelableExtra(Intent.EXTRA_INTENT);
-        if (confirm == null) return;
+        if (confirm == null) {
+            tell(context, failureText(PackageInstaller.STATUS_FAILURE));
+            return;
+        }
         confirm.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
         // Android 10 and later refuse to open a screen from the background, so the same
         // confirmation is also offered as a notification the person can tap.
@@ -35,6 +41,33 @@ public class InstallResult extends BroadcastReceiver {
             context.startActivity(confirm);
         } catch (RuntimeException ignored) {
             // Blocked from the background; the notification above still reaches the person.
+        }
+    }
+
+    /** What the person reads when Android's installer refused the update. */
+    static String failureText(int status) {
+        switch (status) {
+            case PackageInstaller.STATUS_FAILURE_STORAGE:
+                return "The update did not install: the phone is short of free space. Free some space, then press Check for updates again.";
+            case PackageInstaller.STATUS_FAILURE_CONFLICT:
+            case PackageInstaller.STATUS_FAILURE_INCOMPATIBLE:
+                return "The update did not install: it is signed with a different key from the Baihe app on this phone, and Android refuses that. Keep to one way of building the app (the user guide's Android part explains).";
+            case PackageInstaller.STATUS_FAILURE_INVALID:
+                return "The update did not install: Android found the downloaded file damaged. Press Check for updates to download it again.";
+            case PackageInstaller.STATUS_FAILURE_BLOCKED:
+                return "The update did not install: Android or a security app on the phone blocked it.";
+            default:
+                return "The update did not install. Open Baihe and try Check for updates again.";
+        }
+    }
+
+    /** A failure also shows as a toast, because a notification is silent when notifications are switched off. */
+    private static void tell(Context context, String text) {
+        notify(context, text, null);
+        try {
+            Toast.makeText(context, text, Toast.LENGTH_LONG).show();
+        } catch (RuntimeException ignored) {
+            // The notification is the other way the person hears of it.
         }
     }
 
