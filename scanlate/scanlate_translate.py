@@ -527,6 +527,17 @@ def translate_page_bubbles(bubbles: list, engine, drama_meta: dict, previous_con
                 result, new_context = None, previous_context
             if result is not None:
                 break
+    if page_image is not None and result is None and by_key:
+        # Without these lines a page that lost its picture (worth 1-3 chrF) and
+        # paid a second call looked the same in the log as any other page.
+        import applog
+        logger = applog.get_logger()
+        if len(by_key) > REGIONS_PER_CALL:
+            logger.info("Comic translate: %d regions is over %d, page sent without its picture",
+                        len(by_key), REGIONS_PER_CALL)
+        else:
+            logger.warning("Comic translate: no usable answer with the picture, "
+                           "translating the page again from its text only")
     if result is None:
         result, new_context = translate_regions_by_id(
             {k: b["source_text"] for k, b in by_key.items()}, engine, drama_meta,

@@ -113,6 +113,26 @@ def test_a_dense_page_skips_the_picture_request(monkeypatch):
     assert ok and not called
 
 
+def test_a_page_that_loses_its_picture_says_so_in_the_log(monkeypatch):
+    import types
+    import applog
+    messages = []
+    say = lambda msg, *a: messages.append(msg % a)
+    monkeypatch.setattr(applog, "get_logger", lambda: types.SimpleNamespace(info=say, warning=say))
+    monkeypatch.setattr(scanlate_translate, "translate_regions_with_image",
+                        lambda *a, **k: (None, "ctx"))
+    monkeypatch.setattr(scanlate_translate, "translate_regions_by_id",
+                        lambda keyed, *a, **k: ({k_: "t" for k_ in keyed}, "c"))
+    picture = {"data": b"x", "mime": "image/png", "scale": 1.0}
+    scanlate_translate.translate_page_bubbles([_region("你好")], _Engine(), {"source_language": "zh"},
+                                              page_image=picture)
+    scanlate_translate.translate_page_bubbles(
+        [_region(f"文{i}") for i in range(scanlate_translate.REGIONS_PER_CALL + 1)], _Engine(),
+        {"source_language": "zh"}, page_image=picture)
+    assert any("from its text only" in m for m in messages)
+    assert any("sent without its picture" in m for m in messages)
+
+
 def _stored_page(drama_id, width=120, height=80):
     folder = os.path.join(db.drama_dir(drama_id), "pages")
     os.makedirs(folder, exist_ok=True)

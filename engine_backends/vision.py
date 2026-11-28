@@ -7,12 +7,14 @@ call_llm_json, whose messages are text only. DeepSeek's chat API takes no
 images and is refused here rather than sent a request it would ignore.
 """
 import base64
+import time
 
 from .gemini import GeminiEngine, gemini_reply
 from .llm_tasks import _bounded
 from .local import OllamaEngine, _ollama_chat, strip_ollama_thinking
 from .openai_compat import OpenAIEngine
 from .shared import call_with_backoff, post_json
+from .temperature import ollama_sampling
 from .thinking import ollama_chat_with_think
 
 VISION_ENGINES = ("claude", "gemini", "openai", "ollama")
@@ -124,8 +126,26 @@ def _openai(engine, prompt, data, mime, max_tokens):
 def _ollama(engine, prompt, data, max_tokens):
     payload = {"model": engine.model, "stream": False,
                "messages": [{"role": "user", "content": prompt, "images": [data]}],
-               "options": {"num_ctx": engine.num_ctx_for(4096), "num_predict": max_tokens}}
+               "options": {"num_ctx": engine.num_ctx_for(4096), "num_predict": max_tokens,
+                           **ollama_sampling()}}
+    started = time.monotonic()
     reply = ollama_chat_with_think(_ollama_chat, engine.base_url, payload, False)
+    _log_ollama_timing(engine.model, time.monotonic() - started, reply)
     return (strip_ollama_thinking((reply.get("message") or {}).get("content") or "").strip(),
             {"input_tokens": reply.get("prompt_eval_count") or 0,
              "output_tokens": reply.get("eval_count") or 0})
+
+
+def _log_ollama_timing(model: str, wall: float, reply: dict) -> None:
+    # The page log has one number for the hosted call; Ollama's own durations
+    # split it into upload/queue (wall minus total), reading the picture and
+    # prompt, and writing, which says which part a speed change has to cut.
+    def seconds(key):
+        value = reply.get(key)
+        return f"{value / 1e9:.2f}s" if isinstance(value, (int, float)) else "?"
+    import applog
+    applog.get_logger().info(
+        "Picture call %s: wall %.2fs, server total %s, load %s, read %s (%s tokens), "
+        "write %s (%s tokens)", model, wall, seconds("total_duration"),
+        seconds("load_duration"), seconds("prompt_eval_duration"),
+        reply.get("prompt_eval_count", "?"), seconds("eval_duration"), reply.get("eval_count", "?"))
