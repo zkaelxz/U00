@@ -9,7 +9,6 @@ import { useCallback, useEffect, useState } from 'react'
 import { probeLink } from '../../api/linkDetails'
 import { deleteQuickVideoTitle, getQuickVideoRuns, getQuickVideoSettings, startQuickVideo } from '../../api/quickVideo'
 import { ButtonLink } from '../../components/Button'
-import { Card } from '../../components/Card'
 import { ConfirmButton } from '../../components/ConfirmButton'
 import { ErrorBanner } from '../../components/ErrorBanner'
 import { HelpTip } from '../../components/HelpTip'
@@ -165,18 +164,19 @@ export function QuickVideoRuns({ refreshKey }: { refreshKey: number }) {
   }
 
   return (
-    <Card title="From a link" aria-label="From a link">
+    <section className="add-runs" aria-label="From a link">
+      <h2 className="add-runs-title">From a link</h2>
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
-      <ul className="stack">
+      <ul className="add-runs-list">
         {shownRuns.map((run) => (
-          <li key={run.drama_id}>
-            <strong>{run.title}</strong> · {runText(run)}
-            <div className="actions">
-              <ButtonLink size="sm" variant="ghost" href={routeHref({ name: 'drama', id: run.drama_id, stage: run.state === 'done' ? 'review' : null })}>
+          <li key={run.drama_id} className="add-run">
+            <span className="add-run-name"><strong>{run.title}</strong> <span className="muted">· {runText(run)}</span></span>
+            <div className="add-run-actions">
+              <ButtonLink size="sm" variant="secondary" href={routeHref({ name: 'drama', id: run.drama_id, stage: run.state === 'done' ? 'review' : null })}>
                 Open
               </ButtonLink>
               {pc !== 'remote' && canDeleteWatched(run) && (
-                <ConfirmButton name={run.title} label="Done watching, delete…" confirmLabel="Confirm delete" onConfirm={() => remove(run)} />
+                <ConfirmButton size="sm" name={run.title} label="Done watching, delete…" confirmLabel="Confirm delete" onConfirm={() => remove(run)} />
               )}
             </div>
           </li>
@@ -185,6 +185,6 @@ export function QuickVideoRuns({ refreshKey }: { refreshKey: number }) {
       {shownRuns.length < runs.length && (
         <button type="button" className={buttonClass('secondary', 'sm')} onClick={() => setAllRuns(true)}>Show more</button>
       )}
-    </Card>
+    </section>
   )
 }
