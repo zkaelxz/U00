@@ -460,7 +460,11 @@ def build_narration_track(lines, drama_dir: str, character_clone_map: dict, prog
         unit["clip_path"] = os.path.join(clips_dir, f"line_{span}_{signature}.wav")
 
     finished = 0
-    checkpoints = _Checkpoints(steps, drama_dir, pace, narrate_original, on_partial)
+    # A title that already has a track keeps it whole until this run's track is complete: a part
+    # would replace it before anything new is spoken (its clips are all cached), and a cancel or an
+    # engine that fails to start would then leave the title with only that part.
+    early = None if find_narration_track(drama_dir) else on_partial
+    checkpoints = _Checkpoints(steps, drama_dir, pace, narrate_original, early)
 
     def record(unit, error):
         nonlocal finished
@@ -547,6 +551,9 @@ def _join_track(steps, lines, drama_dir: str, pace: float, narrate_original: boo
 # A join of the part spoken so far reads all of its clips again, so the next join waits this many
 # times as long as the last one took: joining then costs about 1/JOIN_SPACING of the run.
 JOIN_SPACING = 30
+# On a title without chapters every line end is a checkpoint; each join also saves every line and
+# reloads the Reader's player, so they come no closer together than this.
+MIN_JOIN_GAP_SECONDS = 60.0
 
 
 def _step_lines(kind, item) -> list:
@@ -594,9 +601,18 @@ class _Checkpoints:
         if not spoken or _mostly_failed(spoken):
             return
         began = time.monotonic()
-        _join_track(part, [ln for kind, item in part for ln in _step_lines(kind, item)],
-                    self.drama_dir, self.pace, self.narrate_original)
-        self.next_after = time.monotonic() + JOIN_SPACING * (time.monotonic() - began)
+        gap = 0.0 if self.chapter_starts else MIN_JOIN_GAP_SECONDS
+        try:
+            _join_track(part, [ln for kind, item in part for ln in _step_lines(kind, item)],
+                        self.drama_dir, self.pace, self.narrate_original)
+        except Exception as exc:
+            # Only the whole track may fail the run: an early part is a convenience, and on Windows
+            # its replace fails while the Reader is still streaming the previous part.
+            import applog
+            applog.get_logger().warning(f"narration: the part made so far was not joined: {type(exc).__name__}")
+            self.next_after = time.monotonic() + max(gap, JOIN_SPACING * (time.monotonic() - began))
+            return
+        self.next_after = time.monotonic() + max(gap, JOIN_SPACING * (time.monotonic() - began))
         self.joined_upto, self.joined_any = end, True
         self.on_partial(self._times(end))
 
