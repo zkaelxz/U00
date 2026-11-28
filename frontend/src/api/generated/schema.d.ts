@@ -8730,6 +8730,24 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/reader/dramas/{drama_id}/ear-marks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Lines heard mostly in the left or right ear, by line id */
+        get: operations["get_ear_marks_api_reader_dramas__drama_id__ear_marks_get"];
+        put?: never;
+        /** Work out the ear marks (poll the GET) */
+        post: operations["post_ear_marks_api_reader_dramas__drama_id__ear_marks_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/reader/dramas/{drama_id}/lines/{line_id}/study": {
         parameters: {
             query?: never;
@@ -14483,6 +14501,11 @@ export interface components {
         /** AssExportRequest */
         AssExportRequest: {
             /**
+             * Ear Placement
+             * @default false
+             */
+            ear_placement?: boolean;
+            /**
              * Field
              * @default en
              */
@@ -17344,6 +17367,11 @@ export interface components {
         };
         /** BurnPreviewStart */
         BurnPreviewStart: {
+            /**
+             * Ear Placement
+             * @default false
+             */
+            ear_placement?: boolean;
             /** Line Id */
             line_id: number;
             /** Pad Seconds */
@@ -20630,6 +20658,45 @@ export interface components {
             /** Title */
             title: string;
         };
+        /** EarMark */
+        EarMark: {
+            /** Line Id */
+            line_id: number;
+            /**
+             * Side
+             * @enum {string}
+             */
+            side: "left" | "right";
+        };
+        /**
+         * EarMarks
+         * @description Lines heard mostly in one ear of a stereo title, by line id. state:
+         *     "ready", "working", "needed" (to be worked out, by POST) or "unavailable".
+         */
+        EarMarks: {
+            /** Drama Id */
+            drama_id: number;
+            /** Marks */
+            marks: components["schemas"]["EarMark"][];
+            /** One Sided */
+            one_sided: number;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "ready" | "working" | "needed" | "unavailable";
+            /** Total Lines */
+            total_lines: number;
+        };
+        /** EarMarksStarted */
+        EarMarksStarted: {
+            /** Drama Id */
+            drama_id: number;
+            /** Job Id */
+            job_id: string;
+            /** Started */
+            started: boolean;
+        };
         /** EffectiveGlossaryTerm */
         EffectiveGlossaryTerm: {
             /** Aliases */
@@ -20890,6 +20957,11 @@ export interface components {
             dense_line_count: number;
             /** Drama Id */
             drama_id: number;
+            /**
+             * Ear Marked Lines
+             * @default 0
+             */
+            ear_marked_lines: number;
             /** En Filled */
             en_filled: number;
             /** Fully Translated */
@@ -34215,6 +34287,8 @@ export interface components {
         };
         /** TranslateHistoryEntry */
         TranslateHistoryEntry: {
+            /** Account */
+            account: string | null;
             /** Created At */
             created_at: string | null;
             /** Engine */
@@ -60533,6 +60607,113 @@ export interface operations {
             };
             /** @description Unprocessable Content */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    get_ear_marks_api_reader_dramas__drama_id__ear_marks_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                drama_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EarMarks"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    post_ear_marks_api_reader_dramas__drama_id__ear_marks_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                drama_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EarMarksStarted"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Too Many Requests */
+            429: {
                 headers: {
                     [name: string]: unknown;
                 };
