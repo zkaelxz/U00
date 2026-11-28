@@ -79,28 +79,30 @@ function PackRow({ pack, onByDefault }: { pack: LanguagePackSummary; onByDefault
           <EntrySearch query={query} onChange={setQuery} {...visible} />
         )}
         {full && (
-          <table>
-            <thead>
-              <tr><th>Source</th><th>English</th><th>Note</th></tr>
-            </thead>
-            <tbody>
-              {visible.shown.map((en, i) => (
-                <tr key={i}>
-                  <td>{en.source}</td>
-                  <td>{entryText(en.en, full.styles.default)}</td>
-                  <td>
-                    {en.note}
-                    {en.link && (
-                      <>
-                        {en.note && ' '}
-                        <a href={en.link} target="_blank" rel="noopener noreferrer">Source page</a>
-                      </>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <div className="scroll-box" tabIndex={0} role="group" aria-label={`${pack.title} entries`}>
+            <table>
+              <thead>
+                <tr><th>Source</th><th>English</th><th>Note</th></tr>
+              </thead>
+              <tbody>
+                {visible.shown.map((en, i) => (
+                  <tr key={i}>
+                    <td>{en.source}</td>
+                    <td>{entryText(en.en, full.styles.default)}</td>
+                    <td>
+                      {en.note}
+                      {en.link && (
+                        <>
+                          {en.note && ' '}
+                          <a href={en.link} target="_blank" rel="noopener noreferrer">Source page</a>
+                        </>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
       </details>
     </li>

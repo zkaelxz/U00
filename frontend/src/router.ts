@@ -62,6 +62,8 @@ export type Route =
   | { name: 'live'; url?: string; follow?: number }
   // Everything new in one list: new chapters and followed channels that are live or scheduled.
   | { name: 'updates' }
+  // Every title and series with who can see it and its owner, for admins (linked from Settings > Sharing).
+  | { name: 'sharing' }
   | { name: 'assistant' }
   // tab: "#/series/3?tab=glossary" opens that tab of a series' page.
   | { name: 'series'; id: number; tab?: SeriesTab }
@@ -174,6 +176,7 @@ export function parseRoute(hash: string): Route {
   }
   if (head === 'discover' && parts.length === 1) return { name: 'discover' }
   if (head === 'updates' && parts.length === 1) return { name: 'updates' }
+  if (head === 'sharing' && parts.length === 1) return { name: 'sharing' }
   if (head === 'assistant' && parts.length === 1) return { name: 'assistant' }
   if (head === 'series' && parts.length === 1) {
     const streamer = new URLSearchParams(qs).get('streamer')

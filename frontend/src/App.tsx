@@ -39,6 +39,7 @@ import { routeHref, useRoute } from './router'
 // Each page is its own chunk, so the first load downloads only the shell and the Library.
 const PcProfilePicker = lazy(() => import('./pages/PcProfilePicker'))
 const AdminPage = lazy(() => import('./pages/Admin'))
+const SharingPage = lazy(() => import('./pages/SharingPage'))
 const AssistantPage = lazy(() => import('./pages/Assistant'))
 const ComicPage = lazy(() => import('./pages/Comic'))
 const ComicEditor = lazy(() => import('./pages/comic/ComicEditor'))
@@ -228,6 +229,7 @@ export default function App() {
       {route.name === 'jobs' && <JobsPage />}
       {route.name === 'settings' && <SettingsPage />}
       {route.name === 'admin' && <AdminPage />}
+      {route.name === 'sharing' && <SharingPage />}
       {route.name === 'translate' && <TranslatePage />}
       {route.name === 'make-subtitles' && <MakeSubtitlesPage key={route.url ?? ''} link={route.url ?? null} />}
       {route.name === 'share' && <SharePage url={route.url ?? null} />}

@@ -6,6 +6,8 @@ import type { SharingItem } from '../../types/sharing'
 import {
   applyFlip,
   applyOwner,
+  arrangeSharing,
+  ownerChoices,
   canChangeOwners,
   canSeeAllItems,
   filterPcPrivate,
@@ -131,7 +133,7 @@ describe('sharing helpers', () => {
       .toMatch(/^Could not reach Baihe\./)
     expect(sharingErrorText(new ApiError(500, { code: 'internal_error', message: 'KeyError: owner_user_id' }))).not.toMatch(/KeyError/)
     expect(shareDefaultHelp(false, false)).toMatch(/^Off: .*private.*only affects new items/)
-    expect(shareDefaultHelp(true, true)).toMatch(/^On: .*list below/)
+    expect(shareDefaultHelp(true, true)).toMatch(/^On: .*on the Sharing page/)
   })
 
   it('groups shared items before private ones, keeping a series and its titles together in list order', () => {
@@ -153,5 +155,36 @@ describe('sharing helpers', () => {
     expect(showOwnerPicker(pcItem, [{ id: 2, name: 'Ann' }])).toBe(true)
     // An item already owned by an account can still be handed back to the PC.
     expect(showOwnerPicker(item({ owner_user_id: 2 }), [])).toBe(true)
+  })
+})
+
+describe('arrangeSharing', () => {
+  const items = [
+    item({ id: 1, title: 'Zebra', owner_name: 'Bo', owner_user_id: 3, is_private: true }),
+    item({ kind: 'series', id: 9, title: 'Saga', owner_name: 'Ann', owner_user_id: 2 }),
+    item({ id: 2, title: 'Saga Ep 2', series_id: 9, series_name: 'Saga', series_is_private: false, owner_name: 'Bo', owner_user_id: 3 }),
+    item({ id: 3, title: 'apple', owner_name: 'PC owner', owner_user_id: null, created_at_pc: true, is_private: true }),
+  ]
+  const ids = (groups: { label: string; items: SharingItem[] }[]) => groups.map((g) => `${g.label}: ${g.items.map((i) => i.id).join(',')}`)
+
+  it('keeps the server order under Shared and Private by default', () => {
+    expect(ids(arrangeSharing(items, 'status', 'all', ''))).toEqual(['Shared: 9,2', 'Private: 1,3'])
+  })
+
+  it('groups by owner name, A to Z, each owner once', () => {
+    expect(ids(arrangeSharing(items, 'owner', 'all', ''))).toEqual(['Ann: 9', 'Bo: 1,2', 'PC owner: 3'])
+    expect(ownerChoices(items)).toEqual([{ value: '2', label: 'Ann' }, { value: '3', label: 'Bo' }, { value: 'pc', label: 'PC owner' }])
+  })
+
+  it('sorts by title, ignoring case', () => {
+    expect(ids(arrangeSharing(items, 'title', 'all', ''))).toEqual(['A to Z: 3,9,2,1'])
+  })
+
+  it('filters by who can see it and by owner; a shown title keeps its series row', () => {
+    expect(ids(arrangeSharing(items, 'status', 'shared', '3'))).toEqual(['Shared: 2'])
+    expect(ids(arrangeSharing(items, 'status', 'shared', ''))).toEqual(['Shared: 9,2'])
+    expect(ids(arrangeSharing(items, 'owner', 'private', ''))).toEqual(['Bo: 1', 'PC owner: 3'])
+    expect(ids(arrangeSharing(items, 'title', 'pc', ''))).toEqual(['A to Z: 3'])
+    expect(arrangeSharing(items, 'status', 'private', '2')).toEqual([])
   })
 })
