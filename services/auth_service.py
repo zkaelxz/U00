@@ -806,17 +806,19 @@ def create_child_session(parent_session_id: int, user_id: int, label: str, ip: s
     month when the browser that linked it ends); it is ended like any session
     (Signed-in devices, People and access, Sign out everywhere, deactivation).
     None when the parent is gone or expired, including when "Sign out
-    everywhere" ran meanwhile, or is itself a hand-off.
-    NotFoundError for an inactive user, as create_session."""
+    everywhere" ran meanwhile. ForbiddenError when the parent is itself a
+    hand-off; NotFoundError for an inactive user, as create_session."""
     row = _require_user(user_id)
     if not row["is_active"]:
         raise NotFoundError("User not found.")
     now = time.time() if now is None else now
     parent = _live_session_row(parent_session_id, user_id, now)
+    if parent is None:
+        return None
     # A hand-off session can't vouch for another: otherwise one stolen app
     # cookie could renew itself for good, past the absolute timeout.
-    if parent is None or parent.get("signed_in_at") is not None:
-        return None
+    if parent.get("signed_in_at") is not None:
+        raise ForbiddenError("A hand-off session can't approve another hand-off.")
     session = _insert_session(user_id, now, now + ABSOLUTE_TIMEOUT_SECONDS, label, ip,
                               signed_in_at=now)
     # Re-read after the insert: a revoke-all that deleted the parent after

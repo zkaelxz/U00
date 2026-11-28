@@ -1202,6 +1202,8 @@ class TestPhoneAppHandOff:
         r = self._redeem(app, _hand_off(app, user, session=child))
         assert r.headers["location"] == "/?login_error=expired"
         assert len(db.auth_list_sessions(user["id"])) == 2
+        assert any("app_parent_is_hand_off" in a["detail_redacted"] for a in _audit("login.error"))
+        assert not any("app_browser_signed_out" in a["detail_redacted"] for a in _audit("login.error"))
 
     def test_shortened_absolute_timeout_counts_from_the_hand_off(
             self, isolated_db, app, monkeypatch):

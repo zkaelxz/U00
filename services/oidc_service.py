@@ -51,7 +51,7 @@ from urllib.parse import urlencode, urlsplit
 
 from services import auth_service
 from lib import capped_body
-from lib.errors import (ConflictError, DependencyUnavailableError, NotFoundError,
+from lib.errors import (ConflictError, DependencyUnavailableError, ForbiddenError, NotFoundError,
                                      RateLimitedError)
 
 GOOGLE_AUTHORIZE_URL = "https://accounts.google.com/o/oauth2/v2/auth"
@@ -504,6 +504,8 @@ class SignIn:
                     record["session_id"], record["user_id"], APP_SESSION_LABEL, client_ip)
             except NotFoundError:
                 raise LoginError("not_allowed", "login.denied", "app_inactive")
+            except ForbiddenError:
+                raise LoginError("expired", "login.error", "app_parent_is_hand_off")
             if session is None:
                 raise LoginError("expired", "login.error", "app_browser_signed_out")
         except LoginError as exc:
