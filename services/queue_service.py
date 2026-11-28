@@ -700,13 +700,14 @@ def retry_item(principal, item_id: int, *, at_pc: bool) -> dict:
     return _mutate_item(principal, item_id, change)
 
 
-def interrupted_since(since: float) -> int:
-    """How many items a restart stopped (running, or a page run not started)
-    at or after `since`: what the restart notice counts."""
+def interrupted_since(since: float) -> list:
+    """The job id of each item a restart stopped at or after `since` (None for
+    one whose job had not started): what the restart notice counts, and the
+    cut-off jobs it must not count a second time."""
     with _lock:
         doc = _load()
-    return sum(1 for i in doc["items"] if i["status"] == INTERRUPTED
-               and i["reason"] in (_INTERRUPTED, _NOT_STARTED) and (i["finished_at"] or 0) >= since)
+    return [i["job_id"] for i in doc["items"] if i["status"] == INTERRUPTED
+            and i["reason"] in (_INTERRUPTED, _NOT_STARTED) and (i["finished_at"] or 0) >= since]
 
 
 def _needs_paid(engine, model) -> bool:

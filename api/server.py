@@ -230,7 +230,11 @@ async def _lifespan(app: FastAPI):
     from services import live_follow_poller, notification_service, queue_service
     queue_service.start_runner()
     try:
-        notification_service.notify_restart(cut_off, queue_service.interrupted_since(started_at))
+        stopped = queue_service.interrupted_since(started_at)
+        # A running queue item's job was cut off too; it is told once, as the queue item.
+        queued_jobs = {job_id for job_id in stopped if job_id}
+        notification_service.notify_restart(
+            [rec for rec in cut_off if rec.get("job_id") not in queued_jobs], len(stopped))
     except Exception:
         logging.getLogger(__name__).warning("Restart notice failed", exc_info=True)
     try:

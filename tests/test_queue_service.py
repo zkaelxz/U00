@@ -1493,10 +1493,10 @@ def _restart(jobs):
 def test_a_restart_counts_the_items_it_stopped(jobs):
     import time
     before = time.time() - 1
-    _restart(jobs)
+    a, _b = _restart(jobs)
     q.restore_at_startup()
-    assert q.interrupted_since(before) == 1
-    assert q.interrupted_since(time.time() + 60) == 0
+    assert q.interrupted_since(before) == [f"transcribe_{a}"]
+    assert q.interrupted_since(time.time() + 60) == []
 
 
 def test_run_them_again_puts_interrupted_items_back_and_starts_the_queue(jobs):

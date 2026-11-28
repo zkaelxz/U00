@@ -1252,6 +1252,32 @@ def test_startup_sweeps_stale_sessions_on_the_admin_listener_only(isolated_db, m
     assert swept == [1]
 
 
+def test_startup_tells_the_restart_notice_each_cut_off_piece_of_work_once(isolated_db, monkeypatch):
+    from dataclasses import replace
+    from api import background
+    from services import jobs_service, notification_service, queue_service
+    for name in ("start_background_services", "start_gpu_queue_poller",
+                 "start_reeval_scheduler", "stop_gpu_queue_poller", "stop_reeval_scheduler"):
+        monkeypatch.setattr(background, name, lambda *_: None)
+    did = db.create_drama(title_en="T", source_language="zh")
+    queued = {"job_id": f"transcribe_{did}", "description": f"Transcription (drama #{did})"}
+    alone = {"job_id": "library_export", "description": "Library export"}
+    monkeypatch.setattr(jobs_service, "sweep_at_startup", lambda: [queued, alone])
+    db.set_app_setting(queue_service.QUEUE_KEY, {
+        "version": queue_service.QUEUE_VERSION, "next_id": 3, "items": [
+            {"id": 1, "drama_id": did, "step": "transcribe", "status": "running",
+             "job_id": queued["job_id"]},
+            {"id": 2, "drama_id": did, "step": "translate", "status": "waiting"}]})
+    # The runner's restore, without its thread.
+    monkeypatch.setattr(queue_service, "start_runner", queue_service.restore_at_startup)
+    monkeypatch.setattr(queue_service, "stop_runner", lambda *_: None)
+    told = []
+    monkeypatch.setattr(notification_service, "notify_restart", lambda *a: told.append(a))
+    with TestClient(create_app(replace(ADMIN, background_services=True))):
+        pass
+    assert told == [([alone], 1)]
+
+
 # --- one job list ----------------------------------------------------------------
 
 def test_job_started_on_one_app_is_seen_and_cancelled_on_the_other(isolated_db, monkeypatch):
