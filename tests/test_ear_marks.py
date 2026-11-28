@@ -353,6 +353,30 @@ class TestBusy:
                                           confirm_replace_audio=True)
         assert seen == [("cancelled", False)]
 
+    def _upload_video(self, title, monkeypatch):
+        def extract(job_id, cmd, cwd=None, **kw):
+            with open(cmd[-1], "wb") as f:
+                f.write(b"flac")
+        monkeypatch.setattr(background_jobs, "run_cancellable", extract)
+        r = media_upload_service.upload_media(title, "new.mp4", io.BytesIO(b"\0video"),
+                                              confirm_replace_audio=True)
+        return wait_for_job(r["job_id"])
+
+    def test_a_video_upload_stops_the_job_before_its_audio_goes_in(self, title, slow_decoder,
+                                                                  monkeypatch):
+        job_id = ears.start_ear_marks(title)["job_id"]
+        assert slow_decoder.wait(5)
+        assert self._upload_video(title, monkeypatch)["status"] == "done"
+        assert background_jobs.get_status(job_id)["status"] == "cancelled"
+        assert db.get_drama(title)["source_video_filename"] == "source.mp4"
+
+    def test_a_job_that_will_not_stop_keeps_the_title_as_it_was(self, title, decoder, monkeypatch):
+        monkeypatch.setattr(background_jobs, "stop_side_jobs", lambda drama_id, **k: False)
+        job = self._upload_video(title, monkeypatch)
+        assert job["status"] == "error" and "would not stop" in job["error"]
+        drama = db.get_drama(title)
+        assert (drama["audio_filename"], drama["source_video_filename"]) == ("source.flac", None)
+
     def test_no_start_while_an_upload_or_another_job_may_replace_the_file(self, title, decoder):
         with media_upload_service.claims_lock:
             media_upload_service.claimed.add(title)

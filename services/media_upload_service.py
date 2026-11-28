@@ -512,6 +512,11 @@ def install_media(drama_id, new_files, transcribe_new_audio=False, origin_link=N
     the record says came from origin_link, and is still that very file, is
     deleted instead of kept, because it can be fetched again; one that
     can't be deleted is kept."""
+    # Ear marks may be reading the old file (a Watch visit); on Windows an open file can't be
+    # moved. A new one can't start meanwhile: the caller's job or title hold refuses it.
+    if not background_jobs.stop_side_jobs(drama_id):
+        raise ConflictError("Ear marks are still reading this title's sound and would not stop. "
+                            "Try again in a minute.")
     ddir = db.drama_dir(drama_id)
     old = db.get_drama(drama_id) or {}
     # An old video kept beside new audio would be shown in Review and muxed
