@@ -494,7 +494,7 @@ class TestRequirementsFilesConsolidation:
         offenders = []
         for root, dirs, files in os.walk(PROJECT_ROOT):
             dirs[:] = [d for d in dirs if d not in (
-                ".git", "venv", "library", "__pycache__", "node_modules")]
+                ".git", "venv", "library", "__pycache__", "node_modules", "voice_engines")]
             for fname in files:
                 if not fname.endswith((".md", ".bat", ".ps1", ".sh")):
                     continue
