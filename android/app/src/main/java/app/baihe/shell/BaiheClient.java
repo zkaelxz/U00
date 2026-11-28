@@ -608,8 +608,8 @@ final class BaiheClient {
     }
 
     /**
-     * Sound effects and regions skipped on purpose have no English by design. A page the PC
-     * already held is answered without `untranslated_lines`, so its regions are read instead.
+     * Sound effects and regions skipped on purpose have no English by design. An older PC answers a page it
+     * already held without `untranslated_lines`, so its regions are read instead.
      */
     private static boolean lacksEnglish(JSONObject page) {
         if (page.has("untranslated_lines")) return page.optInt("untranslated_lines", 0) > 0;

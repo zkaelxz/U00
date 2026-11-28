@@ -58,7 +58,6 @@ import {
   buildPresetBody,
   buildRunBody,
   bulkAvailable,
-  bulkReflectAvailable,
   FALLBACK_KIND_MESSAGE,
   fallbackKindMismatch,
   fallbackOptions,
@@ -329,7 +328,6 @@ function RunPanel({
     return e ? engineOptionLabel(e) : name
   }
   const effEngine = member ? memberEngine(config.translation_engine, config.engines, holdsPaid) : f.engine || config.translation_engine
-  const canBulk = bulkAvailable(effEngine, config.bulk_supported_engines) && !(f.reflect && !bulkReflectAvailable(effEngine, config.bulk_supported_engines))
   const scanFirst = reviewFirst && canReview
   const lineCount = f.force && f.forceConfirmed ? config.line_count : config.untranslated_count
   const engineBatch = defaultBatchSize(config, f)
@@ -664,9 +662,9 @@ function RunPanel({
             {bulkAvailable(effEngine, config.bulk_supported_engines) && (
               <Field
                 label="Bulk"
-                help={`Send the whole title as one discounted batch (Claude/Gemini batch API or DeepSeek off-peak). Results can take up to 24 hours; needs no line selection or fallbacks.${!canBulk && !f.bulk ? ' Not with Reflect on this engine.' : ''}`}
+                help="Send the whole title as one discounted batch (Claude/Gemini batch API or DeepSeek off-peak). Results can take up to 24 hours; needs no line selection or fallbacks."
               >
-                <Toggle checked={f.bulk} disabled={!canBulk && !f.bulk} onChange={(v) => set('bulk', v)} />
+                <Toggle checked={f.bulk} onChange={(v) => set('bulk', v)} />
               </Field>
             )}
             {!member && <Field

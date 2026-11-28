@@ -64,9 +64,10 @@ def get_subtitle_text(
         wrap_chars_source: int = Query(None, ge=1, le=200),
         tidy_timing: bool = Query(False),
         speaker_names: bool = Query(False),
-        reading_line: bool = Query(False)):
+        sound_captions: bool = Query(False), reading_line: bool = Query(False)):
     result = export_service.generate_subtitle_export(
         drama_id, fmt, field, include_notes=include_notes, speaker_names=speaker_names,
+        sound_captions=sound_captions,
         wrap_chars_en=wrap_chars_en, wrap_chars_source=wrap_chars_source, tidy_timing=tidy_timing,
         reading_line=reading_line)
     _mark_exported_if_allowed(request, drama_id, field)
@@ -153,7 +154,7 @@ def post_ass_text(request: Request, req: AssExportRequest, drama_id: int = Path(
         speaker_colors=req.speaker_colors, per_speaker_colors=req.per_speaker_colors,
         include_notes=req.include_notes, notes_as_separate_line=req.notes_as_separate_line,
         wrap_chars_en=req.wrap_chars_en, wrap_chars_source=req.wrap_chars_source,
-        reading_line=req.reading_line, karaoke=req.karaoke,
+        sound_captions=req.sound_captions, reading_line=req.reading_line, karaoke=req.karaoke,
         ear_placement=req.ear_placement)
     _mark_exported_if_allowed(request, drama_id, req.field)
     return Response(
@@ -186,7 +187,7 @@ def post_burned_video(drama_id: int = Path(ge=1), req: Optional[AssExportRequest
         speaker_colors=req.speaker_colors, per_speaker_colors=req.per_speaker_colors,
         include_notes=req.include_notes, notes_as_separate_line=req.notes_as_separate_line,
         wrap_chars_en=req.wrap_chars_en, wrap_chars_source=req.wrap_chars_source,
-        reading_line=req.reading_line, karaoke=req.karaoke,
+        sound_captions=req.sound_captions, reading_line=req.reading_line, karaoke=req.karaoke,
         ear_placement=req.ear_placement)
 
 

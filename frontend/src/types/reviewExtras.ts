@@ -4,7 +4,7 @@ import type { components } from '../api/generated/schema'
 
 type Schemas = components['schemas']
 
-import type { AssStyleOverrides } from './export'
+import type { AssStyleOverrides, SubtitleField } from './export'
 import type { RestructureResult } from './restructure'
 
 export type MergeShortOptions = Schemas['MergeShortOptions']
@@ -42,6 +42,9 @@ export interface BurnPreviewStart {
   wrap_chars_en?: number
   wrap_chars_source?: number
   ear_placement?: boolean
+  field?: SubtitleField
+  reading_line?: boolean
+  karaoke?: boolean
 }
 
 export type BurnPreviewStarted = Schemas['BurnPreviewStarted']

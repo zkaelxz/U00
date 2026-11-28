@@ -71,6 +71,7 @@ export function SelectionBar({
   const [menuOpen, setMenuOpen] = useState(false)
   const [withOriginals, setWithOriginals] = useState(false)
   const [queueStep, setQueueStep] = useState<AddStep>('translate')
+  const [queueTonight, setQueueTonight] = useState(false)
   const [queueMsg, setQueueMsg] = useState<string | null>(null)
   const [queueError, setQueueError] = useState<unknown>(null)
   const menuRef = useRef<HTMLDetailsElement>(null)
@@ -161,7 +162,7 @@ export function SelectionBar({
     setBusy(true)
     setQueueMsg(null)
     setQueueError(null)
-    addQueueBulk(ids, queueStep).then(
+    addQueueBulk(ids, queueStep, queueTonight).then(
       (r) => {
         setBusy(false)
         setQueueMsg(describeQueueAdd(r, name))
@@ -284,6 +285,9 @@ export function SelectionBar({
               <option key={s} value={s}>{ADD_STEP_LABELS[s]}</option>
             ))}
           </select>
+          <label>
+            <input type="checkbox" checked={queueTonight} disabled={busy || !n} onChange={(e) => setQueueTonight(e.target.checked)} /> Tonight
+          </label>
           <button type="button" disabled={busy || !n} onClick={addToQueue}>Add to queue</button>
           {(queueStep === 'transcribe' || queueStep === 'all') && <span className="muted">{QUEUE_REPLACES_LINES}</span>}
         </div>

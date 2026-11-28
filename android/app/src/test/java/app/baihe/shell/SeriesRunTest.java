@@ -100,4 +100,19 @@ public class SeriesRunTest {
         done = SeriesRun.doneKeys(SeriesRun.withDone("", "https://site.test/c/2"));
         assertTrue(SeriesRun.stopsBefore("https://site.test/c/2", "https://site.test/c/1", done, new ArrayList<>()));
     }
+
+    @Test
+    public void forgettingCoversTheHistoryRowsWrittenBeforeIt() {
+        List<GrabQueue.Done> history = Arrays.asList(
+                new GrabQueue.Done(100, "c1", "Sent 12 pages to Owl", "https://site.test/c/1", false),
+                new GrabQueue.Done(300, "c2", "Sent 12 pages to Owl", "https://site.test/c/2", false),
+                new GrabQueue.Done(400, "c3", "Cancelled.", "https://site.test/c/3", false));
+        java.util.Set<String> done = SeriesRun.doneKeys(SeriesRun.withDone("", "https://site.test/c/9"));
+        assertEquals(3, SeriesRun.finished(done, history).size());
+        List<GrabQueue.Done> after = SeriesRun.since(history, 200);
+        assertEquals(2, after.size());
+        SeriesRun.Plan plan = SeriesRun.plan(listed(), new HashSet<>(), after, new ArrayList<>());
+        assertEquals(1, plan.done);
+        assertEquals("https://site.test/c/1", plan.fresh.get(0).url);
+    }
 }

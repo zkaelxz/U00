@@ -4,6 +4,8 @@
 .lp-style { display: flex; flex-direction: column; gap: 4px; }
 .lp-style select { max-width: 100%; min-height: 44px; }
 .lp-list { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.lp-search { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 8px 0; }
+.lp-search input { min-height: 44px; flex: 1 1 12rem; }
 .lp-entry { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
 .lp-entry-text { min-width: 0; flex: 1 1 14rem; overflow-wrap: anywhere; }
 .lp-entries summary { cursor: pointer; min-height: 44px; display: flex; align-items: center; }
