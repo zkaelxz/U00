@@ -21,10 +21,12 @@ test.beforeEach(async ({ page }) => {
 test('Translation sweep and translate options on a phone', async ({ page }) => {
   await mockTranslateSweep(page, () => finished)
   await page.goto('/#/benchmark')
-  await openBenchTab(page, 'Run a benchmark')
+  await openBenchTab(page, 'Translation sweep')
   const card = page.getByRole('region', { name: 'Translation sweep' })
   await card.getByRole('button', { name: 'Estimate', exact: true }).click()
   await expect(card.getByTestId('tsweep-estimate')).toContainText('8 passes to run')
+  // The translate options belong to Run a benchmark, its own pane.
+  await openBenchTab(page, 'Run a benchmark')
   const fields = page.getByTestId('bench-translate-settings')
   await fields.locator('summary').click()
   await fields.getByRole('switch').first().click()

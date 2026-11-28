@@ -53,7 +53,7 @@ export function aiRequestFields(choice: AiChoice, engines: AiEngines | null): Ai
   return choice.on && engine ? { use_ai: true, engine } : {}
 }
 
-export const engineLabel = (name: string) => (name === 'ollama' ? 'Ollama (on this PC)' : humanize('engine', name))
+export const engineLabel = (name: string) => humanize('engine', name)
 
 /** What the confirm shows before one AI call on a chapter: engine, call count, paid or not. */
 export function recoverSummary(engine: string, engines: AiEngines | null): string {

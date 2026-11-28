@@ -22,7 +22,7 @@ for (const theme of ['light', 'dark', 'sepia', 'oled']) {
     await page.addInitScript((t) => localStorage.setItem('baihe.theme', t), theme)
     await mockLab(page, () => null)
     await page.goto('/#/benchmark')
-    await openBenchTab(page, 'Run a benchmark')
+    await openBenchTab(page, 'Settings sweep')
     const card = page.getByRole('region', { name: 'Settings sweep' })
     await expect(card.getByLabel('Golden set', { exact: true })).toHaveValue('My drama clips')
     // Only sets with audio clips are offered.
@@ -58,7 +58,7 @@ for (const theme of ['light', 'dark', 'sepia', 'oled']) {
         decided_at: '2026-10-18T02:05:00', profile: { id: 7, name: 'Sweep My drama clips (zh) 2026-10-18 02:05' } } }
       return r.fulfill({ json: { sweep } })
     })
-    await page.goto('/#/benchmark?tab=run')
+    await page.goto('/#/benchmark?tab=sweep')
     const card = page.getByRole('region', { name: 'Settings sweep' })
     const rec = card.getByTestId('sweep-recommendation')
     await expect(rec).toContainText('Change recommended')

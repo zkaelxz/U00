@@ -6,7 +6,7 @@ test.beforeEach(async ({ page }) => {
   await enableDeveloperMode(page)
 })
 
-// "Hard-sub reading result" on the Golden sets tab: the reading route is mocked (a real one costs money);
+// "Hard-sub reading result" under Add cases (still a fold): the reading route is mocked (a real one costs money);
 // the section is real.
 const outcome = {
   groups: [
@@ -25,7 +25,7 @@ test('Benchmark Lab: a finished hard-sub reading shows its cost, comparison and 
   await page.route('**/api/benchmark/dramas/*/hard-sub-reading', (r) =>
     r.fulfill({ json: { status: 'done', progress: 1, message: 'Done', result: outcome } }))
   await page.goto('/#/benchmark')
-  await openBenchTab(page, 'Golden sets')
+  await openBenchTab(page, 'Add cases')
   const section = page.locator('details', { hasText: 'Hard-sub reading result' })
   await section.getByText('Hard-sub reading result', { exact: true }).click()
   await section.getByLabel('Title', { exact: true }).selectOption({ index: 1 })
@@ -41,7 +41,7 @@ test('Benchmark Lab: a title with no reading says so', async ({ page }) => {
   await page.route('**/api/benchmark/dramas/*/hard-sub-reading', (r) =>
     r.fulfill({ status: 404, json: { detail: 'No hard-sub reading has been run for this title.' } }))
   await page.goto('/#/benchmark')
-  await openBenchTab(page, 'Golden sets')
+  await openBenchTab(page, 'Add cases')
   const section = page.locator('details', { hasText: 'Hard-sub reading result' })
   await section.getByText('Hard-sub reading result', { exact: true }).click()
   await section.getByLabel('Title', { exact: true }).selectOption({ index: 1 })
@@ -52,7 +52,7 @@ test('Benchmark Lab: a stopped reading says why it stopped', async ({ page }) =>
   await page.route('**/api/benchmark/dramas/*/hard-sub-reading', (r) =>
     r.fulfill({ json: { status: 'done', progress: 1, message: 'Done', result: { ...outcome, windows_read: 9, stopped: 'cap' } } }))
   await page.goto('/#/benchmark')
-  await openBenchTab(page, 'Golden sets')
+  await openBenchTab(page, 'Add cases')
   const section = page.locator('details', { hasText: 'Hard-sub reading result' })
   await section.getByText('Hard-sub reading result', { exact: true }).click()
   await section.getByLabel('Title', { exact: true }).selectOption({ index: 1 })
@@ -68,7 +68,7 @@ test('Benchmark Lab: a running reading shows progress and is polled until it fin
       : { status: 'done', progress: 1, message: 'Done', result: outcome } })
   })
   await page.goto('/#/benchmark')
-  await openBenchTab(page, 'Golden sets')
+  await openBenchTab(page, 'Add cases')
   const section = page.locator('details', { hasText: 'Hard-sub reading result' })
   await section.getByText('Hard-sub reading result', { exact: true }).click()
   await section.getByLabel('Title', { exact: true }).selectOption({ index: 1 })
@@ -86,7 +86,7 @@ test('Benchmark Lab: a running reading keeps checking after one failed check', a
     return r.fulfill({ json: { status: 'done', progress: 1, message: 'Done', result: outcome } })
   })
   await page.goto('/#/benchmark')
-  await openBenchTab(page, 'Golden sets')
+  await openBenchTab(page, 'Add cases')
   const section = page.locator('details', { hasText: 'Hard-sub reading result' })
   await section.getByText('Hard-sub reading result', { exact: true }).click()
   await section.getByLabel('Title', { exact: true }).selectOption({ index: 1 })

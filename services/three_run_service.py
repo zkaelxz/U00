@@ -128,7 +128,8 @@ def state(drama_id: int) -> dict:
     with _lock:
         session = _sessions.get(drama_id)
         if session is None:
-            return {"active": False, "runs_done": 0, "history_id": None, "line_count": 0, "items": []}
+            return {"active": False, "runs_done": 0, "history_id": None, "line_count": 0, "line_ids": [],
+                    "items": []}
         runs = session["runs"]
         items = []
         if len(runs) == RUNS:
@@ -142,11 +143,12 @@ def state(drama_id: int) -> dict:
                               "picked_run": session["picks"].get(lid),
                               "current_en": ln.en or ""})
         return {"active": True, "runs_done": len(runs), "history_id": session["history_id"],
-                "line_count": len(session["line_ids"]), "items": items}
+                "line_count": len(session["line_ids"]), "line_ids": list(session["line_ids"]), "items": items}
 
 
 def pick_runs(drama_id: int, picks: list) -> dict:
-    """Writes the chosen run's English for each {line_id, run}. Returns
+    """Writes the chosen run's English for each {line_id, run}; run None takes the line's pick
+    back (it gets the last run's English, which unpicked lines hold). Returns
     {applied: [line id], skipped: [line id]}; a skipped line was edited since
     the text this review last wrote, has a different source than the picked
     run translated, or was deleted."""
@@ -161,18 +163,22 @@ def pick_runs(drama_id: int, picks: list) -> dict:
         writes, seen = [], set()
         for pick in picks:
             lid, run = pick.get("line_id"), pick.get("run")
-            if lid in seen or lid not in session["written"] or run not in range(1, RUNS + 1):
+            if lid in seen or lid not in session["written"] or (run is not None and run not in range(1, RUNS + 1)):
                 raise InvalidInputError("Each pick needs one line of this review and a run from 1 to 3.")
             seen.add(lid)
+            source_run = RUNS if run is None else run
             # A run's English is a translation of the source it was made from; once that changed, it no longer fits.
-            expected = {"en": session["written"][lid], "zh": session["sources"][run - 1][lid]}
-            writes.append((lid, {"en": session["runs"][run - 1][lid]}, expected, run))
+            expected = {"en": session["written"][lid], "zh": session["sources"][source_run - 1][lid]}
+            writes.append((lid, {"en": session["runs"][source_run - 1][lid]}, expected, run))
         missed = set(db.update_lines_fields_if_many(drama_id, [(lid, v, e) for lid, v, e, _r in writes]))
         applied = []
         for lid, values, _e, run in writes:
             if lid not in missed:
                 session["written"][lid] = values["en"]
-                session["picks"][lid] = run
+                if run is None:
+                    session["picks"].pop(lid, None)
+                else:
+                    session["picks"][lid] = run
                 applied.append(lid)
     return {"applied": applied, "skipped": sorted(missed)}
 

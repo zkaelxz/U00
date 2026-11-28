@@ -14,7 +14,7 @@ function duration(seconds: number): string {
 
 export function readingText(m: ResourceMetric): string {
   if (m.value == null) return 'Not available'
-  if (m.name === 'gpu_throttle') return m.value >= 1 ? 'Cutting clocks' : 'No'
+  if (m.name === 'gpu_throttle') return m.value >= 1 ? 'Slowing down to stay safe' : 'No'
   return withUnit(m, m.value)
 }
 
@@ -46,7 +46,9 @@ export function visibleMetrics(r: ResourceReadings): ResourceMetric[] {
 export function resourcesSummary(r: ResourceReadings): string {
   if (r.sampled_seconds_ago == null) return 'No reading yet'
   const alerting = r.metrics.filter((m) => m.alerting).length
-  return alerting ? `${alerting} alerting` : 'All within limits'
+  if (alerting) return `${alerting} alerting`
+  const past = r.metrics.filter((m) => m.enabled && m.past_seconds != null && m.value != null).length
+  return past ? `${past} past ${past === 1 ? 'its' : 'their'} limit` : 'All within limits'
 }
 
 export function sampledText(r: ResourceReadings): string {

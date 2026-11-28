@@ -414,14 +414,15 @@ def _hatched_balloon(letter_bgr, hatch_bgr=(200, 160, 150)):
 
 
 def _erase_mask(tmp_path, page, monkeypatch):
-    """The mask inpaint_region would erase, captured instead of inpainted."""
+    """The mask inpaint_region would erase."""
     seen = {}
+    real_fill = scanlate_inpaint._plain_paper_fill
 
-    def fake_inpaint(roi, mask, *args, **kwargs):
+    def spy(roi, mask, inside):
         seen["mask"] = mask.copy()
-        return roi
+        return real_fill(roi, mask, inside)
 
-    monkeypatch.setattr(cv2, "inpaint", fake_inpaint)
+    monkeypatch.setattr(scanlate_inpaint, "_plain_paper_fill", spy)
     path = _save(tmp_path, page)
     gray = scanlate_page_decode.page_gray(path, None)
     box = {"x": 0, "y": 0, "w": 360, "h": 300}
@@ -479,7 +480,7 @@ class TestRimAndCaptionCleanup:
         inside = np.ones((60, 60), bool)
         mask = np.zeros((60, 60), np.uint8)
         mask[5:10, 5:10] = 255                              # lettering far from the art
-        out = scanlate_inpaint._flatten_plain_paper(roi, roi.copy(), mask, inside)
+        out = scanlate_inpaint._paint_paper(roi.copy(), scanlate_inpaint._plain_paper_fill(roi, mask, inside))
         assert (out[10:50, 40:55] == (225, 215, 240)).all()
 
 
