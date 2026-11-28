@@ -88,7 +88,7 @@ export const GET_FIXTURES: Record<string, unknown> = {
   '/api/jobs': EMPTY,
   // The remote-access banner reads this on the PC only (these specs are remote); off here.
   '/api/diagnostics/remote-health': REMOTE_HEALTH_OFF,
-  // The Library's admin GPU line; no sample yet, so it stays hidden.
+  // The Jobs panel's admin GPU line; no sample yet, so it stays hidden.
   '/api/diagnostics/resources': { sampled_seconds_ago: null, sample_seconds: 30, metrics: [] },
   // Settings > Remote access (PC only, so not asked by these remote specs).
   '/api/diagnostics/remote-health/ip-check': { configured: false },
