@@ -140,8 +140,8 @@ def _prepared(content: bytes, page: bool = False) -> tuple:
     return data, mime, width, height
 
 
-# Japanese and Korean pages lost accuracy at JPEG q95 in the comic tests after #3410 (lower
-# chrF, and more empty regions for Japanese); Chinese pages did not, and send a third of
+# Japanese and Korean pages lost accuracy at JPEG q95 in the comic tests (lower chrF, and
+# more empty regions for Japanese); Chinese pages did not, and send a third of
 # the bytes or less.
 JPEG_PAGE_LANGUAGES = ("zh",)
 
