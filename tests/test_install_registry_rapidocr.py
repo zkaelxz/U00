@@ -1,5 +1,7 @@
 """RapidOCR installs without its dependencies so OpenCV's 'cv2' folder is never touched."""
 
+from pathlib import Path
+
 import install_registry
 
 
@@ -134,7 +136,8 @@ def test_onnxruntime_gpu_is_found_by_its_distribution_not_an_import_name(monkeyp
 
 def test_the_gpu_text_reader_pin_has_a_wheel_for_the_python_and_fits_the_constraints():
     from packaging.requirements import Requirement
-    cap = next(line.split("#")[0].strip() for line in open("constraints.txt")
+    root = Path(__file__).resolve().parents[1]
+    cap = next(line.split("#")[0].strip() for line in (root / "constraints.txt").read_text().splitlines()
                if line.startswith("onnxruntime-gpu"))
     limit = Requirement(cap).specifier
     for v, first_wheel in (((3, 12), (1, 19, 2)), ((3, 13), (1, 20, 0))):

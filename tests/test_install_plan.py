@@ -492,3 +492,12 @@ def test_a_pin_with_no_wheel_for_this_python_says_so(monkeypatch):
     kind, reason = plan_mod.pip_failure(text)
     assert kind == plan_mod.CONFLICT
     assert "Python 3.13" in reason and "onnxruntime-gpu==1.19.2" in reason
+
+
+def test_a_conflict_between_two_packages_gets_no_python_hint():
+    text = ("The conflict is caused by:\n    The user requested numpy==2.5\n"
+            "    paddlex 3.3.0 depends on numpy<2.5.4\n")
+    assert "Python" not in plan_mod.pip_failure(text)[1]
+    text = ("The conflict is caused by:\n    The user requested foo==2\n"
+            "    The user requested (constraint) bar<2\n")
+    assert "Python" not in plan_mod.pip_failure(text)[1]
