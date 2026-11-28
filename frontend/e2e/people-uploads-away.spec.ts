@@ -10,7 +10,7 @@ test('Uploads from away is a switch on People and access that saves remote_uploa
     if (route.request().method() !== 'POST') return route.fallback()
     bodies.push(route.request().postDataJSON())
     const current = await (await page.request.get('/api/settings')).json()
-    return route.fulfill({ json: { ...current, remote_uploads: true } })
+    return route.fulfill({ json: { ...current, remote_uploads: true, remote_uploads_auto_off: false } })
   })
   await page.goto('/#/admin?card=uploads')
   await expect(page.getByRole('heading', { name: 'Uploads from away', level: 2 })).toBeVisible()
