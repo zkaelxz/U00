@@ -175,10 +175,34 @@ export type ShellMediaState = {
   artist: string
 }
 
+/** Fired by the app on the top page right after it sets the page key. */
+export const SHELL_KEY_EVENT = 'baihekey'
+let pendingMedia: string | null = null
+
 /** Tells the app what the player is doing; the time it was read goes with it, so the lock screen's clock can run on from there. */
 export function reportMediaState(s: ShellMediaState): void {
   try {
-    bridge()?.mediaState?.(String(pageKey()), JSON.stringify({ ...s, at: Date.now() }))
+    if (typeof bridge()?.mediaState !== 'function') return
+    const json = JSON.stringify({ ...s, at: Date.now() })
+    const key = pageKey()
+    if (typeof key === 'string') {
+      bridge()?.mediaState?.(key, json)
+      return
+    }
+    // Play pressed before the app handed this page its key: send the latest state once the key arrives.
+    if (!pendingMedia && typeof window.addEventListener === 'function') window.addEventListener(SHELL_KEY_EVENT, sendPendingMedia, { once: true })
+    pendingMedia = json
+  } catch {
+    // The shell went away with the page.
+  }
+}
+
+function sendPendingMedia(): void {
+  const json = pendingMedia
+  pendingMedia = null
+  const key = pageKey()
+  try {
+    if (json && typeof key === 'string') bridge()?.mediaState?.(key, json)
   } catch {
     // The shell went away with the page.
   }

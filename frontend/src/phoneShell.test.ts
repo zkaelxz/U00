@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { canChangeAddress, canPopOut, changeShellAddress, inPhoneShell, popOut, saveInShell, setLiveWatching, setShellSwitch, shellNotificationsBlocked, shellSwitch } from './phoneShell'
+import { SHELL_KEY_EVENT, canChangeAddress, canPopOut, changeShellAddress, inPhoneShell, popOut, reportMediaState, saveInShell, setLiveWatching, setShellSwitch, shellNotificationsBlocked, shellSwitch } from './phoneShell'
 
 afterEach(() => { vi.unstubAllGlobals() })
 
@@ -135,5 +135,23 @@ describe('problem report diagnostics', () => {
     expect(m.shellDiagnostics()).toBeNull()
     vi.stubGlobal('window', { BaiheShell: { get: () => true, set: vi.fn() } })
     expect(m.shellDiagnostics()).toBeNull()
+  })
+})
+
+describe('lock-screen reports before the page key', () => {
+  it('holds the latest report until the app sets the key, then sends it once', () => {
+    const mediaState = vi.fn()
+    const win = Object.assign(new EventTarget(), { BaiheShell: { get: () => true, set: vi.fn(), mediaState } }) as EventTarget & { __baiheSaveKey?: string }
+    vi.stubGlobal('window', win)
+    const state = { position: 3, duration: 100, rate: 1, title: 'Moonlit Hall 3', artist: 'Example Studio' }
+    reportMediaState({ ...state, state: 'playing' })
+    reportMediaState({ ...state, state: 'paused' })
+    expect(mediaState).not.toHaveBeenCalled()
+    win.__baiheSaveKey = 'k'
+    win.dispatchEvent(new Event(SHELL_KEY_EVENT))
+    win.dispatchEvent(new Event(SHELL_KEY_EVENT))
+    expect(mediaState).toHaveBeenCalledTimes(1)
+    expect(mediaState.mock.calls[0][0]).toBe('k')
+    expect(JSON.parse(mediaState.mock.calls[0][1] as string).state).toBe('paused')
   })
 })

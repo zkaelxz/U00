@@ -148,7 +148,8 @@ public class MainActivity extends Activity {
                 String address = savedAddress();
                 if (address != null && ServerAddress.sameOrigin(address, url)) {
                     // evaluateJavascript runs in the top page only, so no iframe ever sees the key.
-                    view.evaluateJavascript("window.__baiheSaveKey=" + org.json.JSONObject.quote(bridge.newSaveKey()), null);
+                    view.evaluateJavascript("window.__baiheSaveKey=" + org.json.JSONObject.quote(bridge.newSaveKey())
+                            + ";window.dispatchEvent(new Event('baihekey'))", null);
                     checkForUpdate(address);
                 }
             }
