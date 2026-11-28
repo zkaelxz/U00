@@ -1115,3 +1115,16 @@ def test_start_timeline_logs_each_milestone_once_with_seconds_since_start(monkey
     timeline.mark("first English")
     assert lines == ["Live: start +2.5 s: Whisper ready", "Live: start +9.0 s: first English"]
     assert timeline.has("first English") and not timeline.has("first chunk closed")
+
+
+def test_session_stats_line_has_counts_and_error_kinds_only(monkeypatch):
+    lines = []
+    monkeypatch.setattr(live_whisper, "_log", lambda level, text: lines.append(text))
+    stats = live_pipeline.LagStats(None)
+    for total in (4.0, 6.0, 5.0):
+        stats.chunk_done(10.0, total)
+    stats.failed(RuntimeError("429 Too Many Requests for /home/alex/clip.mkv"))
+    log = live_pipeline.SessionLog(lambda *a, **k: None, stats)
+    log.session_stats("end")
+    assert lines == ["Live: stats (end): 3 chunks, median 5.0 s each, worst lag 16.0 s, "
+                     "0 translations skipped, errors: 429 1"]

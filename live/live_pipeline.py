@@ -271,6 +271,25 @@ class LagStats:
         self.overlap_fallback = 0
         # Which reconnect try is under way; 0 while the stream is connected.
         self.reconnect_attempt = 0
+        # For the session's log line only: every chunk's processing seconds, the worst lag and
+        # the translation failures by kind (lib.error_kinds), none of it shown to the viewer.
+        self._all_totals: list = []
+        self._worst_lag = 0.0
+        self.error_kinds: dict = {}
+
+    def log_figures(self) -> dict:
+        with self._lock:
+            totals = sorted(self._all_totals)
+            return {"chunks": self._measured,
+                    "median_s": round(totals[len(totals) // 2], 1) if totals else 0.0,
+                    "worst_lag_s": round(self._worst_lag, 1), "skipped": int(self.skipped),
+                    "errors": dict(self.error_kinds)}
+
+    def failed(self, exc) -> None:
+        from lib.error_kinds import error_kind
+        kind = error_kind(str(exc))
+        with self._lock:
+            self.error_kinds[kind] = self.error_kinds.get(kind, 0) + 1
 
     def figures(self) -> dict:
         with self._lock:
@@ -285,6 +304,9 @@ class LagStats:
         with self._lock:
             self._totals.append(float(total))
             self._lag = float(audio_seconds) + float(total)
+            self._worst_lag = max(self._worst_lag, self._lag)
+            if len(self._all_totals) < 5000:
+                self._all_totals.append(float(total))
             self._measured += 1
         self.send()
 
@@ -447,6 +469,7 @@ class TranslationWorker:
 
     def _fail(self, cues: list, idx: int, exc: Exception) -> None:
         from engine_backends.shared import redact_secrets
+        self._stats.failed(exc)
         live_whisper.log_failure(f"chunk {idx} translation failed", exc)
         note = f"{live_cue_feed.FAILED_PREFIX}: {redact_secrets(str(exc))}]"
         with self._board.lock:
@@ -574,12 +597,19 @@ class SessionLog:
         if now >= self._next_stats:
             self._next_stats = now + STATS_LOG_SECONDS
             self.resources("10 min")
+            self.session_stats("10 min")
             if spend:
                 self._log(f"spent ${spend[0] - self._spent_at_last_log:.4f} in the last 10 min, "
                           f"${spend[0]:.4f} of the ${spend[1]:.2f} session cap")
                 self._spent_at_last_log = spend[0]
             else:
                 self._log("spend: no session cap (a free engine, or the monthly cap applies)")
+
+    def session_stats(self, when: str) -> None:
+        f = self._stats.log_figures()
+        errors = ", ".join(f"{k} {n}" for k, n in sorted(f["errors"].items())) or "none"
+        self._log(f"stats ({when}): {f['chunks']} chunks, median {f['median_s']} s each, worst lag "
+                  f"{f['worst_lag_s']} s, {f['skipped']} translations skipped, errors: {errors}")
 
     def resources(self, when: str) -> None:
         rss, gpu = _rss_mb(), _gpu_mb()
@@ -639,4 +669,5 @@ class SessionLog:
             self._log(f"timeline moved {moved:.0f} s across a {gap:.0f} s break", "warning")
 
     def ended(self, why: str) -> None:
+        self.session_stats("end")
         self._log(f"session ended: {why}")
