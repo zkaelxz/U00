@@ -34,6 +34,7 @@ test('a step added for tonight shows it, Run now clears it, and the night hours 
   await mockJobsApi(page, [], true)
   const mock = await mockQueueApi(page)
   await page.goto('/#/jobs')
+  await page.getByRole('button', { name: '+ Add to queue' }).click()
   const card = page.getByRole('region', { name: 'Queue' })
   await card.getByLabel('Title').selectOption({ label: 'Signal' })
   await card.getByRole('switch', { name: 'Tonight' }).click()
