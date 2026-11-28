@@ -71,6 +71,7 @@ def test_a_tail_that_cannot_be_cut_falls_back_to_the_whole_file(monkeypatch, no_
             return iter([Seg(0.0, 2.0, "whole")]), types.SimpleNamespace(duration=50.0)
 
     monkeypatch.setattr(whisper_models, "load_whisper_model", lambda *a, **k: Model())
+    monkeypatch.setattr(whisper_transcribe, "_decode_whole", lambda path: None)
     out = whisper_transcribe.transcribe_for_timing(
         "/media/a.wav", resume_segments=_segments((0.0, 10.0, "one two three four five")),
         filter_hallucination_repeats=0)

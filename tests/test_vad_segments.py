@@ -116,3 +116,57 @@ def test_fixed_spans_fold_a_tiny_tail_into_the_window_before_it():
 
 def test_fixed_spans_of_nothing_is_nothing():
     assert fixed_spans(0.0, 8.0) == []
+
+
+def _remembering_silero(monkeypatch):
+    import sys
+    import types
+    scored = []
+
+    class SileroVADModel:
+        def __call__(self, audio, num_samples=512):
+            scored.append(audio.shape[0])
+            return (np.abs(audio).reshape(-1, num_samples).mean(axis=1) * 10)[:, None]
+
+    fake_vad = types.SimpleNamespace(SileroVADModel=SileroVADModel)
+    monkeypatch.setitem(sys.modules, "faster_whisper", types.SimpleNamespace(vad=fake_vad))
+    monkeypatch.setitem(sys.modules, "faster_whisper.vad", fake_vad)
+    monkeypatch.setattr(vad_segments, "_remembering", False)
+    assert vad_segments.remember_speech_scores()
+    return SileroVADModel, scored
+
+
+def test_a_file_scored_once_is_not_scored_again_and_gets_the_same_scores(monkeypatch):
+    model_class, scored = _remembering_silero(monkeypatch)
+    model = model_class()
+    audio = np.concatenate([np.zeros(SR), tone(2)]).astype(np.float32)
+    audio = np.pad(audio, (0, 512 - audio.shape[0] % 512))
+    first = model(audio)
+    first[:] = -1                       # a caller changing its copy changes nothing kept
+    again = model(audio.copy())
+    assert scored == [audio.shape[0]]
+    assert (again == (np.abs(audio).reshape(-1, 512).mean(axis=1) * 10)[:, None]).all()
+    other = audio.copy()
+    other[0] = 0.5
+    model(other)
+    assert scored == [audio.shape[0]] * 2
+
+
+def test_remembered_scores_give_the_same_spans_as_scoring_afresh(monkeypatch):
+    pytest.importorskip("faster_whisper")
+    from faster_whisper.vad import SileroVADModel, get_vad_model
+    audio = np.concatenate([np.zeros(SR), tone(3), np.zeros(SR), tone(1)]).astype(np.float32)
+    fresh = SileroVADModel.__call__
+    with monkeypatch.context() as m:
+        m.setattr(vad_segments, "remember_speech_scores", lambda: False)
+        expected = [speech_spans(audio, SR, threshold=t, min_silence_ms=150) for t in (0.4, 0.5)]
+    assert SileroVADModel.__call__ is fresh
+    assert vad_segments.remember_speech_scores()
+    try:
+        assert [speech_spans(audio, SR, threshold=t, min_silence_ms=150) for t in (0.4, 0.5)] == expected
+        assert len(get_vad_model().__dict__["_baihe_scores"]) == 1
+        padded = np.pad(audio, (0, 512 - audio.shape[0] % 512))
+        assert np.array_equal(get_vad_model()(padded), fresh(get_vad_model(), padded))
+    finally:
+        SileroVADModel.__call__ = fresh
+        vad_segments._remembering = False
