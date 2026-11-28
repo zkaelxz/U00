@@ -392,6 +392,8 @@ describe('whether the picked Whisper size is on this PC', () => {
     const r = { whisper_cached_large_v3: true, whisper_cached_breeze_asr_25: false } as unknown as SetupReadiness
     expect(whisperSizeCached(r, 'breeze-asr-25', saved)).toBe(false)
     expect(whisperSizeCached(r, 'large-v3', { size: 'large-v3', cached: false })).toBe(false)
+    expect(whisperSizeCached(r, 'large-v3', { size: 'breeze-asr-25', cached: false })).toBe(true)
+    expect(whisperSizeCached(r, 'large-v3', null)).toBe(true)
   })
   it('is unknown for a size that is neither saved nor listed by readiness', () => {
     expect(whisperSizeCached(null, 'breeze-asr-25', saved)).toBeNull()
