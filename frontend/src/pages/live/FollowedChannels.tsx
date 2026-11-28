@@ -47,7 +47,7 @@ const STATE_TONE: Record<string, BadgeTone> = { live: 'accent', upcoming: 'info'
 const STATE_LABEL: Record<string, string> = { live: 'Live', upcoming: 'Scheduled', not_live: 'Not live', error: 'Problem' }
 const MODE_LABEL: Record<LiveFollowMode, string> = { notify: 'Notify me', auto: 'Captions start automatically' }
 const MODE_HELP =
-  'Off: you get an alert with a Watch button when a check finds the channel live or a stream scheduled (Check now, or Check every hour). On (PC owner only, needs Check every hour): captions also start by themselves with this channel’s settings when the GPU is free and the monthly cap has room.'
+  'Off: when the hourly check finds the channel live or a stream scheduled, you get an alert with a Watch button; Check now only shows the result in the row. On (PC owner only, needs Check every hour): captions also start by themselves with this channel’s settings when the GPU is free and the monthly cap has room.'
 const HOURLY_HELP =
   'Off (default): checked only when you press Check now or Check all. On: checked about hourly, and once when a scheduled stream starts. One alert per stream.'
 

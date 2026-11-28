@@ -71,12 +71,13 @@ export function useTranslateRunForm({ config, onForm, onResetStage }: Options) {
   const [bySentence, setBySentence] = useState<boolean>(config.translate_by_sentence ?? false)
   const [bySentenceSaved, setBySentenceSaved] = useState<boolean | null>(null)
   const saveBySentence = (v: boolean) => {
+    const before = bySentence
     setBySentence(v)
     setBySentenceSaved(null)
     updateDramaMetadata(dramaId, { translate_by_sentence: v }).then(
       () => setBySentenceSaved(true),
       () => {
-        setBySentence(!v)
+        setBySentence(before)
         setBySentenceSaved(false)
       },
     )
