@@ -10,7 +10,7 @@ export const BENCHMARK_TABS: { id: BenchmarkTab; label: string; short?: string; 
   // Every part of it is a PC-only form, so another device would get an empty pane.
   { id: 'add', label: 'Add cases', pcOnly: true },
   { id: 'run', label: 'Run a benchmark', short: 'Run' },
-  { id: 'sweep', label: 'Settings sweep', short: 'Sweep' },
+  { id: 'sweep', label: 'Transcription sweep', short: 'Sweep' },
   { id: 'tsweep', label: 'Translation sweep' },
   { id: 'reeval', label: 'Model re-evaluation', short: 'Re-evaluate' },
   { id: 'runs', label: 'Recent runs', short: 'Recent' },

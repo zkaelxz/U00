@@ -2,7 +2,7 @@ import { expect, type Page } from '@playwright/test'
 
 import { pickTab } from './tabPicker'
 
-export type BenchPane = 'Golden sets' | 'Add cases' | 'Run a benchmark' | 'Settings sweep' | 'Translation sweep' | 'Model re-evaluation' | 'Recent runs'
+export type BenchPane = 'Golden sets' | 'Add cases' | 'Run a benchmark' | 'Transcription sweep' | 'Translation sweep' | 'Model re-evaluation' | 'Recent runs'
 
 // The Benchmark Lab sections are listed down the left (one scrolling row on a phone); specs that work inside one open it first.
 export async function openBenchTab(page: Page, title: BenchPane): Promise<void> {

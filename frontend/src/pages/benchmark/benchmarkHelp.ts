@@ -69,7 +69,7 @@ export const BENCH_SECTIONS: Record<BenchSectionId, SectionCopy> = {
     ],
   },
   sweep: {
-    title: 'Settings sweep',
+    title: 'Transcription sweep',
     purpose: 'Find the transcription settings that suit your own clips.',
     steps: [
       'Pick a golden set with audio clips and its language.',
