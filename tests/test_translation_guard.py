@@ -541,7 +541,7 @@ class TestFirstAlternative:
         assert lines[0].en == "Strange."
 
     def test_the_pipeline_saves_no_em_dashes(self):
-        lines = [Line(idx=0, start=0, end=1, zh="我知道——不，我希望", id=302)]
+        lines = [Line(idx=0, start=0, end=1, zh="我知道，不，我希望", id=302)]
 
         class Dashy(Scripted):
             def translate_batch(self, zh_lines, context):
@@ -686,3 +686,39 @@ def test_the_merged_or_shifted_re_ask_saves_no_em_dashes():
     lines[0].en, lines[1].en = "他来了", "Fine."
     guard.guard_batch(lines, lambda part: ["He—the king—came."] * len(part), lambda: False)
     assert lines[0].en == "He, the king, came."
+
+
+def test_the_pipeline_keeps_an_em_dash_the_source_has():
+    lines = [Line(idx=0, start=0, end=1, zh="我知道——不，我希望", id=310)]
+
+    class Dashy(Scripted):
+        def translate_batch(self, zh_lines, context):
+            self.calls.append(list(context["line_ids"]))
+            return ["I knew—no, I hoped."]
+    translate_pipeline.translate_lines_with_engine(lines, Dashy(), {}, batch_size=1)
+    assert lines[0].en == "I knew—no, I hoped."
+
+
+def test_a_novel_divider_line_becomes_a_scene_break_without_a_model_call():
+    lines = [Line(idx=0, start=0, end=1, zh="————————", id=5), Line(idx=1, start=1, end=2, zh="好", id=6)]
+
+    class Eng(Scripted):
+        def translate_batch(self, zh_lines, context):
+            self.calls.append(list(context["line_ids"]))
+            return ["Fine."] * len(zh_lines)
+    engine = Eng()
+    translate_pipeline.translate_lines_with_engine(lines, engine, NOVEL, batch_size=5)
+    assert [ln.en for ln in lines] == ["* * *", "Fine."]
+    assert engine.calls == [[6]]
+
+
+def test_a_dash_line_in_subtitles_still_goes_to_the_model():
+    lines = [Line(idx=0, start=0, end=1, zh="———", id=7)]
+
+    class Eng(Scripted):
+        def translate_batch(self, zh_lines, context):
+            self.calls.append(list(context["line_ids"]))
+            return ["..."] * len(zh_lines)
+    engine = Eng()
+    translate_pipeline.translate_lines_with_engine(lines, engine, {}, batch_size=5)
+    assert lines[0].en == "..." and engine.calls == [[7]]

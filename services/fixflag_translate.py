@@ -212,7 +212,7 @@ def fix_lines(flagged, *, engine, engine_choice, drama_id, base_context, charact
                     f"line {ln.idx + 1} translation: {e}"))
             replies = {}
         for ln in batch:
-            new = drop_em_dashes((replies.get(ln.idx) or "").strip())
+            new = drop_em_dashes((replies.get(ln.idx) or "").strip(), ln.zh)
             if not new:
                 continue
             if new == (ln.en or "").strip():
