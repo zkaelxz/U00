@@ -87,6 +87,7 @@ BALLOON_COLUMN_INSIDE = 0.7
 # A balloon interior covering this share of its box means the box lies within
 # the balloon (there is no outline in it to spare).
 BALLOON_FILLS_BOX = 0.9
+BALLOON_OUTSIDE_MIN_SHARE = 0.01
 # A dark patch with a disc this wide (px) inside it is art or the outside of the balloon, not a
 # stroke of lettering.
 BALLOON_STROKE_MAX_PX = 6
