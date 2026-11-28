@@ -304,7 +304,7 @@ function AddPersonForm({ busy, onAdded }: { busy: boolean; onAdded: (user: Admin
         <input type="text" autoComplete="off" maxLength={MAX_DISPLAY_NAME_CHARS}
           value={name} disabled={adding} onChange={(e) => setName(e.target.value)} />
       </Field>
-      <Field label="Also allow the browser extension" help={rightAbout('extension.send') ?? undefined}>
+      <Field label="Also allow the browser extension and Baihe Grab" help={rightAbout('extension.send') ?? undefined}>
         <Toggle checked={extension} disabled={adding} onChange={setExtension} />
       </Field>
       <div className="actions">

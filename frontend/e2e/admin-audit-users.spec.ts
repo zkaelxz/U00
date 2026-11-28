@@ -492,7 +492,7 @@ test('People: on the PC, adds a person; away from the PC there is no form', asyn
   await expect(submit).toBeDisabled()
   await form.getByLabel('Email').fill('PC2@example.com')
   await form.getByLabel('Name (optional)').fill('Second PC')
-  await form.getByRole('switch', { name: 'Also allow the browser extension' }).click()
+  await form.getByRole('switch', { name: 'Also allow the browser extension and Baihe Grab' }).click()
   await submit.click()
   await expect(page.getByTestId('admin-users')).toContainText('pc2@example.com was added.')
   await expect(page.getByRole('list', { name: 'People' }).locator(':scope > li')).toHaveCount(3)

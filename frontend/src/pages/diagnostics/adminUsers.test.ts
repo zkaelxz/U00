@@ -126,7 +126,7 @@ describe('remove admin', () => {
     expect(auditActionLabel('user.revoke_admin')).toBe('Admin rights removed')
     expect(auditActionLabel('upload.away')).toBe('Upload from away')
     expect(auditActionLabel('audit.prune')).toBe('Old activity cleared')
-    expect(auditActionLabel('device_token.create')).toBe('Remote access key made')
+    expect(auditActionLabel('device_token.create')).toBe('Remote access key added')
     expect(auditActionLabel('pc_profile.hide_existing')).toBe('Existing titles and series made private')
   })
 })
