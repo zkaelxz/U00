@@ -23,6 +23,7 @@ pytestmark = pytest.mark.skipif(os.name == "nt", reason="reads process states fr
 
 KEY = ("transcribe", "large-v3", True, "", "audio_separator", "whisper", "whisper", False)
 OTHER_KEY = ("transcribe", "large-v3-turbo", True, "", "audio_separator", "whisper", "whisper", False)
+V100_MB, CARD_12_GB_MB = 32768.0, 12288.0
 
 _runs_here = 0
 
@@ -160,7 +161,10 @@ def _no_worker_left(isolated_db):
     # Not by monkeypatch: a test's monkeypatch.undo() would put the stub back. The
     # conftest fixture that set the stub restores the real function after the test.
     warm_worker.claim = warm_worker.claim.real
+    # A V100's 32 GB: room for a warm worker in every slot these tests use.
+    saved_total, warm_worker._card_total_mb = warm_worker._card_total_mb, V100_MB
     yield
+    warm_worker._card_total_mb = saved_total
     with warm_worker._lock:
         left, warm_worker._workers[:] = list(warm_worker._workers), []
     for worker in left:
@@ -804,3 +808,40 @@ def test_with_another_gpu_job_on_the_card_the_cards_reading_is_not_taken_as_the_
         go.set()
         _wait_end("busy_gpu_job")
         bg.clear_job("busy_gpu_job")
+
+
+@pytest.mark.parametrize("total, slots, key, budget", [
+    (V100_MB, 1, KEY, 1), (V100_MB, 2, KEY, 2), (V100_MB, 4, KEY, 3),
+    (CARD_12_GB_MB, 1, KEY, 1), (CARD_12_GB_MB, 2, KEY, 0), (CARD_12_GB_MB, 2, OTHER_KEY, 1),
+    (None, 1, KEY, 0),
+    (V100_MB, 1, ("transcribe", "large-v3", True, "", "audio_separator", "qwen3_asr", "whisper", False), 0),
+])
+def test_the_card_budget_counts_a_kept_separator_in_every_slot_it_runs(total, slots, key, budget):
+    """On a 12 GB card two workers each keeping the separator starved the jobs beside
+    them (3080 Ti, 2 GPU jobs at once): large-v3 there gets no warm worker at 2 at once."""
+    warm_worker._card_total_mb = total
+    assert warm_worker.card_budget(key, slots) == budget
+
+
+def test_a_card_too_small_for_a_warm_worker_runs_each_job_fresh(monkeypatch):
+    _two_slots(monkeypatch)
+    warm_worker._card_total_mb = CARD_12_GB_MB
+    first = _run("warm_small_one", tagged_worker, ("one", False))
+    second = _run("warm_small_two", tagged_worker, ("two", False))
+    assert first["status"] == second["status"] == "done", (first, second)
+    assert first["result"]["pid"] != second["result"]["pid"]
+    assert first["result"]["keeps_separator"] is second["result"]["keeps_separator"] is False
+    assert _one() is None
+
+
+def test_a_worker_the_budget_no_longer_allows_is_retired_when_it_goes_idle(monkeypatch, tmp_path):
+    _two_slots(monkeypatch)
+    release = str(tmp_path / "go")
+    _start("warm_shrunk", waits_for_file, (release, "s"))
+    pid = _pid_from(release + ".s.pid")
+    # "Keep free graphics memory" raised while the job runs: one warm worker no longer fits.
+    warm_worker._card_total_mb = CARD_12_GB_MB
+    open(release, "w").close()
+    assert _wait_end("warm_shrunk")["status"] == "done"
+    assert _wait_gone(pid)
+    assert _one() is None

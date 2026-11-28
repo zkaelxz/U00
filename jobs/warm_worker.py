@@ -4,7 +4,8 @@ Each transcription otherwise starts a fresh spawned worker, which pays process
 start and imports, and reloads the vocal separator and Whisper. Here a worker
 runs matching jobs one after another, at most one worker per GPU slot
 (gpu_max_parallel), so busy and idle workers together never outnumber the GPU
-jobs that may run at once. The job runner still sees a
+jobs that may run at once, and fewer when the card is too small to carry the
+separator each one keeps (card_budget). The job runner still sees a
 Process per job (WarmJob): the job ends when the worker reports it idle, a
 cancel, clear or stop kills the whole worker, and a native crash goes to the
 usual CPU retry in a fresh normal process. Every item on the worker's
@@ -52,6 +53,43 @@ _MEMORY = "warm-memory"
 GROWTH_LIMIT_MB = 1024.0
 
 
+# The card's total memory, read once outside the job lock (transcription_key)
+# so claim, which runs under it, never waits on nvidia-smi.
+_card_total_mb = None
+
+
+def _read_card_total() -> None:
+    global _card_total_mb
+    if _card_total_mb is None:
+        import memory_headroom
+        _card_total_mb = memory_headroom.total_mb("vram")
+
+
+def card_budget(key, slots) -> int:
+    """How many warm workers the card can carry at once with every GPU slot
+    busy, from the model size estimates, never from a reading of the moment.
+
+    A warm worker keeps the separator on the card through Whisper's load and
+    run, which a fresh run frees first, and may grow GROWTH_LIMIT_MB before
+    it is retired. On a 12 GB card two such workers beside each other left
+    0.6 GB free and the GPU guard stopped both jobs, which made the queue
+    2.8 times slower than fresh runs (3080 Ti, 2 GPU jobs at once). So a
+    worker is kept only when every slot running warm or fresh still leaves
+    the reserve free. Anything unknown says none: a fresh run is never the
+    slower choice by much."""
+    import diagnostics_torch
+    import memory_headroom
+    total = _card_total_mb
+    whisper = memory_headroom.estimate_mb("whisper", key[1]) if key[5] == "whisper" else None
+    separator = memory_headroom.estimate_mb("separation", "separator")
+    if total is None or whisper is None or separator is None or slots < 1:
+        return 0
+    room = total - diagnostics_torch.external_busy_min_free_mb()
+    warm = whisper[0] + separator[0] + GROWTH_LIMIT_MB
+    fresh = max(whisper[0], separator[0])
+    return next((n for n in range(slots, 0, -1) if n * warm + (slots - n) * fresh <= room), 0)
+
+
 def transcription_key(whisper_size, use_gpu, local_model_path, separation_backend,
                       asr_backend_choice, transcript_mode):
     """The settings a transcription must share with a warm worker's last job to
@@ -61,6 +99,7 @@ def transcription_key(whisper_size, use_gpu, local_model_path, separation_backen
     its process's environment and never undoes."""
     if not use_gpu:
         return None
+    _read_card_total()
     from lib import model_offline
     return ("transcribe", whisper_size, bool(use_gpu), local_model_path or "",
             separation_backend or "", asr_backend_choice, transcript_mode, model_offline.active())
@@ -422,7 +461,9 @@ def claim(job_id, target, args, key):
     None when they do and all are busy (this job then gets a fresh worker of its
     own, as before). Starts nothing: the caller may hold the job lock, and
     WarmJob.start does the slow part."""
-    slots = _slots()
+    slots = card_budget(key, _slots())
+    if slots < 1:
+        return None
     stale = None
     with _lock:
         worker = next((w for w in _workers if not w.busy and w.fits(key)), None)
@@ -667,13 +708,15 @@ class WarmJob:
 
     def went_idle(self):
         """The worker stays only while the other running GPU jobs and the idle
-        workers, this one included, fit the GPU slots: keeping it otherwise
-        would put more on the card than may run at once."""
+        workers, this one included, fit the GPU slots, and the workers fit the
+        card's budget (card_budget): keeping it otherwise would put more on the
+        card than may run at once."""
         self._state = "done"
         worker = self._worker
         running = _running_others(self.job_id)
         grew = self._note_memory(worker, running)
         slots = _slots()
+        budget = card_budget(worker.key, slots)
         with _lock:
             # Marked idle, counted and removed in one step, so two workers going
             # idle together do not both count the other and both leave.
@@ -683,6 +726,8 @@ class WarmJob:
                 reason = "the running GPU jobs could not be checked"
             elif running + idle > slots:
                 reason = "every GPU slot is taken"
+            elif len(_workers) > budget:
+                reason = "the card can't carry this many warm workers"
             else:
                 reason = grew
             if reason and worker in _workers:

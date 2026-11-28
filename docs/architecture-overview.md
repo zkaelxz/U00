@@ -76,7 +76,7 @@ Layer rules for the folders above: `docs/api-and-services.md`. Frontend stages:
   its own process group (`start_own_process_group()` first in the worker) and `kill_whole_tree=True`, so a bad
   worker fails on Linux CI too. See `docs/background-jobs.md`.
 - `background_jobs`: the `_jobs` dict under `_lock` (both in `jobs/job_table.py`) is the authority. Never start a thread or process while holding `_lock`.
-- Warm transcription workers (`jobs/warm_worker.py`): a GPU transcription runs in a kept spawned worker when one with the same settings is idle, at most one worker per GPU slot. Every item on its long-lived queue carries the job's number, each job runs in a fresh context copy, and the worker exits after any failure, fallback or cancel. An idle worker is retired before any GPU job that cannot use it is admitted, so a new GPU start path must call `warm_worker.retire_idle` first.
+- Warm transcription workers (`jobs/warm_worker.py`): a GPU transcription runs in a kept spawned worker when one with the same settings is idle, at most one worker per GPU slot and fewer when the card cannot carry the separator each one keeps (`card_budget`). Every item on its long-lived queue carries the job's number, each job runs in a fresh context copy, and the worker exits after any failure, fallback or cancel. An idle worker is retired before any GPU job that cannot use it is admitted, so a new GPU start path must call `warm_worker.retire_idle` first.
 - Tests patch the module that uses a name, not a front door that re-exports it.
 - Keep the removed-name sets, because old saved settings still name removed engines:
   `REMOVED_ENGINES` (`engine_backends/engine_registry.py`), `REMOVED_VOICE_ENGINES` (`voice/dub.py`),
