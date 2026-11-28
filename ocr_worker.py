@@ -85,7 +85,9 @@ _ko_off_at = 0.0
 GPU_OFF_SECONDS = 300
 GPU_SLOW_LOAD_SECONDS = 90
 GPU_READ_WAIT_SECONDS = 20
-_gpu_checked_at = None
+# Per key: Korean's engine and weights differ from medium's, so one key's failed check or
+# download must not keep the other's reads off the GPU.
+_gpu_checked_at: dict = {}
 _params_cache: dict = {}
 # Tests read in this process with a fake RapidOCR (tests/conftest.py).
 inline = False
@@ -107,7 +109,7 @@ def read(key: str, source, allow_download: bool = True):
             _gpu_off(reply[1], key)
             _stop_helper(_gpu)
         elif reply[0] == "gpu_later":
-            _gpu_retry_later()
+            _gpu_retry_later(key)
         elif reply[0] == "gpu_timeout":
             _gpu_off("a GPU read took too long", key)
             _stop_helper(_gpu)
@@ -176,10 +178,9 @@ def _gpu_off(reason: str, key: str = "medium") -> None:
         _gpu_off_reason, _gpu_off_at = reason, time.monotonic()
 
 
-def _gpu_retry_later() -> None:
-    global _gpu_checked_at
+def _gpu_retry_later(key: str) -> None:
     _stop_helper(_gpu)
-    _gpu_checked_at = time.monotonic()
+    _gpu_checked_at[key] = time.monotonic()
 
 
 def _gpu_weights_on_disk(key: str = "medium") -> bool:
@@ -260,7 +261,7 @@ def _gpu_ready(key: str) -> bool:
             return True
     if reply[0] == "gpu_later":
         _gpu_skipped("the GPU engine found no room while loading")
-        _gpu_retry_later()
+        _gpu_retry_later(key)
     else:
         _gpu_off(reply[1] if len(reply) > 1 else "the GPU engine did not load", key)
         _stop_helper(_gpu)
@@ -281,7 +282,7 @@ def _gpu_skipped(reason: str) -> bool:
 
 
 def _gpu_allowed(key: str) -> bool:
-    global _gpu_checked_at, _gpu_off_reason, _ko_off_reason
+    global _gpu_off_reason, _ko_off_reason
     if _gpu_off_reason is not None and time.monotonic() - _gpu_off_at >= GPU_OFF_SECONDS:
         _gpu_off_reason = None
         _log("Text reader: trying the GPU again")
@@ -308,9 +309,10 @@ def _gpu_allowed(key: str) -> bool:
                         and f"{key}:gpu" in _inline_engines()):
         return True
     now = time.monotonic()
-    if _gpu_checked_at is not None and now - _gpu_checked_at < GPU_RECHECK_SECONDS:
+    checked = _gpu_checked_at.get(key)
+    if checked is not None and now - checked < GPU_RECHECK_SECONDS:
         return False
-    _gpu_checked_at = now
+    _gpu_checked_at[key] = now
     try:
         import vram
         free = vram.free_vram_mb()
@@ -321,7 +323,7 @@ def _gpu_allowed(key: str) -> bool:
         vram.check_fits("RapidOCR text reader", required_mb=GPU_NEED_MB, free_mb=free)
     except Exception as exc:
         return _gpu_skipped(f"not enough free GPU memory ({type(exc).__name__}: {exc})")
-    _gpu_checked_at = None
+    _gpu_checked_at.pop(key, None)
     global _last_gpu_skip
     _last_gpu_skip = None
     return True
@@ -336,6 +338,11 @@ def _ask(helper: _Helper, message) -> tuple:
         with _inline_lock():
             return _serve(_inline_engines(), *message[1:])
     with helper.lock:
+        # Checked again under the lock the request is sent under: since the caller found the GPU
+        # engine ready, a read for another key may have swapped it and queued that key's load,
+        # whose reply this read would otherwise take as its own.
+        if helper.device == "gpu" and not (helper.ready and message[1] == f"{helper.key}:gpu"):
+            return ("gpu_lost",)
         for attempt in (1, 2):
             if not helper.alive():
                 if helper.device == "gpu":

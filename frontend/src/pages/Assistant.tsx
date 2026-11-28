@@ -12,8 +12,8 @@ import { useCallback, useEffect, useState, type ReactNode } from 'react'
 
 import { addBacklogItem, getAssistantSettings, listBacklog } from '../api/assistant'
 import { getPcMode, loadPcMode } from '../api/pcOnly'
-import { Card } from '../components/Card'
 import { DeveloperModeOff } from '../components/DeveloperModeOff'
+import { FlatPaneContext } from '../components/flatPane'
 import { PageShell } from '../components/PageShell'
 import { Tabs } from '../components/Tabs'
 import { tabButtonId, tabPanelId } from '../components/tabIds'
@@ -28,6 +28,9 @@ import { ReviewRolesSection } from './assistant/ReviewRolesSection'
 import { PC_ONLY_TEXT, assistantErrorText, isAssistantForbidden } from './assistant/assistantFormat'
 import { ToolsCard } from './assistant/ToolsCard'
 import './assistant/assistant.css'
+
+const SHOWING = { showing: true }
+const HIDDEN = { showing: false }
 
 type Load = { state: 'loading' } | { state: 'pc-only' } | { state: 'error'; text: string; error: unknown } | { state: 'ready'; settings: AssistantSettings }
 
@@ -87,11 +90,7 @@ export default function AssistantPage() {
   let body
   if (load.state === 'loading') body = <p className="muted">Loading…</p>
   else if (load.state === 'pc-only') {
-    body = (
-      <Card title="PC only" aria-label="PC only">
-        <p className="muted">{PC_ONLY_TEXT}</p>
-      </Card>
-    )
+    body = <p className="muted">{PC_ONLY_TEXT}</p>
   } else if (load.state === 'error') {
     body = (
       <RetryBanner
@@ -109,7 +108,7 @@ export default function AssistantPage() {
     const settings = load.settings
     const panel = (id: AssistantTab, children: ReactNode) => (
       <div id={tabPanelId('assistant', id)} role="tabpanel" aria-labelledby={tabButtonId('assistant', id)} className="assistant-panel" hidden={tab !== id}>
-        {children}
+        <FlatPaneContext.Provider value={tab === id ? SHOWING : HIDDEN}>{children}</FlatPaneContext.Provider>
       </div>
     )
     tabs = <Tabs label="Assistant" idPrefix="assistant" tabs={ASSISTANT_TABS} active={tab} onSelect={setTab} />

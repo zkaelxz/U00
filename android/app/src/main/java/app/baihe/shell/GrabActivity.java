@@ -2043,7 +2043,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
                 } catch (InterruptedException e) {
                     return;
                 }
-                if (mine != progressWatch || grabbing || loadingNext || queueRunning || isDestroyed()) return;
+                if (!ownsStatusLine(mine)) return;
                 try {
                     JSONObject now = new BaiheClient(server, token).titleProgress(dramaId);
                     String state = now.optString("state", "idle");
@@ -2051,8 +2051,10 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
                             now.isNull("reason") ? "" : now.optString("reason", ""));
                     // The run was queued a moment ago; a few idle answers in a row mean it is gone.
                     if (line == null) {
-                        if (++quiet >= 3) return;
-                        continue;
+                        if (++quiet < 3) continue;
+                        // A run cleared from the PC's queue leaves nothing to report, so its busy line goes.
+                        if (lastLine != null && ownsStatusLine(mine)) say("", GrabUi.Kind.INFO);
+                        return;
                     }
                     quiet = 0;
                     if (!line.equals(lastLine)) {
@@ -2062,10 +2064,17 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
                     if (TitleProgress.settled(state)) return;
                 } catch (BaiheClient.BridgeException | RuntimeException e) {
                     // The status is only a convenience; a refused or unreachable server ends it quietly.
-                    return;
+                    break;
                 }
             }
+            // Any line still showing is a waiting or running one, whose spinner would otherwise turn for good.
+            if (lastLine != null && ownsStatusLine(mine)) say(TitleProgress.leftToPc(name), GrabUi.Kind.INFO);
         }, "grab-progress").start();
+    }
+
+    /** False once a grab, the queue or a newer watch has the status line, so this watch must not write to it. */
+    private boolean ownsStatusLine(long watch) {
+        return watch == progressWatch && !grabbing && !loadingNext && !queueRunning && !isDestroyed();
     }
 
     private void upload(BaiheClient client, String url, List<String> titles, JSONArray chapterLinks,
