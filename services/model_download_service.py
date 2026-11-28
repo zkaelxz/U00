@@ -443,8 +443,16 @@ def preferred_models_tick(now=None) -> None:
     """After an app update, in the quiet hours, download a preferred default model the PC lacks.
 
     One try per night, and only when nothing else needs the PC: no job running, no update waiting
-    to be applied (the restart would cut the download), and enough free disk. Never raises. The
+    to be applied (the restart would cut the download), and enough free disk. Never raises, so the
+    rest of the poller's tick still runs. The
     version is recorded once every model is on disk, so a failed night is tried again the next."""
+    try:
+        _preferred_models_step(now)
+    except Exception as exc:
+        _log().warning("default model fetch not started: %s", type(exc).__name__)
+
+
+def _preferred_models_step(now) -> None:
     import db
     from services import app_update_service as aus
     from services import update_service
@@ -453,28 +461,25 @@ def preferred_models_tick(now=None) -> None:
         return
     if not aus.in_quiet_hours(now):
         return
-    try:
-        missing = [m for m in PREFERRED_DEFAULTS if not CATALOG[m]["ready"]()]
-        if not missing:
-            db.set_app_setting(_PREFERRED_VERSION_KEY, version)
-            return
-        if importlib.util.find_spec("audio_separator") is None:
-            return  # a PC that never separates vocals has no use for it
-        today = time.strftime("%Y-%m-%d", time.localtime(time.time() if now is None else now))
-        if db.get_app_setting(_PREFERRED_TRIED_KEY) == today:
-            return
-        if background_jobs.active_job_ids() or aus.update_pending():
-            return
-        db.set_app_setting(_PREFERRED_TRIED_KEY, today)
-        free = _free_bytes(_preferred_model_dir())
-        if free < _PREFERRED_MIN_FREE_BYTES:
-            _log().info("default model fetch skipped: %d MB free, need %d MB",
-                        free // 1024 ** 2, _PREFERRED_MIN_FREE_BYTES // 1024 ** 2)
-            return
-        start_download(missing[0])
-        _log().info("default model fetch started: %d model(s) missing", len(missing))
-    except Exception as exc:
-        _log().warning("default model fetch not started: %s", type(exc).__name__)
+    missing = [m for m in PREFERRED_DEFAULTS if not CATALOG[m]["ready"]()]
+    if not missing:
+        db.set_app_setting(_PREFERRED_VERSION_KEY, version)
+        return
+    if importlib.util.find_spec("audio_separator") is None:
+        return  # a PC that never separates vocals has no use for it
+    today = time.strftime("%Y-%m-%d", time.localtime(time.time() if now is None else now))
+    if db.get_app_setting(_PREFERRED_TRIED_KEY) == today:
+        return
+    if background_jobs.active_job_ids() or aus.update_pending():
+        return
+    db.set_app_setting(_PREFERRED_TRIED_KEY, today)
+    free = _free_bytes(_preferred_model_dir())
+    if free < _PREFERRED_MIN_FREE_BYTES:
+        _log().info("default model fetch skipped: %d MB free, need %d MB",
+                    free // 1024 ** 2, _PREFERRED_MIN_FREE_BYTES // 1024 ** 2)
+        return
+    start_download(missing[0])
+    _log().info("default model fetch started: %d model(s) missing", len(missing))
 
 
 def _log():

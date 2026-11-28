@@ -436,11 +436,13 @@ class TestPreferredModelsTick:
         state, fetched = models
         monkeypatch.setattr(update_service, "current_version", lambda: "0.2.1")
         monkeypatch.setattr(aus, "in_quiet_hours", lambda now=None: True)
+        real_pending = aus.update_pending
         monkeypatch.setattr(aus, "update_pending", lambda: False)
         monkeypatch.setattr(svc.importlib.util, "find_spec", lambda name: object())
         monkeypatch.setattr(svc, "_free_bytes", lambda folder: 50 * 1024 ** 3)
         monkeypatch.setattr(svc, "_preferred_model_dir", lambda: str(tmp_path))
         self.aus = aus
+        self._real_pending = real_pending
         self.monkeypatch = monkeypatch
         return state, fetched
 
@@ -493,3 +495,30 @@ class TestPreferredModelsTick:
         self.monkeypatch.setattr(update_service, "current_version", lambda: None)
         svc.preferred_models_tick()
         assert fetched == []
+
+    def test_a_low_disk_night_still_uses_up_the_night(self, night):
+        import db
+        state, fetched = night
+        self.monkeypatch.setattr(svc, "_free_bytes", lambda folder: 1024 ** 3)
+        svc.preferred_models_tick(now=1_700_000_000)
+        assert db.get_app_setting(svc._PREFERRED_TRIED_KEY) is not None
+        self.monkeypatch.setattr(svc, "_free_bytes", lambda folder: 50 * 1024 ** 3)
+        svc.preferred_models_tick(now=1_700_000_000)
+        assert fetched == []
+        svc.preferred_models_tick(now=1_700_000_000 + 2 * 86400)
+        self._wait()
+        assert fetched == ["vocal_separation_fv4"]
+
+    def test_a_failing_check_never_raises(self, night):
+        from services import update_service
+        def boom():
+            raise OSError("manifest unreadable")
+        self.monkeypatch.setattr(update_service, "current_version", boom)
+        svc.preferred_models_tick()
+
+    def test_update_pending_sees_a_verified_update(self, night):
+        from services import app_update_service as real
+        self.monkeypatch.setattr(real, "update_pending", self._real_pending)
+        self.monkeypatch.setattr(self.aus, "_verified", {"version": "9"})
+        self.monkeypatch.setattr(self.aus, "apply_busy", lambda: False)
+        assert self.aus.update_pending() is True
