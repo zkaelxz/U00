@@ -462,6 +462,8 @@ def test_reorder_remove_and_clear_finished(jobs):
 
 def test_runner_exits_on_shutdown_and_holds_no_lock_while_a_job_runs(jobs, monkeypatch):
     monkeypatch.setattr(q, "POLL_SECONDS", 0.05)
+    # The runner's night tick would start the real self-check when the suite runs inside the night window.
+    monkeypatch.setattr(q.queue_night, "maybe_start_self_check", lambda night, now: False)
     did = _drama()
     q.add_item(None, did, "transcribe", True, at_pc=True)
     assert q.start_runner()
