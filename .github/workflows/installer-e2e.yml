@@ -343,7 +343,7 @@ jobs:
           python installer/e2e_check.py publish --root $env:E2E_GITHUB --repo $env:E2E_REPO --version $env:NEWER_VERSION --file $env:NEW_SETUP --key "$env:E2E_KEY\test_release_private_key.txt"
           python installer/e2e_check.py api POST /api/system/update/check --expect 200
           if ($LASTEXITCODE -ne 0) { exit 1 }
-          python installer/e2e_check.py api POST /api/system/update/download --expect 200
+          python installer/e2e_check.py api POST /api/system/update/download --expect 202
           if ($LASTEXITCODE -ne 0) { exit 1 }
           python installer/e2e_check.py wait-download --version $env:NEWER_VERSION
           if ($LASTEXITCODE -ne 0) { exit 1 }
@@ -355,7 +355,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { Write-Error "launcher exited $LASTEXITCODE"; exit 1 }
           if (-not (Test-Path "$env:E2E_DATA\library\updates\BaiheStudio-Setup-$env:NEWER_VERSION.exe")) { Write-Error "the start removed the newer download"; exit 1 }
           python installer/e2e_check.py api POST /api/system/update/check --expect 200
-          python installer/e2e_check.py api POST /api/system/update/download --expect 200
+          python installer/e2e_check.py api POST /api/system/update/download --expect 202
           if ($LASTEXITCODE -ne 0) { exit 1 }
           python installer/e2e_check.py wait-download --version $env:NEWER_VERSION
           if ($LASTEXITCODE -ne 0) { exit 1 }
@@ -365,7 +365,7 @@ jobs:
           # The Install button's route: it starts Setup's window, which waits
           # for a click that can't happen here, so the test only checks that
           # Setup started and the app kept running, then closes it.
-          $r = python installer/e2e_check.py api POST /api/system/update/install --expect 200
+          $r = python installer/e2e_check.py api POST /api/system/update/install --body '{"confirm": true}' --expect 200
           Write-Host $r
           if ($LASTEXITCODE -ne 0) { exit 1 }
           if (-not ($r | ConvertFrom-Json).body.launched) { Write-Error "Install didn't report Setup started"; exit 1 }

@@ -283,9 +283,9 @@ def cmd_wait_setting(args) -> int:
     return 0
 
 
-def _request(method, path, port):
+def _request(method, path, port, body="{}"):
     opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
-    data = b"{}" if method == "POST" else None
+    data = body.encode("utf-8") if method == "POST" else None
     req = urllib.request.Request(f"http://127.0.0.1:{port}{path}", data=data, method=method,
                                  headers={"Content-Type": "application/json",
                                           "X-Baihe-Local": "1"})
@@ -301,7 +301,7 @@ def _request(method, path, port):
 
 
 def cmd_api(args) -> int:
-    status, body = _request(args.method, args.path, args.port)
+    status, body = _request(args.method, args.path, args.port, args.body)
     print(json.dumps({"status": status, "body": body}))
     if args.expect is not None and status != args.expect:
         return _fail(f"{args.method} {args.path} answered {status}, expected {args.expect}")
@@ -460,6 +460,7 @@ def main(argv=None) -> int:
     s.add_argument("path")
     s.add_argument("--port", type=int, default=8600)
     s.add_argument("--expect", type=int)
+    s.add_argument("--body", default="{}")
     s.set_defaults(func=cmd_api)
     s = sub.add_parser("wait-status")
     s.add_argument("--field", required=True)
