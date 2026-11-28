@@ -492,7 +492,7 @@ def _start_live(request: Request, payload: dict, principal) -> dict:
         raise page_server.EndpointError(422, "source_language must be a language code")
     whisper_size = options["language_whisper_defaults"].get(language) or options["defaults"]["whisper_size"]
     chunk = live_service.LANGUAGE_CHUNK_DEFAULTS.get(language, {})
-    engine, model = engine_for_caller(request, None, live_service.LIVE_DEFAULT_ENGINE, None)
+    engine, model = engine_for_caller(request, None, live_service.default_engine(), None)
     require_engines_allowed(request, engine, model=model)
     require_cloud_model_allowed(request, (engine, model))
     try:
