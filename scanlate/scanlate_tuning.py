@@ -202,6 +202,9 @@ TYPESET_SIBLING_RATIO = 1.35
 TYPESET_SIBLING_MIN_RATIO = 0.7
 TYPESET_SIBLING_MAX_SHRINK = 0.75
 TYPESET_LINE_GAP_PX = 4
+# Where the search for the size a balloon's text fits at starts: it only has to tell whether the
+# readable size is reached, and a search from a tall box's start size is slow.
+TYPESET_PROBE_START_PX = 24
 TYPESET_OUTLINE_MARGIN_PX = 2
 # In a balloon with a notch, lobe or tail, each line keeps this share of its lettering's height
 # clear of the outline on both sides; with the outline margin alone, one long line ran from edge to

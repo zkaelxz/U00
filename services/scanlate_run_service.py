@@ -615,33 +615,49 @@ def _translated_since(bubbles: list, english_before: list) -> list:
 
 def _condense_signs(drama_id: int, page_id: int, bubbles: list, engine, engine_name: str,
                     drama: dict, notes: list) -> None:
-    """Shortens the English of a sign that would be set below the readable size on its band.
-    A page whose picture can't be read, or an answer that can't be used, leaves the full
-    translation as it was; only the stop signals the run lets through are raised."""
+    """Shortens the English of a sign or speech balloon that would be set below the readable
+    size in the space it has. A page whose picture can't be read, or an answer that can't be
+    used, leaves the full translation as it was; only the stop signals the run lets through are
+    raised."""
     from scanlate import scanlate_condense
     from scanlate import scanlate_page_decode
     from scanlate import scanlate_render
     from core import LANGUAGE_NAMES
-    if not any(b.get("kind") == "sign" and b.get("translated_text") for b in bubbles):
+    if not any(b.get("kind") in ("sign", "bubble", None) and b.get("translated_text") for b in bubbles):
         return
+    source = LANGUAGE_NAMES.get((drama or {}).get("source_language") or "zh", "source-language")
+    usage = paid_calls.usage_logger(drama_id, engine_name, engine, "scanlate_translate")
+    stops = (HeadroomError, LLMTaskTimeout, TranslateRunStopped, TranslationCancelled,
+             background_jobs.JobCancelled)
+    changed, balloons = [], []
     try:
-        page = scanlate_page_decode.decode_page(render_svc.original_path(
-            drama_id, db.get_page(page_id, drama_id=drama_id) or {}))
+        path = render_svc.original_path(drama_id, db.get_page(page_id, drama_id=drama_id) or {})
+        page = scanlate_page_decode.decode_page(path)
         custom_fonts = render_svc._custom_fonts(drama_id)
-        changed = scanlate_condense.condense_long_signs(
+        changed = scanlate_condense.condense_long_texts(
             bubbles, lambda b: scanlate_render.sign_fitted_size(page, b, b["translated_text"], custom_fonts),
-            lambda wanted: scanlate_condense.ask_for_shorter(
-                engine, LANGUAGE_NAMES.get((drama or {}).get("source_language") or "zh", "source-language"),
-                wanted, paid_calls.usage_logger(drama_id, engine_name, engine, "scanlate_translate")))
-    except (HeadroomError, LLMTaskTimeout, TranslateRunStopped, TranslationCancelled,
-            background_jobs.JobCancelled):
+            lambda wanted: scanlate_condense.ask_for_shorter(engine, source, wanted, usage))
+    except stops:
         raise
     except Exception:
         return
-    if changed:
-        notes.append(("info", f"{len(changed)} sign text{'s were' if len(changed) > 1 else ' was'} "
-                              "shortened to fit the band it sits on. Retype the full text in the "
-                              "Review screen if you prefer it."))
+    try:
+        gray = scanlate_page_decode.page_gray(path, page)
+        rect_layout = bool(settings_service.get("scanlate_rect_layout"))
+        balloons = scanlate_condense.condense_long_texts(
+            bubbles, lambda b: scanlate_render.balloon_fitted_size(
+                path, gray, b, b["translated_text"], custom_fonts, rect_layout),
+            lambda wanted: scanlate_condense.ask_for_shorter(engine, source, wanted, usage, "bubble"),
+            "bubble")
+    except stops:
+        raise
+    except Exception:
+        pass
+    for count, name in ((len(changed), "sign"), (len(balloons), "balloon")):
+        if count:
+            notes.append(("info", f"{count} {name} text{'s were' if count > 1 else ' was'} shortened "
+                                  "to fit the space it sits in. Retype the full text in the Review "
+                                  "screen if you prefer it."))
 
 
 def _ocr_lost_text(existing: list, notes) -> bool:

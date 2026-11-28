@@ -3,7 +3,7 @@ import numpy as np
 import pytest
 
 from scanlate import scanlate_condense
-from scanlate import scanlate_render
+from scanlate import scanlate_render, scanlate_tuning
 def _signs():
     return [{"kind": "sign", "translated_text": "Traffic is jammed. All AB line trains have stopped running."},
             {"kind": "sign", "translated_text": "Closed"},
@@ -20,7 +20,7 @@ def test_only_a_sign_set_below_the_readable_size_is_shortened():
         asked.update(wanted)
         return {k: "Trains stopped" for k in wanted}
 
-    changed = scanlate_condense.condense_long_signs(bubbles, lambda b: sizes.get(id(b)), ask)
+    changed = scanlate_condense.condense_long_texts(bubbles, lambda b: sizes.get(id(b)), ask)
     assert changed == [bubbles[0]]
     assert list(asked) == ["0"]
     assert bubbles[0]["translated_text"] == "Trains stopped"
@@ -32,7 +32,7 @@ def test_only_a_sign_set_below_the_readable_size_is_shortened():
 def test_the_budget_follows_the_size_the_text_was_set_at():
     bubbles = _signs()[:1]
     asked = {}
-    scanlate_condense.condense_long_signs(bubbles, lambda b: 9, lambda wanted: asked.update(wanted) or {})
+    scanlate_condense.condense_long_texts(bubbles, lambda b: 9, lambda wanted: asked.update(wanted) or {})
     text, limit = asked["0"]
     assert limit == int(len(text) * (9 / 13) ** 2)
 
@@ -40,7 +40,7 @@ def test_the_budget_follows_the_size_the_text_was_set_at():
 def test_a_short_sound_word_on_a_small_band_is_not_sent_for_shortening():
     bubbles = [{"kind": "sign", "translated_text": "Grrr..."}]
     asked = []
-    scanlate_condense.condense_long_signs(bubbles, lambda b: 9, lambda wanted: asked.append(wanted) or {})
+    scanlate_condense.condense_long_texts(bubbles, lambda b: 9, lambda wanted: asked.append(wanted) or {})
     assert asked == []
 
 
@@ -48,14 +48,14 @@ def test_an_answer_that_is_longer_empty_or_for_another_key_is_ignored():
     for answer in ({"0": "x" * 200}, {"0": "  "}, {"5": "Short"}, {"0": 7}, None):
         bubbles = _signs()[:1]
         original = bubbles[0]["translated_text"]
-        scanlate_condense.condense_long_signs(bubbles, lambda b: 9, lambda wanted: answer)
+        scanlate_condense.condense_long_texts(bubbles, lambda b: 9, lambda wanted: answer)
         assert bubbles[0]["translated_text"] == original
 
 
 def test_a_sign_with_no_band_to_fit_is_left_alone():
     bubbles = _signs()[:1]
     asked = []
-    scanlate_condense.condense_long_signs(bubbles, lambda b: None, lambda wanted: asked.append(wanted) or {})
+    scanlate_condense.condense_long_texts(bubbles, lambda b: None, lambda wanted: asked.append(wanted) or {})
     assert asked == []
 
 
@@ -136,3 +136,59 @@ def test_only_the_english_a_translation_call_wrote_is_up_for_shortening():
     before = [b.get("translated_text") for b in (typed_by_hand, translated)]
     translated["translated_text"] = "Traffic is jammed."
     assert run._translated_since([typed_by_hand, translated], before) == [translated]
+
+
+def test_only_a_balloon_is_shortened_when_asked_for_balloons():
+    bubbles = _signs()
+    sizes = {id(bubbles[0]): 9, id(bubbles[2]): 9}
+    asked = {}
+    changed = scanlate_condense.condense_long_texts(
+        bubbles, lambda b: sizes.get(id(b)), lambda wanted: asked.update(wanted) or {"2": "Short line"}, "bubble")
+    assert changed == [bubbles[2]] and list(asked) == ["2"]
+    assert bubbles[0]["translated_text"].startswith("Traffic")
+
+
+def test_a_balloon_prompt_names_balloons_and_the_speaker(monkeypatch):
+    seen = {}
+    monkeypatch.setattr("engine_backends.llm_tasks.call_llm_json",
+                        lambda engine, prompt, **k: seen.update(prompt=prompt) or None)
+    scanlate_condense.ask_for_shorter(object(), "Korean", {"0": ("A long line of dialogue", 12)}, kind="bubble")
+    assert "speech balloons" in seen["prompt"] and "the speaker" in seen["prompt"]
+
+
+def _small_balloon(cv2):
+    page = np.full((400, 400), 255, np.uint8)
+    cv2.ellipse(page, (200, 200), (45, 35), 0, 0, 360, 0, 2)
+    return page, {"x": 150, "y": 160, "w": 100, "h": 80, "kind": "bubble", "font_size": 20}
+
+
+def test_a_small_balloon_with_a_long_line_is_measured_below_the_readable_size():
+    cv2 = pytest.importorskip("cv2")
+    page, box = _small_balloon(cv2)
+    long_line = "Wouldn't you be able to show your talent more in a sports club than here?"
+    size = scanlate_render.balloon_fitted_size("unused", page, box, long_line)
+    assert size is not None and size < scanlate_tuning.TYPESET_COMFORT_PX
+    assert scanlate_render.balloon_fitted_size("unused", page, box, "Huh?") is None
+
+
+def test_a_roomy_balloon_is_not_measured():
+    cv2 = pytest.importorskip("cv2")
+    page, box = _small_balloon(cv2)
+    assert scanlate_render.balloon_fitted_size("unused", page, dict(box, kind="sign"), "x" * 40) is None
+
+
+def test_the_run_shortens_a_cramped_balloon_and_says_so(monkeypatch):
+    from scanlate import scanlate_page_decode
+    from services import scanlate_run_service as run
+    monkeypatch.setattr(run.db, "get_page", lambda *a, **k: {})
+    monkeypatch.setattr(run.render_svc, "original_path", lambda *a, **k: "page.png")
+    monkeypatch.setattr(run.render_svc, "_custom_fonts", lambda drama_id: {})
+    monkeypatch.setattr(scanlate_page_decode, "decode_page", lambda path: object())
+    monkeypatch.setattr(scanlate_page_decode, "page_gray", lambda path, page: object())
+    monkeypatch.setattr(scanlate_render, "balloon_fitted_size", lambda *a, **k: 9)
+    monkeypatch.setattr(scanlate_condense, "ask_for_shorter", lambda *a, **k: {"0": "Trains stopped"})
+    bubbles = [{"kind": "bubble", "translated_text": "Traffic is jammed. All AB line trains have stopped."}]
+    notes = []
+    run._condense_signs(1, 2, bubbles, object(), "claude", {"source_language": "ko"}, notes)
+    assert bubbles[0]["translated_text"] == "Trains stopped"
+    assert "balloon" in notes[0][1] and "shortened" in notes[0][1]

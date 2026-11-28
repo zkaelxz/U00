@@ -1,15 +1,18 @@
 """
-scanlate_condense.py -- shortens the English of signs whose text is too long for the band it
-sits on, so it can be set at a readable size.
+scanlate_condense.py -- shortens the English of signs and speech balloons whose text is too long
+for the space it sits in, so it can be set at a readable size.
 """
 import json
 import re
 
 from scanlate import scanlate_tuning
 # A long English sentence on a sign whose Chinese is a few characters: the band is one line high, and
-# the typesetter would shrink it until it can't be read. Only the sign's own text is rewritten.
+# the typesetter would shrink it until it can't be read. A small balloon with a long line has the same
+# trouble. Only the text itself is rewritten.
 _NOTE = (" Keep every fact: each name, number, place and what happens. Drop only filler words and "
-         "soft phrasing, add nothing, and keep the tone of a sign or notice.")
+         "soft phrasing, add nothing, and keep the tone of {tone}.")
+_KINDS = {"sign": ("signs", "a sign or notice", "the sign's band"),
+          "bubble": ("speech balloons", "the speaker", "the balloon")}
 
 
 # A budget this small is a sound word or an exclamation ("Guh...") on a tiny band: there is
@@ -17,17 +20,17 @@ _NOTE = (" Keep every fact: each name, number, place and what happens. Drop only
 _SMALLEST_USEFUL_BUDGET = 12
 
 
-def condense_long_signs(bubbles: list, measure, ask) -> list:
-    """Replaces, in place, the translated text of each sign that `measure` says would be set
-    below the readable size with the shorter text `ask` returns for it. `measure(bubble)` is the
-    size the text would be set at, or None when the sign has no band to fit; `ask({key: (text,
-    max_chars)})` is {key: shorter text}. A shortened text is used only when it is shorter than
+def condense_long_texts(bubbles: list, measure, ask, kind: str = "sign") -> list:
+    """Replaces, in place, the translated text of each region of `kind` ("sign" or "bubble") that
+    `measure` says would be set below the readable size with the shorter text `ask` returns for
+    it. `measure(bubble)` is the size the text would be set at, or None when there is no space to
+    measure; `ask({key: (text, max_chars)})` is {key: shorter text}. A shortened text is used only when it is shorter than
     the original and not empty. Returns the changed bubbles."""
     comfort = scanlate_tuning.TYPESET_COMFORT_PX
     wanted = {}
     for key, b in enumerate(bubbles):
         text = (b.get("translated_text") or "").strip()
-        if b.get("skip") or b.get("kind") != "sign" or not text:
+        if b.get("skip") or (b.get("kind") or "bubble") != kind or not text:
             continue
         fitted = measure(b)
         if fitted is None or fitted >= comfort:
@@ -48,16 +51,17 @@ def condense_long_signs(bubbles: list, measure, ask) -> list:
     return changed
 
 
-def ask_for_shorter(engine, source_name: str, wanted: dict, usage_cb=None) -> dict:
-    """{key: shorter English} from one engine call for the signs in `wanted` ({key: (text,
+def ask_for_shorter(engine, source_name: str, wanted: dict, usage_cb=None, kind: str = "sign") -> dict:
+    """{key: shorter English} from one engine call for the texts in `wanted` ({key: (text,
     max_chars)}); answers are matched by key, and anything not an exact key is dropped."""
     from engine_backends.llm_tasks import call_llm_json
     from engine_backends.line_text import extract_first_json_value
     payload = json.dumps({k: {"text": t, "max_chars": n} for k, (t, n) in wanted.items()},
                          ensure_ascii=False)
-    prompt = (f"These are English texts for signs in a {source_name} comic. Each is too long for the "
-              "sign's band, so rewrite each to at most its max_chars characters." + _NOTE
-              + f"\n\nSigns (JSON):\n{payload}\n\n"
+    things, tone, space = _KINDS[kind]
+    prompt = (f"These are English texts for {things} in a {source_name} comic. Each is too long for "
+              f"{space}, so rewrite each to at most its max_chars characters." + _NOTE.format(tone=tone)
+              + f"\n\n{things.capitalize()} (JSON):\n{payload}\n\n"
               'Return ONLY a JSON object: {"shortened": {"<key>": "<shorter English>", ...}}. '
               "Use each key as given. No preamble, no markdown fences.")
     text = call_llm_json(engine, prompt, max_tokens=min(max(1500, 200 * len(wanted)), 8192),

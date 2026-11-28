@@ -28,7 +28,9 @@ from scanlate.scanlate_inpaint import (
 )
 from scanlate.scanlate_lama import lama_ml_weights_cached
 from scanlate.scanlate_regions import SHAPE_FITTED_KINDS, region_excluded_from_auto
-from scanlate.scanlate_text_layout import _dark_under, _layout_in_mask, _symmetrised, render_text_in_box
+from scanlate.scanlate_text_layout import (
+    _dark_under, _layout_balloon_text, _layout_in_mask, _symmetrised, render_text_in_box,
+)
 from scanlate.scanlate_watermark import is_site_mark_region, logo_box
 
 
@@ -91,6 +93,34 @@ def sign_fitted_size(page, box: dict, text: str, custom_fonts: dict | None = Non
                                lambda size: ImageFont.truetype(font, size) if font else ImageFont.load_default(size))
     # No layout in the band at any size: the typesetter then falls back to the whole box, so the
     # text is as good as unreadable there.
+    return laid_out[0].size if laid_out else scanlate_tuning.TYPESET_SMALLEST_PX - 1
+
+
+# A balloon's box this small per character cannot hold the text at the readable size, so only such
+# balloons are measured: finding a balloon's shape costs more than the check is worth for the rest.
+_CRAMPED_PX_PER_CHAR = 260
+
+
+def balloon_fitted_size(image_path: str, gray, box: dict, text: str, custom_fonts: dict | None = None,
+                        rect_layout: bool = False) -> int | None:
+    """The font size `text` would be set at inside the balloon's own outline, or None when the
+    balloon is roomy enough not to need measuring or has no outline to fit. It lays the text out
+    the way _letter_balloons does, so a line too long for its balloon is seen before it is
+    typeset; one that fits at none is one below the smallest size."""
+    if (box["w"] * box["h"] >= _CRAMPED_PX_PER_CHAR * len(text)
+            or (box.get("kind") or "bubble") not in SHAPE_FITTED_KINDS):
+        return None
+    mask = _layout_mask(image_path, box, gray)
+    if mask is None:
+        return None
+    font = _find_font(None, category=box.get("font_category") or "regular", custom_fonts=custom_fonts)
+    # Only whether the readable size is reached matters, so a tall box's large start size is not searched from.
+    start = max(scanlate_tuning.TYPESET_COMFORT_PX,
+                min(box.get("font_size", 18), scanlate_tuning.TYPESET_PROBE_START_PX))
+    laid_out = _layout_balloon_text(
+        ImageDraw.Draw(Image.new("L", (1, 1))), text.translate(_CJK_PUNCTUATION), mask, start,
+        lambda size: ImageFont.truetype(font, size) if font else ImageFont.load_default(size),
+        rect_layout, _PLAIN, _dark_under(gray, box, mask.shape))
     return laid_out[0].size if laid_out else scanlate_tuning.TYPESET_SMALLEST_PX - 1
 
 
