@@ -117,8 +117,9 @@ def test_a_page_that_loses_its_picture_says_so_in_the_log(monkeypatch):
     import types
     import applog
     messages = []
-    say = lambda msg, *a: messages.append(msg % a)
-    monkeypatch.setattr(applog, "get_logger", lambda: types.SimpleNamespace(info=say, warning=say))
+    monkeypatch.setattr(applog, "get_logger", lambda: types.SimpleNamespace(
+        info=lambda msg, *a: messages.append(("info", msg % a)),
+        warning=lambda msg, *a: messages.append(("warning", msg % a))))
     monkeypatch.setattr(scanlate_translate, "translate_regions_with_image",
                         lambda *a, **k: (None, "ctx"))
     monkeypatch.setattr(scanlate_translate, "translate_regions_by_id",
@@ -129,8 +130,9 @@ def test_a_page_that_loses_its_picture_says_so_in_the_log(monkeypatch):
     scanlate_translate.translate_page_bubbles(
         [_region(f"文{i}") for i in range(scanlate_translate.REGIONS_PER_CALL + 1)], _Engine(),
         {"source_language": "zh"}, page_image=picture)
-    assert any("from its text only" in m for m in messages)
-    assert any("sent without its picture" in m for m in messages)
+    assert any(level == "warning" and "did not match" in m and "from its text only" in m
+               for level, m in messages)
+    assert any(level == "info" and "sent without its picture" in m for level, m in messages)
 
 
 def _stored_page(drama_id, width=120, height=80):
