@@ -128,3 +128,57 @@ def test_a_failing_source_never_fails_the_import(isolated_db):
     did = db.create_drama(title_en="S", media_type="manhua")
     sources_import_service._fill_cover(Broken(), "s1", did)
     assert db.get_drama(did)["cover_art_filename"] is None
+
+
+def test_cover_url_comes_from_the_meta_tags_only():
+    html = ('<script>"og:image"</script><meta property="og:title" content="T">'
+            '<meta content="/c/s.jpg?a=1&amp;b=2" property="og:image">')
+    assert cover_art_service.cover_url_from_html(html, "https://site.example/series/1") == \
+        "https://site.example/c/s.jpg?a=1&b=2"
+    assert cover_art_service.cover_url_from_html('<meta name="twitter:image" content="javascript:x">', "https://s.example/") == ""
+    assert cover_art_service.cover_url_from_html("<p>none</p>", "https://s.example/") == ""
+
+
+def test_a_url_import_cover_prefers_the_page_picture(isolated_db, monkeypatch):
+    did = _comic()
+    from services import quick_read_fetch
+    seen = []
+    monkeypatch.setattr(quick_read_fetch, "fetch_one", lambda url, h, cap: (seen.append(url), (_png("green", (30, 30)), ""))[1])
+    url = cover_art_service.cover_url_from_html('<meta property="og:image" content="https://cdn.example/c.png">', "https://s.example/")
+    assert cover_art_service.fill_missing_cover(did, url, "https://s.example/") is True
+    assert seen == ["https://cdn.example/c.png"]
+
+
+def test_site_refresh_replaces_only_page_one_covers(isolated_db, monkeypatch):
+    from services import quick_read_fetch
+    auto = _comic(title="Auto")
+    chosen = _comic(title="Chosen")
+    nolink = _comic(title="NoLink")
+    for did in (auto, chosen, nolink):
+        cover_art_service.make_cover_from_first_page(did) if did != chosen else \
+            cover_art_service.save_cover(did, io.BytesIO(_png("white", (40, 60))))
+    for did in (auto, chosen):
+        db.update_drama(did, source_url="https://site.example/s")
+    kept = cover_art_service.cover_stamp(chosen)
+    assert cover_art_service.cover_is_first_page(auto) is True
+    assert cover_art_service.cover_is_first_page(chosen) is False
+    monkeypatch.setattr(cover_art_service, "site_cover_url", lambda link: "https://cdn.example/c.png")
+    monkeypatch.setattr(quick_read_fetch, "fetch_one", lambda url, h, cap: (_png("yellow", (30, 45)), ""))
+    cover_backfill_service.start_backfill()
+    wait_for_job(cover_backfill_service.JOB_ID)
+    from PIL import Image
+    assert Image.open(cover_art_service.cover_file(auto)[0]).size == (30, 45)
+    assert cover_art_service.cover_stamp(chosen) == kept
+    assert Image.open(cover_art_service.cover_file(nolink)[0]).size == (40, 60)
+    assert os.path.exists(os.path.join(db.LIBRARY_DIR, ".site_covers_refreshed"))
+
+
+def test_site_refresh_keeps_page_one_when_the_page_has_no_picture(isolated_db, monkeypatch):
+    did = _comic()
+    cover_art_service.make_cover_from_first_page(did)
+    db.update_drama(did, source_url="https://site.example/s")
+    before = cover_art_service.cover_stamp(did)
+    monkeypatch.setattr(cover_art_service, "site_cover_url", lambda link: "")
+    cover_backfill_service.start_backfill()
+    wait_for_job(cover_backfill_service.JOB_ID)
+    assert cover_art_service.cover_stamp(did) == before
