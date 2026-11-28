@@ -2138,7 +2138,11 @@
         for (const el of elements) {
           const isImg = el.tagName === "IMG";
           // Kept even when drawn here: the element may show another page and then this one again.
-          if (srcKey && isImg) rememberPicture(srcKey, regions);
+          if (srcKey && isImg) {
+            rememberPicture(srcKey, regions);
+            // The load that would draw it may come before this batch ends.
+            watchForPageChanges();
+          }
           if (srcKey && el.isConnected && (!isImg || showsLoadedPicture(el)) && await currentDrawTargetKey(el) === srcKey) {
             drawOverlay(el, regions);
             counts.drawn += 1;
