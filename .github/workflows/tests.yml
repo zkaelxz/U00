@@ -395,7 +395,7 @@ jobs:
             tests/test_video_export.py tests/test_vocab_export.py tests/test_misheard_finder.py tests/test_ci_workflows.py \
             tests/test_audio_levelling.py tests/test_narration_tts.py tests/test_picture_subtitles.py \
             tests/test_scanlate_checks.py tests/test_scanlate_layout_fixes.py tests/test_scanlate_review_fixes.py \
-            tests/test_scanlate_text_colour.py tests/test_scanlate_tilt.py --junitxml=optional-tests.xml
+            tests/test_scanlate_text_colour.py tests/test_scanlate_tilt.py tests/test_reader_panels.py --junitxml=optional-tests.xml
 
       # A skip counts as a pass, so a library this job stopped installing would turn its tests
       # into green skips; the checker fails on any skip reason it doesn't expect.
