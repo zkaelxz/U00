@@ -193,8 +193,8 @@ html.shell-pip body { overflow: hidden; }
 .live-start-row { align-items: center; }
 .live-start-row p { margin: 0; }
 .live-follows-col { display: grid; gap: var(--space-3); align-content: start; min-width: 0; }
-.live-follows-head { margin: 0; font-family: var(--font-heading); font-size: var(--text-lg); display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
-.live-follows-head .muted { font-family: var(--font-sans); font-size: var(--text-sm); font-weight: normal; }
+.live-follows-head { margin: 0; font-size: var(--text-lg); display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
+.live-follows-head .muted { font-size: var(--text-sm); font-weight: normal; }
 @media (min-width: 1024px) {
   .live-columns { grid-template-columns: 1.25fr 1fr; gap: 48px; }
   .live-follows-col { border-left: 1px solid var(--border); padding-left: var(--space-6); }
