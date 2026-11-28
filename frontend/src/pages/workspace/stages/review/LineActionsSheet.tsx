@@ -102,11 +102,11 @@ function DeleteButton({ idx, initialArmed, busy, blocked, onDelete }: {
     return () => clearTimeout(t)
   }, [armed])
   return armed ? (
-    <button ref={confirmRef} type="button" className={buttonClass('danger')} disabled={busy || blocked} onClick={onDelete}>
+    <button ref={confirmRef} type="button" className="sheet-danger" disabled={busy || blocked} onClick={onDelete}>
       {busy ? 'Deleting…' : `Confirm delete #${idx}`}
     </button>
   ) : (
-    <button type="button" className={buttonClass('danger')} disabled={blocked} onClick={() => setArmed(true)}>
+    <button type="button" className="sheet-danger" disabled={blocked} onClick={() => setArmed(true)}>
       Delete line…
     </button>
   )
