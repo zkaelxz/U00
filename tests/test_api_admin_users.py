@@ -1276,3 +1276,15 @@ def test_a_member_sees_their_own_limits_and_nobody_elses(isolated_db):
     assert c.get("/api/auth/me", headers=_h(fs)).json()["limits"] == {
         "daily_job_limit": None, "jobs_today": 0, "monthly_paid_cap_usd": None,
         "month_paid_spend_usd": 0.0, "title_limit": 200, "titles_owned": 0}
+
+
+def test_the_generated_types_say_me_may_leave_limits_out(monkeypatch):
+    # me() deletes `limits` and `preferences` when None, so the frontend types must not
+    # promise them; every other served field stays required.
+    from tools import export_openapi
+    monkeypatch.setenv("BAIHE_API_AUTH", "off")
+    schema = export_openapi.build_document()["components"]["schemas"]["MeResponse"]
+    assert {"limits", "preferences"}.isdisjoint(schema["required"])
+    assert {"permissions", "own_ollama_key", "user"} <= set(schema["required"])
+    assert schema["properties"]["limits"] == {"$ref": "#/components/schemas/MemberLimits",
+                                              "title": "Limits", "x-omitted-when-none": True}

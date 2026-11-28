@@ -41,5 +41,5 @@ export async function expectHiddenItemNotListed(page: Page, open: () => Promise<
   await page.keyboard.press('Escape')
   await page.goto('/#/discover')
   await expect(page.getByRole('navigation', { name: 'Find & Add' }).getByRole('link', { name: 'Discover' })).toHaveAttribute('aria-current', 'page')
-  await expect(page.getByRole('tablist', { name: 'Discover tasks' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Find on official platforms' })).toBeVisible()
 }
