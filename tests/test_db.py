@@ -473,6 +473,17 @@ class TestBenchmarkCasesAndRuns:
         isolated_db.delete_benchmark_case(case_id)
         assert isolated_db.list_benchmark_cases() == []
 
+    def test_deleting_a_case_cascades_to_its_old_runs(self, isolated_db):
+        # Upgraded libraries can still hold rows from the removed benchmark runner.
+        import contextlib
+        case_id = isolated_db.create_benchmark_case("a", "transcription", "audio_drama")
+        with contextlib.closing(isolated_db.get_conn()) as conn:
+            conn.execute("INSERT INTO benchmark_runs (case_id, output_text) VALUES (?, 'hi')", (case_id,))
+            conn.commit()
+        isolated_db.delete_benchmark_case(case_id)
+        with contextlib.closing(isolated_db.get_conn()) as conn:
+            assert conn.execute("SELECT COUNT(*) FROM benchmark_runs").fetchone()[0] == 0
+
 
 class TestImportTimeSafety:
     """Step 51: importing db.py alone must never touch a real library path

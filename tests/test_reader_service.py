@@ -389,7 +389,7 @@ class TestMedia:
         assert reader_service.get_media_availability(did)["narration"] is True
         assert reader_service._media_paths(did, isolated_db.get_drama(did))["narration"][1].endswith("narration_track.flac")
 
-    def test_audio_only_has_no_overlay_and_missing_file_is_404(self, isolated_db):
+    def test_audio_only_has_no_overlay_and_a_missing_file_is_not_offered(self, isolated_db):
         did = _drama(isolated_db, audio_filename="a.wav", source_video_filename="gone.mp4")
         isolated_db.save_lines(did, _lines(1))
         self._media(isolated_db, did, "a.wav")
