@@ -1050,3 +1050,35 @@ def test_the_desktop_app_applies_quietly_too(env, quiet, monkeypatch):
     assert len(env["started"]) == 1
     journal = app_swap.read_journal(env["root"])
     assert journal["state"] == "staged" and journal["quiet"] is True
+
+
+def _restart(monkeypatch):
+    """A new process: nothing held in memory, the library kept."""
+    monkeypatch.setattr(aus, "_state", dict(aus._state, offer="none", offer_version=None,
+                                            download="idle", downloaded_bytes=0,
+                                            download_error=None))
+    monkeypatch.setattr(aus, "_release", None)
+    monkeypatch.setattr(aus, "_verified", None)
+    monkeypatch.setattr(us, "_state", dict(us._state, download="idle", latest=None))
+    monkeypatch.setattr(us, "_release", None)
+    monkeypatch.setattr(us, "_verified", None)
+
+
+def test_after_a_restart_the_day_counts_from_the_first_verification(service_env, quiet, monkeypatch):
+    env = service_env
+    aus.set_service_auto_apply(True)
+    quiet["now"] = False
+    _serve(env)
+    us.check()
+    _settle_download()
+    first = aus._verified["at"]
+    _restart(monkeypatch)
+    us.check()
+    _settle_download()
+    # Downloaded and checked again, never taken from the folder on trust.
+    assert sum(1 for url, _ in env["http"].calls if url == ZIP_URL) == 2
+    assert aus._verified["at"] == first
+    aus.auto_apply_tick(now=first + aus.QUIET_WAIT_SECONDS - 60)
+    assert env["sc"].calls == []
+    aus.auto_apply_tick(now=first + aus.QUIET_WAIT_SECONDS)
+    assert [c[1:] for c in env["sc"].calls] == [["start", "BaiheUpdate"]]

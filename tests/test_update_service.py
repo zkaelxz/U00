@@ -1399,3 +1399,63 @@ def test_an_unsigned_installer_is_never_run_on_its_own(http, auto_setup):
     assert us.status()["verified"] is True
     us.auto_install_tick()
     assert FakePopen.calls == []
+
+
+def test_a_failed_daily_check_is_tried_again_after_an_hour(http):
+    http.add(API_URL, status=503)
+    start = 10 ** 10
+    us.set_auto_check(True)
+    us.periodic_tick(now=lambda: start)
+    assert len(http.calls) == 1
+    us.periodic_tick(now=lambda: start + us.CHECK_RETRY_SECONDS - 60)
+    assert len(http.calls) == 1
+    _serve_release(http)
+    us.periodic_tick(now=lambda: start + us.CHECK_RETRY_SECONDS)
+    assert len(http.calls) == 2 and us.status()["latest"] == "0.2.0"
+    us.periodic_tick(now=lambda: start + 2 * us.CHECK_RETRY_SECONDS)
+    assert len(http.calls) == 2              # a good check waits the whole day again
+
+
+def _restart(monkeypatch):
+    """A new process: nothing held in memory, the library kept."""
+    monkeypatch.setattr(us, "_state", dict(us._state, download="idle", downloaded_bytes=0,
+                                           latest=None))
+    monkeypatch.setattr(us, "_release", None)
+    monkeypatch.setattr(us, "_verified", None)
+
+
+def test_after_a_restart_the_installer_is_fetched_again_but_keeps_its_first_time(http, monkeypatch):
+    _serve_release(http)
+    us.check()
+    us.download()
+    first = us._verified["at"]
+    _restart(monkeypatch)
+    us.check()
+    us.download()
+    assert sum(1 for url, _ in http.calls if url == CDN_URL) == 2
+    assert us._verified["at"] == first
+    stored = json.dumps(db.get_app_setting(us.FIRST_VERIFIED_INSTALLER_KEY))
+    assert db.LIBRARY_DIR not in stored and "http" not in stored
+
+
+def test_another_file_for_the_same_version_starts_its_own_wait(http, monkeypatch):
+    _serve_release(http)
+    us.check()
+    us.download()
+    record = db.get_app_setting(us.FIRST_VERIFIED_INSTALLER_KEY)
+    db.set_app_setting(us.FIRST_VERIFIED_INSTALLER_KEY, dict(record, at=1.0))
+    _restart(monkeypatch)
+    us.check()
+    us.download()
+    assert us._verified["at"] == 1.0
+    db.set_app_setting(us.FIRST_VERIFIED_INSTALLER_KEY, dict(record, sha256="0" * 64, at=1.0))
+    _restart(monkeypatch)
+    us.check()
+    us.download()
+    assert us._verified["at"] > 1.0
+
+
+@pytest.mark.parametrize("at", [True, "1", -5, 10 ** 12])
+def test_a_damaged_or_future_time_is_not_believed(at):
+    record = {"version": "0.2.0", "name": NAME, "sha256": "a" * 64, "at": at}
+    assert us.first_verified_at(record, "0.2.0", NAME, "a" * 64, 1000.0) == 1000.0

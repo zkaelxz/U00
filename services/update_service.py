@@ -43,12 +43,14 @@ hand and each hop is checked, and no credentials are sent (not even from
 filesystem path.
 """
 
+import contextlib
 import hashlib
 import hmac
 import json
 import os
 import re
 import shutil
+import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -73,8 +75,12 @@ DEFAULT_REPO = "zkaelxz/U00"
 AUTO_CHECK_KEY = "update.auto_check"
 AUTO_SETUP_TRIED_KEY = "update.auto_setup_tried"
 LAST_CHECK_KEY = "update.last_check_at"
+FIRST_VERIFIED_INSTALLER_KEY = "update.installer_first_verified"
 INCLUDE_PRERELEASES_KEY = "update.include_prereleases"
 AUTO_CHECK_SECONDS = 24 * 3600
+# A failed daily check (offline at that minute, GitHub's rate limit) is tried again
+# this soon, not a day later.
+CHECK_RETRY_SECONDS = 3600
 
 API_HOSTS = frozenset({"api.github.com"})
 DOWNLOAD_HOSTS = frozenset({"github.com", "objects.githubusercontent.com",
@@ -504,7 +510,7 @@ def periodic_tick(now=time.time) -> None:
     try:
         check()
     except ServiceError:
-        pass
+        db.set_app_setting(LAST_CHECK_KEY, now() - AUTO_CHECK_SECONDS + CHECK_RETRY_SECONDS)
 
 
 def _silent_setup_possible() -> bool:
@@ -728,6 +734,24 @@ def _progress(n):
         _state["downloaded_bytes"] = n
 
 
+def first_verified_at(record, version, name, sha256, now) -> float:
+    """When this same file (version, name and SHA-256) was first verified, in this
+    run or an earlier one, so an app start doesn't restart the day an automatic
+    update waits for the quiet hours. Only the time carries over: the file is
+    always downloaded and checked again."""
+    if (isinstance(record, dict) and record.get("version") == version
+            and record.get("name") == name and record.get("sha256") == sha256):
+        at = record.get("at")
+        # A clock set back, or a damaged row, must not make the update look older.
+        if not isinstance(at, bool) and isinstance(at, (int, float)) and 0 < at <= now:
+            return float(at)
+    return now
+
+
+def first_verified_record(verified) -> dict:
+    return {k: verified[k] for k in ("version", "name", "sha256", "at")}
+
+
 def download_deadline_seconds(cap: int) -> float:
     return max(DOWNLOAD_DEADLINE_SECONDS, cap / MIN_DOWNLOAD_BYTES_PER_SECOND)
 
@@ -798,6 +822,8 @@ def download() -> dict:
     final = os.path.join(folder, release["exe_name"])
     fetch_verified(release["exe_url"], final, release["exe_size"], MAX_INSTALLER_BYTES, expected,
                    public_key, signature, release["exe_name"], _progress)
+    at = first_verified_at(db.get_app_setting(FIRST_VERIFIED_INSTALLER_KEY, None),
+                           release["version"], release["exe_name"], expected, time.time())
     with _lock:
         if _release is None or _release["version"] != release["version"]:
             raise ConflictError("A different version was found while downloading. "
@@ -805,9 +831,12 @@ def download() -> dict:
         # Set in the same step: no reader sees a verified file the state still calls
         # downloading, and a check() can't clear it in between.
         _verified = {"version": release["version"], "name": release["exe_name"],
-                     "path": final, "sha256": expected, "signature": signature,
-                     "at": time.time()}
+                     "path": final, "sha256": expected, "signature": signature, "at": at}
         _state.update(download="verified", download_error=None)
+        held = _verified
+    # Losing it only restarts the wait, so a failed write is ignored.
+    with contextlib.suppress(sqlite3.Error):
+        db.set_app_setting(FIRST_VERIFIED_INSTALLER_KEY, first_verified_record(held))
     return status()
 
 
