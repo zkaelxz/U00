@@ -296,7 +296,7 @@ test('People and access: a list down the left, People first, the pane remembered
   await page.getByRole('button', { name: '+ Add person' }).click()
   const form = page.getByRole('form', { name: 'Add a person' })
   await form.getByRole('button', { name: 'Help: Add a person' }).focus()
-  await expect(form.getByRole('tooltip')).toContainText('use Review, play audio and video)')
+  await expect(form.getByRole('tooltip')).toContainText('import chapters from novel and comic sites)')
   await expect(page.locator('section[aria-label="People and access"]')).not.toContainText('grant-admin')
 
   await openPane(page, 'Remote access')
@@ -456,7 +456,8 @@ test('People: name and limits save on Enter or leaving the field, show Saved onl
   await jobs.blur()
   await jobs.press('Enter')
   await expect.poll(() => bodies.filter(([what]) => what === 'job-limit').length).toBe(2)
-  // Esc puts the saved value back.
+  // Esc puts the saved value back; it is ignored while a save is on its way, so wait for the retry's answer.
+  await expect(jobs).not.toHaveAttribute('aria-busy', 'true')
   await jobs.press('Escape')
   await expect(jobs).toHaveValue('')
 
@@ -492,7 +493,7 @@ test('People: on the PC, adds a person; away from the PC there is no form', asyn
   await expect(submit).toBeDisabled()
   await form.getByLabel('Email').fill('PC2@example.com')
   await form.getByLabel('Name (optional)').fill('Second PC')
-  await form.getByRole('switch', { name: 'Also allow the browser extension' }).click()
+  await form.getByRole('switch', { name: 'Also allow the browser extension and Baihe Grab' }).click()
   await submit.click()
   await expect(page.getByTestId('admin-users')).toContainText('pc2@example.com was added.')
   await expect(page.getByRole('list', { name: 'People' }).locator(':scope > li')).toHaveCount(3)

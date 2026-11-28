@@ -47,7 +47,7 @@ The Android APK workflow's `sign` job is the only job that reads `ANDROID_DEBUG_
 ## 2. Run the local test suite
 - One area: `python -m pytest -q tests/test_<area>.py`
 - Everything: `python -m pytest -q -n auto -p no:cacheprovider -o addopts=""` (about 17 minutes)
-- Frontend: `cd frontend && npx tsc -b && npx vitest run`
+- Frontend: `cd frontend && npx tsc -b && npm run lint && npx vitest run`
 - Browser tests (`frontend/e2e/`) use the Chromium already installed. Never run `playwright install`.
 - GitHub CI is the merge gate while the repo is public. If the repo becomes private or Actions minutes run out, the full local suite plus the frontend commands above is the gate.
 
@@ -83,7 +83,7 @@ The 13 owner checks (from the 2026-10-10 triage's "Owner checks" items 6-18, a s
 Close other work first: a restore is refused while any job runs. Restores are PC-only.
 **Automatic backups (Library tools -> "Backup" tab -> "Automatic backups")**
 - On unless you turn off "Back up automatically" (an install that never saved a choice is on after the upgrade). The default folder is on the library's drive, so the tab says so and suggests a folder on another drive; a banner on every page of the main PC says when the last run failed or none has succeeded for a long while (2 intervals plus a day). Defaults: daily, database only (text, translations, settings; small and fast). "Include media (audio, video, pages)" adds every file and can be large. "Back up now" adds a copy at once.
-- Each run adds a new dated copy (`baihe_snapshot-YYYYMMDD-HHMMSS.zip`, UTC) and then prunes. Kept: one copy per UTC day for the last 7 days, plus the oldest copy of each of the last 4 ISO weeks. A failed backup deletes nothing.
+- Each run adds a new dated copy (`baihe_snapshot-YYYYMMDD-HHMMSS.zip`, UTC) and then prunes. Kept: up to 11 copies, the newest from each of the 7 most recent UTC days with a copy, plus the first copy of each of 4 more ISO weeks. A failed backup deletes nothing.
 - Each copy's manifest carries this library's id and a copy number, and the library remembers which copies it wrote. Pruning, "All copies" and a folder change touch only those (plus untagged copies dated before the id was made, in the default `backups/auto`). Another PC's copies in a shared folder (also a PC running a hand-copied library folder, which has the same id), untagged copies in a custom folder and unreadable files are listed under "Other or older copies (not managed)" and never pruned. If the folder has a copy with this library's id numbered above its own count (such a copied library, or a `library.db` put back by hand), that run deletes nothing and the log says so; copies it didn't write stay until you delete them by name.
 - "Backup folder": empty means `backups/auto` in the library. Changing it moves this library's copies to the new folder (refused while a backup, restore, bulk delete or storage cleanup runs, or if the new folder has a file of the same name this library didn't make). The folder must exist, and be outside the library or in a folder of its own inside the library's `backups/` (not `backups/` itself, `backups/exports` or `backups/database`, where the manual backups go), and not inside another library's folder.
 **One drama, from a copy**

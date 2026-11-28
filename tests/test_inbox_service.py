@@ -114,6 +114,18 @@ def test_move_puts_the_original_in_done(folder):
     assert (folder / inbox.DONE_FOLDER / "ep1.mp3").exists()
 
 
+def test_a_failed_move_logs_no_file_name(folder, monkeypatch, caplog):
+    def refuse(root, name, path):
+        raise PermissionError(13, "Permission denied", path)
+    monkeypatch.setattr(inbox, "_move_to_done", refuse)
+    _on(folder, move=True)
+    _drop(folder, name="moonlit_example_garden_01.mp3")
+    with caplog.at_level("WARNING", logger=inbox.__name__):
+        _scan_until_started()
+    assert "a .mp3 file (300 bytes)" in caplog.text and "Permission denied" in caplog.text
+    assert "moonlit_example_garden" not in caplog.text and str(folder) not in caplog.text
+
+
 def test_series_mode_adds_to_the_series_and_queues_nothing_itself(folder):
     sid = db.get_or_create_series("Show")
     _on(folder, series_id=sid)

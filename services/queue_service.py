@@ -20,6 +20,7 @@ becomes "missed", which only the owner can turn into a run, and a restored
 library brings back no start time.
 """
 
+import contextlib
 import datetime
 import logging
 import re
@@ -31,13 +32,14 @@ from typing import Optional
 import db
 from engine_backends import shared as engine_shared
 from engine_backends import engine_registry
+from engine_backends import local as local_engine
 from lib import model_offline
 from jobs import user_caps
 from lib.errors import (ConflictError, ForbiddenError, InvalidInputError, NotFoundError,
                         RateLimitedError, ServiceError, UnsupportedOperationError)
 from services import (auth_service, export_service, inbox_service, jobs_service, series_auto_service, quick_video_service,
                       model_readiness_service, ownership_service, profile_service, queue_night, settings_service,
-                      transcribe_service, transcribe_options_service, translate_run_service, translate_thinking_service)
+                      transcribe_service, transcribe_options_service, translate_run_service)
 from services.queue_export_settings import (EXPORT_KEYS, changed_rows as _export_changed_rows,
                                             check_export_settings, export_fields, run_export)
 from services.queue_translate_settings import (TRANSLATE_KEYS, _NO_CAP, _cap_left, _check_translate_spend, _queued_model_and_batch,  # noqa: F401  (_NO_CAP is read from here)
@@ -69,6 +71,8 @@ _ALL_STEPS = (DOWNLOAD,) + STEPS + _PAGE_STEPS
 # A chain saved before items recorded the steps they wait for is a Quick video run, in this order.
 _LEGACY_CHAIN = (DOWNLOAD,) + STEPS
 _UNFINISHED = "An earlier step of this run did not finish."
+_BEHIND_TONIGHT = "Waits for this title's earlier step, which runs tonight."
+_BEHIND_PAUSED = "Waits for this title's earlier step, which is paused."
 POLL_SECONDS = 5.0
 # A start time first seen this late was slept through (the PC was asleep, so
 # nothing ticked) and becomes "missed", like one that passed while Baihe was
@@ -217,14 +221,24 @@ def _settle(doc: dict, now: float) -> None:
     for item in doc["items"]:
         if item["status"] == RUNNING:
             _finish(item, INTERRUPTED, _INTERRUPTED, now)
+            _log_settled(item, f"was running (job {item['job_id'] or 'not recorded'})")
         elif item["status"] == WAITING and item["now"]:
             # It would otherwise start on its own in the new process, which the queue never does.
             _finish(item, INTERRUPTED, _NOT_STARTED, now)
+            _log_settled(item, "was due to start, not started")
     doc["state"] = IDLE
     if doc["schedule"] and now >= doc["schedule"]["start_at"]:
         doc["schedule"]["missed"] = True
     doc["instance"] = _INSTANCE
     doc["settled"] = True
+
+
+def _log_settled(item: dict, where: str) -> None:
+    with contextlib.suppress(Exception):
+        import applog
+        applog.get_logger().warning(
+            f"Interrupted queue item {item['id']} ({item['step']}, title #{item['drama_id']}): "
+            f"{where} when Baihe stopped; marked interrupted, left for the person to press Retry.")
 
 
 def _save(doc: dict) -> None:
@@ -314,7 +328,8 @@ def _item_changed_rows(item: dict, drama: Optional[dict]) -> list:
     return step_rows(item["settings"]) if step_rows else _changed_rows(item, drama)
 
 
-def _view_item(principal, item: dict, drama: Optional[dict], owner_of, night_wait: Optional[str] = None) -> dict:
+def _view_item(principal, item: dict, drama: Optional[dict], owner_of, night_wait: Optional[str] = None,
+               behind: Optional[str] = None) -> dict:
     out = {k: item[k] for k in ("id", "drama_id", "step", "status", "job_id",
                                 "added_at", "started_at", "finished_at")}
     out["reason"] = item["reason"] or None
@@ -323,6 +338,10 @@ def _view_item(principal, item: dict, drama: Optional[dict], owner_of, night_wai
     out["page_run"] = bool(item.get("now"))
     if out["tonight"] and item["status"] == WAITING and not out["reason"]:
         out["reason"] = night_wait
+    elif item["status"] == WAITING and not out["reason"] and behind == _BEHIND_PAUSED:
+        out["reason"] = behind
+    elif item["status"] == WAITING and not out["reason"] and behind and night_wait:
+        out["reason"] = behind
     out["title"] = _title_name(drama)
     out["mine"] = _may_change(principal, item, owner_of)
     out["engine"] = None
@@ -355,6 +374,11 @@ def get_queue(principal) -> dict:
     if any(i.get("tonight") and i["status"] == WAITING for i in doc["items"]):
         night_wait = (queue_night.waiting_text(doc["night"]) if not queue_night.in_window(doc["night"], _clock())
                       else None if queue_night.pc_idle() else queue_night.IDLE_WAIT_TEXT)
+    behind_paused, behind_tonight = _behind_earlier_step(doc["items"])
+
+    def behind(item_id):
+        return (_BEHIND_PAUSED if item_id in behind_paused
+                else _BEHIND_TONIGHT if item_id in behind_tonight else None)
     return {
         "version": QUEUE_VERSION,
         "state": doc["state"],
@@ -366,7 +390,7 @@ def get_queue(principal) -> dict:
         "max_items": MAX_ITEMS,
         "can_control": _controls(principal),
         "monthly_cap_usd": monthly,
-        "items": [_view_item(principal, i, drama_of(i["drama_id"]), owner_of, night_wait)
+        "items": [_view_item(principal, i, drama_of(i["drama_id"]), owner_of, night_wait, behind(i["id"]))
                   for i in doc["items"] if _sees(principal, i, owner_of)],
     }
 
@@ -389,8 +413,6 @@ def _translate_rows(drama: dict, settings: Optional[dict] = None) -> list:
     novel = drama.get("content_mode") == "novel_narration"
     preset = translation_guide.STYLE_PRESETS[last.get("style_preset") or ("novel" if novel else "audio_drama")]
     options = translate_run_service.get_translate_config_defaults(novel, engine, model)
-    thinking = translate_thinking_service.effective(
-        [engine], translate_thinking_service.get_title_choice(drama_id))
     terms = len(db.list_run_glossary_terms(drama))
     packs = [p["name"] for p in language_pack_service.get_title_packs(drama_id)["packs"] if p["enabled"]]
     override = settings_service.reply_guard_override()
@@ -402,14 +424,14 @@ def _translate_rows(drama: dict, settings: Optional[dict] = None) -> list:
         _row("English variant", args["locale"]),
         _row("Style note", "Set" if args["style_note"] else "None"),
         _row("Batch size", saved_batch or options["batch_size"]),
-        _row("Thinking", _on(thinking)),
         _row("Glossary", f"On, {terms} terms" if terms else "Off, no glossary terms yet"),
         _row("Language packs", ", ".join(packs) if packs else "Off"),
         _row("VTuber names", _on(vdb_names_service.is_enabled(drama_id))),
         _row("Reply check", _on(guard)),
         # Only a bulk run waits for DeepSeek's off-peak hours; the queue starts a normal one.
         _row("Off-peak start", "Off: the queue runs it right away"),
-        _row("Cost", _translate_cost(drama_id, engine, saved_model, saved_batch)),
+        _row("Cost", _translate_cost(drama_id, engine, saved_model, saved_batch,
+                                     (settings or {}).get("style_preset"))),
         _row("Monthly cap left", _cap_left()),
     ]
 
@@ -639,7 +661,7 @@ def remove_item(principal, item_id: int) -> dict:
 
 
 def hold_item(principal, item_id: int, held: bool) -> dict:
-    """Pauses (or resumes) one waiting item; the rest of the queue goes on."""
+    """Pauses (or resumes) one waiting item; the rest of the queue, but for its title's later steps, goes on."""
     def change(doc, item):
         if item["status"] != WAITING:
             raise ConflictError("Only a waiting item can be paused or resumed.")
@@ -654,6 +676,11 @@ def set_item_tonight(principal, item_id: int, tonight: bool) -> dict:
     def change(doc, item):
         if item["status"] != WAITING or item["now"]:
             raise ConflictError("Only an item waiting for the queue can wait for tonight.")
+        if not tonight and item["id"] in _behind_earlier_step(doc["items"])[1]:
+            # Running it now would start it before the earlier step it needs; that step may be
+            # another account's, or a transcription the adder wanted kept off the PC by day.
+            raise ConflictError("An earlier step of this title waits for tonight, and this one runs "
+                                "after it. Press Run now on that step first.")
         item["tonight"] = tonight
         if not tonight:
             _auto_start(doc, item["user_id"])
@@ -684,14 +711,102 @@ def cancel_item(principal, item_id: int) -> dict:
     return get_queue(principal)
 
 
+def _back_to_waiting(item: dict, at_pc: bool) -> None:
+    item.update(status=WAITING, reason="", job_id=None, started_at=None, finished_at=None,
+                held=False, not_before=None, at_pc=item["at_pc"] and at_pc)
+
+
 def retry_item(principal, item_id: int, *, at_pc: bool) -> dict:
     def change(doc, item):
         if item["status"] not in RETRYABLE:
             raise ConflictError("Only a failed, skipped, cancelled or interrupted item can be retried.")
-        item.update(status=WAITING, reason="", job_id=None, started_at=None, finished_at=None,
-                    held=False, not_before=None, at_pc=item["at_pc"] and at_pc)
+        _back_to_waiting(item, at_pc)
         _auto_start(doc, item["user_id"])
     return _mutate_item(principal, item_id, change)
+
+
+def interrupted_since(since: float) -> list:
+    """The job id of each item a restart stopped at or after `since` (None for
+    one whose job had not started): what the restart notice counts, and the
+    cut-off jobs it must not count a second time."""
+    with _lock:
+        doc = _load()
+    return [i["job_id"] for i in doc["items"] if i["status"] == INTERRUPTED
+            and i["reason"] in (_INTERRUPTED, _NOT_STARTED) and (i["finished_at"] or 0) >= since]
+
+
+def _needs_paid(engine, model) -> bool:
+    """The rule the start routes apply (api.auth.require_engines_allowed): an
+    engine not open to every account, or an Ollama hosted tag outside the
+    members' ones."""
+    return not engine_registry.open_to_all_accounts(engine) or (
+        engine == "ollama" and local_engine.cloud_model_needs_paid(model))
+
+
+# Steps that translate or name with an engine of their own choosing, the title's otherwise.
+_ENGINE_STEPS = ("translate", NAMES, LINES, RUN_TRANSLATE, RUN_SCANLATE)
+
+
+def _may_use_paid(item: dict) -> bool:
+    """Could this item run on an engine the caller may not use? Advisory, on
+    what the item would run with now (its own engine, else the title's): the
+    real gate is still the start, with the adder's rights. Raises a
+    ServiceError for transcribe settings that no longer apply."""
+    settings = item.get("settings") or {}
+    if settings.get("use_groq"):
+        return True
+    drama = db.get_drama(item["drama_id"])
+    if item["step"] in _ENGINE_STEPS:
+        engine = settings.get("engine") or (_translate_engine(drama) if drama else None)
+        if engine is None:
+            return False
+        model = settings.get("model")
+        if model is None and drama and not settings.get("engine"):
+            model = _queued_model_and_batch(drama, engine)[0]
+        return _needs_paid(engine, model or engine_registry.effective_default_model(engine))
+    if item["step"] == "transcribe" and drama:
+        return bool(transcribe_options_service.apply_run_overrides(drama, settings).get("use_groq"))
+    return False
+
+
+def retry_interrupted(principal, *, holds_paid: bool, at_pc: bool) -> dict:
+    """The restart notice's "Run them again": every interrupted item the
+    caller may change goes back to waiting, as Retry does, and the queue
+    starts when the caller may start it. An item that could run on a paid
+    engine is left as it is unless the caller holds engines.paid, even
+    though it would run with its adder's rights: the press is what starts it.
+    For such a caller an item whose saved settings no longer apply is left
+    too, for its own Retry to explain; a caller with engines.paid skips that
+    check, so the item goes back and fails at its start."""
+    retried = skipped_paid = skipped_stale = 0
+    with _lock:
+        doc = _load()
+        for item in doc["items"]:
+            if item["status"] != INTERRUPTED or not _sees(principal, item) \
+                    or not _may_change(principal, item):
+                continue
+            if not holds_paid:
+                try:
+                    paid = _may_use_paid(item)
+                except ServiceError:
+                    skipped_stale += 1
+                    continue
+                if paid:
+                    skipped_paid += 1
+                    continue
+            _back_to_waiting(item, at_pc)
+            retried += 1
+        if retried and _controls(principal):
+            doc["state"], doc["notice"] = ACTIVE, None
+            if doc["schedule"] and doc["schedule"]["missed"]:
+                doc["schedule"] = None
+        elif retried:
+            _auto_start(doc, ownership_service.user_id(principal))
+        started = doc["state"] == ACTIVE
+        _save(doc)
+    _wake.set()
+    return {"retried": retried, "skipped_paid": skipped_paid, "skipped_stale": skipped_stale,
+            "started": bool(retried) and started}
 
 
 def clear_finished(principal) -> dict:
@@ -844,14 +959,13 @@ def _start_translate(principal, drama: dict, settings: Optional[dict] = None,
     # per-job cap: 0 would mean "no cap" to the cost resolver, which ceiling_left never returns.
     left = series_auto_service.ceiling_left(auto_series) if auto_series is not None and paid else None
     _check_translate_spend(drama["id"], settings.get("model", saved[0]), settings.get("batch_size", saved[1]),
-                           series_left=left)
+                           series_left=left, style_preset=settings.get("style_preset"))
     own = {k: settings[k] for k in ("style_preset", "batch_size") if k in settings}
-    return translate_thinking_service.start_with_thinking(
-        translate_run_service.start_translate_run, drama["id"], None, False,
-        model=settings.get("model"), style_note=args["style_note"],
+    return translate_run_service.start_translate_run(
+        drama["id"], model=settings.get("model"), style_note=args["style_note"],
         locale=settings.get("locale", args["locale"]), record_run=not settings, **own,
         allow_paid_summary=holds_paid and settings_service.get_monthly_cap_usd() > 0,
-        **({"job_cost_cap_usd": left} if left is not None else {}))["job_id"]
+        job_cost_cap_usd=left)["job_id"]
 
 
 def _require_chain_finished(item: dict, items: list) -> None:
@@ -1035,6 +1149,29 @@ def _overlap_pick(items: list, running: list, ordered: list) -> Optional[dict]:
                  and first_of_title[i["drama_id"]] == i["id"]), None)
 
 
+def _behind_earlier_step(items: list) -> tuple:
+    """(paused, tonight): ids of waiting queue items placed after a waiting step of their own title
+    that is paused, or that waits for tonight. All steps adds a title's steps unchained, so only
+    queue order keeps its Translate after its Transcribe: started first, it is skipped for want of
+    lines, or pays to translate lines the later transcription then replaces. A page's start (`now`)
+    is the owner's press and is not held."""
+    paused_titles, tonight_titles = set(), set()
+    paused, tonight = set(), set()
+    for i in items:
+        if i["status"] != WAITING:
+            continue
+        if not i["now"]:
+            if i["drama_id"] in paused_titles:
+                paused.add(i["id"])
+            elif i["drama_id"] in tonight_titles:
+                tonight.add(i["id"])
+        if i.get("held"):
+            paused_titles.add(i["drama_id"])
+        elif i.get("tonight"):
+            tonight_titles.add(i["drama_id"])
+    return paused, tonight
+
+
 def _held_for_disk(item: dict) -> bool:
     """Fails closed: this runs under _lock after an item was claimed, and an error escaping
     there would leave that item RUNNING with no job."""
@@ -1064,6 +1201,7 @@ def _start_next(now: float, deferred=frozenset()) -> None:
         running = [i for i in doc["items"] if i["status"] == RUNNING]
         # A paused item holds back its own chain too: a later step would only be skipped for the missing earlier one.
         held_chains = {i["chain"] for i in doc["items"] if i["status"] == WAITING and i.get("held") and i["chain"]}
+        behind_paused, behind_tonight = _behind_earlier_step(doc["items"])
         waiting = [i for i in doc["items"] if i["status"] == WAITING and i["id"] not in deferred
                    and not i.get("held") and i["chain"] not in held_chains]
         # Resting and Tonight items still count as waiting below, so the queue doesn't go idle and forget them.
@@ -1071,8 +1209,10 @@ def _start_next(now: float, deferred=frozenset()) -> None:
             and queue_night.pc_idle()
         # A Tonight step holds back its whole run: a later step started now would only be skipped for it.
         tonight_chains = {i["chain"] for i in waiting if i.get("tonight") and i["chain"]}
-        ready = [i for i in waiting if (i.get("not_before") or 0) <= now
-                 and (night_ok or not (i.get("tonight") or i["chain"] in tonight_chains))]
+        # Behind a paused step, but still waiting: the queue must not go idle, as Resume can't restart it
+        # while another account's items wait.
+        ready = [i for i in waiting if (i.get("not_before") or 0) <= now and i["id"] not in behind_paused
+                 and (night_ok or not (i.get("tonight") or i["chain"] in tonight_chains or i["id"] in behind_tonight))]
         # A start pressed on a page goes ahead of the items waiting for the queue's Start.
         ordered = [i for i in ready if i["now"]]
         if doc["state"] == ACTIVE:

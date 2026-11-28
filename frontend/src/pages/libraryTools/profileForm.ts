@@ -18,7 +18,6 @@ export interface ProfileForm {
   style_note: string
   reflect: boolean
   bulk: boolean
-  thinking: boolean
   batch_size: string
   context_window: string
   context_window_ahead: string
@@ -33,14 +32,14 @@ export interface ProfileForm {
 
 export const emptyProfile = (engine: string, style: string): ProfileForm => ({
   name: '', engine, model: '', style_preset: style, genre_notes: true, female_pronouns: false,
-  style_note: '', reflect: false, bulk: false, thinking: false, batch_size: '', context_window: '',
+  style_note: '', reflect: false, bulk: false, batch_size: '', context_window: '',
   context_window_ahead: '', cost_cap: '', fallbacks: [], title: {},
   quick: { source_language: '', export_format: '', export_language: '', packs: [] },
 })
 
 const RUN_KEYS = new Set([
   'style_note', 'batch_size', 'context_window', 'context_window_ahead', 'cost_cap',
-  'fallback_engines', 'reflect', 'bulk', 'thinking',
+  'fallback_engines', 'reflect', 'bulk',
   'quick_source_language', 'quick_export_format', 'quick_export_language', 'quick_language_packs',
 ])
 
@@ -54,7 +53,6 @@ export function fromPreset(p: LibraryPreset, defaultStyle: string): ProfileForm 
   f.style_note = o.style_note ?? ''
   f.reflect = o.reflect === true
   f.bulk = o.bulk === true
-  f.thinking = o.thinking === true
   f.batch_size = o.batch_size === undefined ? '' : String(o.batch_size)
   f.context_window = o.context_window === undefined ? '' : String(o.context_window)
   f.context_window_ahead = o.context_window_ahead === undefined ? '' : String(o.context_window_ahead)
@@ -102,7 +100,6 @@ export function toBody(f: ProfileForm, fields: ProfileField[]): TranslatePresetU
   if (f.style_note.trim()) options.style_note = f.style_note.trim()
   if (f.reflect) options.reflect = true
   if (f.bulk) options.bulk = true
-  if (f.thinking) options.thinking = true
   if (f.batch_size.trim()) options.batch_size = Number(f.batch_size)
   if (f.context_window.trim()) options.context_window = Number(f.context_window)
   if (f.context_window_ahead.trim()) options.context_window_ahead = Number(f.context_window_ahead)

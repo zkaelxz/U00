@@ -218,6 +218,18 @@ def test_bulk_estimate_above_cap_is_refused(isolated_db, monkeypatch):
     assert db.list_bulk_jobs(did) == []
 
 
+def test_the_bulk_cap_check_prices_the_runs_style(isolated_db, monkeypatch):
+    did = _seed([("你好", "")])
+    _current["did"] = did
+    _fake_engines(monkeypatch)
+    styles, real = [], svc.estimate_translate_cost
+    monkeypatch.setattr(svc, "estimate_translate_cost",
+                        lambda *a, **k: styles.append(k.get("style_preset")) or real(*a, **k))
+    with pytest.raises(UnsupportedOperationError):
+        svc.start_translate_run(did, bulk=True, style_preset="novel", job_cost_cap_usd=1e-9)
+    assert styles == ["novel"]
+
+
 def test_mode_validation(isolated_db, monkeypatch):
     patch_setting(monkeypatch, "gemini_free_tier", True)  # a request alone can't grant it
     did = _seed([("一", "")])
@@ -402,6 +414,27 @@ def test_a_batchs_cost_is_logged_for_the_member_who_sent_it(isolated_db):
     # Billed now, so the estimate no longer counts on top.
     assert db.get_user_month_spend(42) == pytest.approx(rows[0][1])
 
+
+
+def test_a_members_unbilled_spend_counts_only_their_own_held_batches(isolated_db):
+    # Read from the member's rows alone (the /me limits panel asks on every load),
+    # it must still agree with the library-wide sum split by member.
+    def batch(user_id, usd, engine="claude", status="submitted"):
+        with db.spending_for(user_id):
+            _other_title_batch(usd, engine=engine, status=status)
+    batch(42, 1.0)
+    batch(42, 0.5, status="applying")
+    batch(42, 9.0, status="applied")
+    batch(42, 7.0, engine="deepseek", status="scheduled")
+    batch(43, 3.0)
+    batch(None, 4.0)
+    assert db.unbilled_bulk_usd_for_user(42) == pytest.approx(1.5)
+    assert db.unbilled_bulk_usd_for_user(43) == pytest.approx(3.0)
+    assert db.unbilled_bulk_usd_for_user(44) == 0.0
+    by_user = db.unbilled_bulk_usd_by_user()
+    for user_id in (42, 43):
+        assert db.unbilled_bulk_usd_for_user(user_id) == pytest.approx(by_user[user_id])
+    assert db.get_user_month_spend(42) == pytest.approx(1.5)
 
 def test_a_batch_records_its_estimate_and_releases_its_hold(isolated_db, monkeypatch):
     did = _seed([("你好" * 200, "")])

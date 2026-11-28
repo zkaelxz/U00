@@ -87,6 +87,8 @@
 /* With Replace… after it, the search box gives way first, so the filter row stays one row with every filter chip shown. */
 .review-toolbar.has-replace-in-row .review-search { flex-basis: 10rem; }
 .review-search input { padding-right: 2.4rem; }
+/* The clear button exists only once there is text; reserving its room for the empty box cut the placeholder in Soft's wider font. */
+.review-search input:placeholder-shown { padding-right: var(--space-3); }
 .review-search input::-webkit-search-cancel-button { display: none; }
 button.review-clear { position: absolute; right: 2px; top: 50%; transform: translateY(-50%); padding: 0 10px; border: none; background: none; font-size: var(--text-lg); line-height: 1; }
 .review-pager { display: inline-flex; gap: var(--space-1); align-items: center; font-variant-numeric: tabular-nums; }

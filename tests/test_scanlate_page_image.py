@@ -101,16 +101,97 @@ def test_a_failed_picture_request_falls_back_to_the_text_request(monkeypatch):
     assert "secretsecret" not in notes[0][1]
 
 
-def test_a_dense_page_skips_the_picture_request(monkeypatch):
-    called = []
-    monkeypatch.setattr(scanlate_translate, "translate_regions_with_image",
-                        lambda *a, **k: called.append(1))
-    monkeypatch.setattr(scanlate_translate, "translate_regions_by_id",
-                        lambda keyed, *a, **k: ({k_: "t" for k_ in keyed}, "c"))
-    bubbles = [_region(f"文{i}") for i in range(scanlate_translate.REGIONS_PER_CALL + 1)]
+def test_a_dense_page_sends_the_picture_with_each_chunk_in_turn(monkeypatch):
+    calls, texts = [], []
+
+    def with_image(regions, data, mime, engine, drama, previous_context="", character_notes="", **kw):
+        calls.append(([r["id"] for r in regions], previous_context, character_notes))
+        if len(calls) == 3:
+            return None, previous_context   # an unusable answer: only these ids go as text
+        return {r["id"]: "seen " + r["id"] for r in regions}, f"after part {len(calls)}"
+
+    def by_text(keyed, *a, **k):
+        texts.append(list(keyed))
+        return {k_: "text " + k_ for k_ in keyed}, "text ctx"
+
+    monkeypatch.setattr(scanlate_translate, "translate_regions_with_image", with_image)
+    monkeypatch.setattr(scanlate_translate, "translate_regions_by_id", by_text)
+    per_call = scanlate_translate.REGIONS_PER_CALL
+    bubbles = [_region(f"文{i}") for i in range(2 * per_call + 1)]
+    ok, context = run_svc._translate(bubbles, _Engine(), "claude", {"source_language": "zh"}, None,
+                                     "", 1, [], page_image=(b"x", "image/png", 1.0))
+    assert ok and [len(ids) for ids, _c, _n in calls] == [per_call, per_call, 1]
+    assert [c for _i, c, _n in calls] == ["", "after part 1", "after part 2"]
+    assert "part 2 of 3" in calls[1][2] and "Answer only the listed ids" in calls[1][2]
+    assert texts == [[str(2 * per_call)]]
+    assert bubbles[0]["translated_text"] == "seen 0" and bubbles[-1]["translated_text"] == f"text {2 * per_call}"
+    assert context == "after part 2"
+
+
+def test_a_dense_quick_read_page_keeps_its_picture_and_sends_only_the_rest_as_text(monkeypatch):
+    calls, texts = [], []
+
+    def with_image(regions, data, mime, engine, drama, **kw):
+        calls.append(len(regions))
+        return ({r["id"]: "seen" for r in regions}, "c") if len(calls) == 1 else (None, "x")
+
+    def by_text(keyed, *a, **k):
+        texts.append(len(keyed))
+        return {k_: "text" for k_ in keyed}, "t"
+
+    monkeypatch.setattr(scanlate_translate, "translate_regions_with_image", with_image)
+    monkeypatch.setattr(scanlate_translate, "translate_regions_by_id", by_text)
+    per_call = scanlate_translate.REGIONS_PER_CALL
+    bubbles = [_region(f"文{i}") for i in range(per_call + 5)]
+    scanlate_translate.translate_page_bubbles(
+        bubbles, _Engine(), {"source_language": "zh"},
+        page_image={"data": b"x", "mime": "image/png", "scale": 1.0})
+    assert calls == [per_call, 5] and texts == [5]
+    assert [b["translated_text"] for b in bubbles] == ["seen"] * per_call + ["text"] * 5
+
+
+def test_a_page_that_fits_one_call_gets_no_chunk_note(monkeypatch):
+    notes = []
+
+    def with_image(regions, data, mime, engine, drama, character_notes="", **kw):
+        notes.append(character_notes)
+        return {r["id"]: "t" for r in regions}, "c"
+
+    monkeypatch.setattr(scanlate_translate, "translate_regions_with_image", with_image)
+    bubbles = [_region(f"文{i}") for i in range(scanlate_translate.REGIONS_PER_CALL)]
     ok, _ = run_svc._translate(bubbles, _Engine(), "claude", {"source_language": "zh"}, None,
                                "", 1, [], page_image=(b"x", "image/png", 1.0))
-    assert ok and not called
+    assert ok and len(notes) == 1 and "part 1 of" not in notes[0]
+
+
+def test_a_page_that_loses_its_picture_says_so_in_the_log(monkeypatch):
+    import types
+    import applog
+    messages = []
+    monkeypatch.setattr(applog, "get_logger", lambda: types.SimpleNamespace(
+        info=lambda msg, *a: messages.append(("info", msg % a)),
+        warning=lambda msg, *a: messages.append(("warning", msg % a))))
+    monkeypatch.setattr(scanlate_translate, "translate_regions_with_image",
+                        lambda *a, **k: (None, "ctx"))
+    monkeypatch.setattr(scanlate_translate, "translate_regions_by_id",
+                        lambda keyed, *a, **k: ({k_: "t" for k_ in keyed}, "c"))
+    picture = {"data": b"x", "mime": "image/png", "scale": 1.0}
+    scanlate_translate.translate_page_bubbles([_region("你好")], _Engine(), {"source_language": "zh"},
+                                              page_image=picture)
+    assert any(level == "warning" and "did not match" in m and "the page again from its text only" in m
+               for level, m in messages)
+    # A dense page whose second chunk lost its picture sends only that chunk as text.
+    messages.clear()
+    monkeypatch.setattr(scanlate_translate, "translate_regions_with_image",
+                        lambda chunk, *a, **k: ({r["id"]: "t" for r in chunk}, "c")
+                        if chunk[0]["id"] == "0" else (None, "c"))
+    count = scanlate_translate.REGIONS_PER_CALL + 1
+    scanlate_translate.translate_page_bubbles([_region(f"文{i}") for i in range(count)], _Engine(),
+                                              {"source_language": "zh"}, page_image=picture)
+    left = count - scanlate_translate.REGIONS_PER_CALL
+    assert [m for level, m in messages if level == "warning"] == [
+        "Comic translate: no usable answer with the picture (answer did not match the regions), "
+        f"translating the {left} of {count} regions it did not answer from their text only"]
 
 
 def _stored_page(drama_id, width=120, height=80):
@@ -128,13 +209,44 @@ def test_the_page_picture_needs_the_setting_and_an_engine_that_reads_pictures(is
     pid = _stored_page(did)
     patch_setting(monkeypatch, "scanlate_page_image", True)
     data, mime, scale = run_svc._page_image(did, pid, "claude")
-    assert data and mime == "image/png" and scale == 1.0
+    assert data and mime == "image/jpeg" and scale == 1.0
+    ja = db.create_drama(title_en="Manga", source_language="ja")
+    assert run_svc._page_image(ja, _stored_page(ja), "claude")[1] == "image/png"
     # DeepSeek takes no pictures, but its page is already off the PC, so Gemma may read it.
     assert run_svc._page_image(did, pid, "deepseek") is not None
     assert run_svc._page_image(did, pid, "ollama", "translategemma:27b") is not None
     assert run_svc._page_image(did, pid, "nonesuch") is None
     patch_setting(monkeypatch, "scanlate_page_image", False)
     assert run_svc._page_image(did, pid, "claude") is None
+
+
+def test_a_page_goes_as_jpeg_only_for_a_language_known_to_read_fine_that_way():
+    from PIL import JpegImagePlugin
+
+    from services import image_text_service
+    buf = io.BytesIO()
+    Image.new("RGBA", (64, 48), (200, 30, 30, 128)).save(buf, "PNG")
+    for language in ("zh", "ko"):
+        data, mime, scale = run_svc.page_picture(buf.getvalue(), language)
+        assert mime == "image/jpeg" and scale == 1.0
+        with Image.open(io.BytesIO(data)) as sent:
+            # 4:4:4: small coloured lettering keeps its edges.
+            assert sent.format == "JPEG" and JpegImagePlugin.get_sampling(sent) == 0
+    for language in ("ja", None, "", "th", "xx"):
+        assert run_svc.page_picture(buf.getvalue(), language)[1] == "image/png"
+    assert run_svc.page_picture(buf.getvalue())[1] == "image/png"
+    assert image_text_service._prepared(buf.getvalue())[1] == "image/png"
+    clear = io.BytesIO()
+    Image.new("RGBA", (64, 48), (0, 0, 0, 0)).save(clear, "PNG")
+    with Image.open(io.BytesIO(run_svc.page_picture(clear.getvalue(), "zh")[0])) as sent:
+        assert min(sent.convert("L").getextrema()) > 245  # a see-through page reads as paper, not black
+
+
+def test_a_title_without_a_language_sends_png(isolated_db, monkeypatch):
+    did = db.create_drama(title_en="Comic", source_language="")
+    pid = _stored_page(did)
+    patch_setting(monkeypatch, "scanlate_page_image", True)
+    assert run_svc._page_image(did, pid, "claude")[1] == "image/png"
 
 
 def test_a_missing_page_file_means_a_text_only_translation(isolated_db, monkeypatch):
@@ -492,7 +604,7 @@ def test_the_extension_tries_gemma_then_haiku_and_a_gemma_failure_starts_the_ski
     monkeypatch.setattr(scanlate_translate, "translate_regions_with_image", with_image)
     patch_setting(monkeypatch, "scanlate_page_image", True)
     monkeypatch.setattr(run_svc, "load_translation_guide", lambda drama: (None, ""))
-    monkeypatch.setattr(run_svc, "page_picture", lambda image: (b"x", "image/png", 1.0))
+    monkeypatch.setattr(run_svc, "page_picture", lambda image, language=None: (b"x", "image/png", 1.0))
     extras = extension_service.page_extras({}, {"engine": "claude"}, _Engine(), b"png")
     bubbles = [{"source_text": "你好", "x": 1, "y": 2, "w": 3, "h": 4}]
     scanlate_translate.translate_page_bubbles(bubbles, _Engine(), {}, **extras)
@@ -535,3 +647,12 @@ def test_a_page_outside_a_chapter_is_not_asked_for_names(monkeypatch):
     monkeypatch.setattr(llm_tasks, "call_llm_json", call)
     scanlate_translate.translate_page_bubbles([_region("안녕")], _Engine(), {"source_language": "ko"})
     assert '"names"' not in prompts[0]
+
+
+def test_comic_translations_come_back_without_em_dashes(monkeypatch):
+    from engine_backends import llm_tasks
+    monkeypatch.setattr(llm_tasks, "call_llm_json", lambda engine, prompt, **kw: json.dumps(
+        {"translations": {"0": "Wait—", "1": "He—the king—came."}, "context_summary": "x"}))
+    got, _ = scanlate_translate.translate_regions_by_id({"0": "잠깐", "1": "왕이 왔다"}, _Engine(),
+                                                        {"source_language": "ko"})
+    assert got == {"0": "Wait...", "1": "He, the king, came."}

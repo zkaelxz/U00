@@ -122,7 +122,7 @@ function TermEditor({ initial, catalogues, onSave, onCancel }: {
         <textarea rows={2} value={f.banned} onChange={(e) => set('banned', e.target.value)} />
       </Field>
       <div className="setting-list">
-        <Field label="Enforce exact">
+        <Field label="Enforce exact" help="After translating, any spelling listed in Notes is replaced with this English, on lines whose source has this term.">
           <Toggle checked={f.enforce_exact} onChange={(v) => set('enforce_exact', v)} />
         </Field>
       </div>
@@ -581,7 +581,7 @@ function GlossaryBody({ focusReady, retranslate, defaultOpen }: { focusReady?: b
       {panel('instructions', instructions ? (
         <>
           <p className="muted" data-testid="instructions-state">
-            Project: {instructionsSummary(instructions.project)}
+            Title: {instructionsSummary(instructions.project)}
             {seriesId != null && instructions.seriesId === seriesId ? ` · Series: ${instructionsSummary(instructions.series)}` : ''}
           </p>
           <InstructionsEditor

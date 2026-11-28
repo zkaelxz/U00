@@ -495,7 +495,7 @@ from db.library_folder import (  # noqa: E402,F401
 
 from db.dramas import (  # noqa: E402,F401
     count_dramas_owned_by, create_drama, delete_drama, drama_has_translated_lines, drama_visible_sql, earlier_episode_summaries,
-    get_drama, series_cover_title_id,
+    get_drama, has_at_least_dramas, series_cover_title_id,
     get_library_stats, line_progress_by_drama, list_dramas, list_dramas_by_series, list_dramas_by_series_ids,
     list_dramas_recently_active,
     search_lines_globally, set_status_if, set_media_hash_if_unchanged, clear_media_hash, restore_source_video, clear_source_video, update_drama, ORGANIZATIONAL_TAGS, MERGED_TAG,
@@ -765,6 +765,7 @@ from db.job_records import (  # noqa: F401
 from db.bulk_jobs import (  # noqa: E402,F401
     BULK_PENDING_STATUSES, count_bulk_job_lines, create_bulk_job, get_bulk_job,
     list_bulk_job_lines, list_bulk_jobs, list_unbilled_bulk_estimates, unbilled_bulk_usd_by_user,
+    unbilled_bulk_usd_for_user,
     set_bulk_job_line_result_texts, set_bulk_job_status_if, update_bulk_job)
 
 
@@ -772,8 +773,6 @@ from db.benchmark import (  # noqa: F401
     create_benchmark_case,
     list_benchmark_cases,
     delete_benchmark_case,
-    save_benchmark_run,
-    list_benchmark_runs,
     create_benchmark_lab_case,
     update_benchmark_case_texts,
     list_benchmark_case_edits,

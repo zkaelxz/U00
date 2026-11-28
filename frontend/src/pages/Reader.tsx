@@ -52,15 +52,14 @@ import { useAction } from './reader/useReaderAction'
 import { ReaderPrefsControl } from './reader/ReaderPrefs'
 import { StorySection } from './reader/ReaderStory'
 import { GlossarySection, VocabSection, WordsSection } from './reader/ReaderWords'
+import { firstLineOf, fixedStarts, lastLineOf } from './reader/chapterPages'
 import {
   clampPage,
-  keepPlace,
   loadPrefs,
   metricsLine,
-  pageCount,
   pageParams,
   readerEngine,
-  resumePage,
+  resumeTarget,
   savePrefs,
   spoilerBoundary,
   type ReaderPrefs,
@@ -69,6 +68,11 @@ import './reader/reader.css'
 import { browserStorage } from '../hooks/usePersistedState'
 
 const PROGRESS_DELAY_MS = 1000
+
+// The Reader then asks the server which page holds the line, since pages follow a novel's chapters.
+function goToLine(id: number, line: number) {
+  window.location.replace(routeHref({ name: 'read', id, page: null, line }))
+}
 
 function goToPage(id: number, page: number, replace = false) {
   const href = routeHref({ name: 'read', id, page })
@@ -154,7 +158,7 @@ function NotesSection({ dramaId }: { dramaId: number }) {
   return (
     <Section title="My notes" storageKey="reader.notes" summary={saved ? 'Has notes' : 'Empty'}>
       <ErrorBanner error={loadError} />
-      <Field label="Notes" help="Notes for this title. Anyone with access to this library can see them. Saved when you press Save.">
+      <Field label="Notes" help="Your own notes for this title. Other accounts don’t see them. Saved when you press Save.">
         <textarea
           rows={5}
           maxLength={100_000}
@@ -177,7 +181,28 @@ function NotesSection({ dramaId }: { dramaId: number }) {
   )
 }
 
-export default function ReaderPage({ id, page: routePage }: { id: number; page: number | null }) {
+/** The title's audio or video, glossary, saved words and the engines a line can be translated with. */
+function useReaderLists(id: number, loadTick: number, vocabTick: number) {
+  const [media, setMedia] = useState<ReaderMediaAvailability | null>(null)
+  const [terms, setTerms] = useState<GlossaryTerm[]>([])
+  const [vocab, setVocab] = useState<ReaderVocabList | null>(null)
+  const [engines, setEngines] = useState<TranslateEngine[]>([])
+  const [enginesOff, setEnginesOff] = useState<TranslateEngine[]>([])
+  useEffect(() => {
+    readerApi.media(id).then(setMedia, () => setMedia(null))
+    getGlossaryTerms(id).then(setTerms, () => setTerms([]))
+    translateApi.engines().then((all) => {
+      setEngines(readerEngines(all))
+      setEnginesOff(readerEnginesOff(all))
+    }, () => setEngines([]))
+  }, [id, loadTick])
+  useEffect(() => {
+    readerApi.vocab(id).then(setVocab, () => setVocab(null))
+  }, [id, vocabTick])
+  return { vocab, engines, enginesOff, media, setMedia, terms, setTerms }
+}
+
+export default function ReaderPage({ id, page: routePage, line: routeLine = null }: { id: number; page: number | null; line?: number | null }) {
   const phone = useMediaQuery('(max-width: 640px)')
   // The Reader's "auto" theme follows the app theme (the header theme button).
   const appLook = resolveTheme(useThemePref(), useMediaQuery('(prefers-color-scheme: dark)'))
@@ -202,16 +227,10 @@ export default function ReaderPage({ id, page: routePage }: { id: number; page: 
   const [pageFailure, setPageFailure] = useState<{ page: number; error: unknown } | null>(null)
   const [resumed, setResumed] = useState<number | null>(null)
   const [lastIdx, setLastIdx] = useState<{ page: number; size: number; idx: number } | null>(null)
-  const [media, setMedia] = useState<ReaderMediaAvailability | null>(null)
-  const [vocab, setVocab] = useState<ReaderVocabList | null>(null)
-  const [terms, setTerms] = useState<GlossaryTerm[]>([])
-  const [engines, setEngines] = useState<TranslateEngine[]>([])
-  const [enginesOff, setEnginesOff] = useState<TranslateEngine[]>([])
   const [enginePref, setEngine] = usePersistedState('reader.engine', '')
   const [pageTick, setPageTick] = useState(0)
   const [loadTick, setLoadTick] = useState(0)
   const [initialPage] = useState(routePage)
-  const [initialSize] = useState(prefs.chapterSize)
   const [vocabTick, setVocabTick] = useState(0)
 
   // Title A's link must not show on title B while B loads, or if B's load fails.
@@ -239,42 +258,47 @@ export default function ReaderPage({ id, page: routePage }: { id: number; page: 
         setLoadError(e)
       },
     )
-    readerApi.overview(id).then((ov) => {
-      setOverview(ov)
-      // Opened without ?page: say where we resumed (the effect below navigates).
-      if (initialPage === null && ov.line_count > 0) {
-        const target = resumePage(ov, initialSize)
-        if (target > 1) setResumed(target)
-      }
-    }, setLoadError)
-    readerApi.media(id).then(setMedia, () => setMedia(null))
-    getGlossaryTerms(id).then(setTerms, () => setTerms([]))
-    translateApi.engines().then((all) => {
-      setEngines(readerEngines(all))
-      setEnginesOff(readerEnginesOff(all))
-    }, () => setEngines([]))
+    readerApi.overview(id).then(setOverview, setLoadError)
     return () => {
       cancelled = true
     }
-  }, [id, initialPage, initialSize, loadTick])
+  }, [id, loadTick])
 
-  useEffect(() => {
-    readerApi.vocab(id).then(setVocab, () => setVocab(null))
-  }, [id, vocabTick])
-
+  const { vocab, engines, enginesOff, media, setMedia, terms, setTerms } = useReaderLists(id, loadTick, vocabTick)
   const empty = overview !== null && overview.line_count === 0
 
   // A manga/manhua/manhwa with no lines is read as pages (History links carry no type).
   useEffect(() => {
     if (empty && isComicType(mediaType)) window.location.replace(routeHref({ name: 'comic', id, page: initialPage }))
   }, [empty, mediaType, id, initialPage])
-  const count = overview ? pageCount(overview.line_count, prefs.chapterSize) : data?.page_count ?? 1
+  // Until a page arrives with the server's own list, pages are counted as fixed blocks.
+  const starts = data?.page_starts ?? fixedStarts(overview?.line_count ?? 0, prefs.chapterSize)
+  const count = starts.length
 
-  // No ?page: resume where the reader left off.
+  // No ?page: open the page holding ?line, else resume where the reader left off (said when past page 1).
   useEffect(() => {
     if (routePage !== null || !overview || empty) return
-    goToPage(id, resumePage(overview, prefs.chapterSize), true)
-  }, [routePage, overview, empty, id, prefs.chapterSize])
+    const target = routeLine !== null ? { line: routeLine } : resumeTarget(overview)
+    if ('page' in target) {
+      if (target.page > 1) setResumed(target.page)
+      goToPage(id, target.page, true)
+      return
+    }
+    let live = true
+    readerApi.page(id, { ...pageParams(prefs, 1, { phone, appLook }), line: target.line }).then(
+      (d) => {
+        if (!live) return
+        if (routeLine === null && d.page > 1) setResumed(d.page)
+        goToPage(id, d.page, true)
+      },
+      (e: unknown) => live && setLoadError(e),
+    )
+    return () => {
+      live = false
+    }
+    // Only the line, the title and the page size choose the page; the look of the page does not.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [routePage, routeLine, overview, empty, id, prefs.chapterSize])
 
   const page = routePage
   const [editMode, setEditMode] = useState(false)
@@ -326,7 +350,9 @@ export default function ReaderPage({ id, page: routePage }: { id: number; page: 
     return () => window.removeEventListener('message', onMessage)
   }, [editMode, page, save.busy])
 
-  const live = useLiveFrame(id, page, prefs.chapterSize, frameRef, editing !== null || save.busy, () => setPageTick((n) => n + 1))
+  const pageFirst = page === null ? 0 : firstLineOf(starts, page)
+  const pageLast = page === null ? 0 : lastLineOf(starts, page, overview?.line_count ?? 0)
+  const live = useLiveFrame(id, page, pageFirst, pageLast, frameRef, editing !== null || save.busy, () => setPageTick((n) => n + 1))
 
   const overviewReady = overview !== null
   // Read inside the page effect without re-running it when the shown page changes.
@@ -385,13 +411,12 @@ export default function ReaderPage({ id, page: routePage }: { id: number; page: 
 
   const setPrefs = useCallback(
     (next: ReaderPrefs) => {
-      if (page !== null && next.chapterSize !== prefs.chapterSize) {
-        goToPage(id, keepPlace(page, prefs.chapterSize, next.chapterSize), true)
-      }
+      // The first line in view stays in view.
+      if (page !== null && next.chapterSize !== prefs.chapterSize) goToLine(id, pageFirst)
       setPrefsState(next)
       savePrefs(browserStorage(), next)
     },
-    [id, page, prefs.chapterSize],
+    [id, page, prefs.chapterSize, pageFirst],
   )
 
   const chosen = useChosenForYou()
@@ -400,7 +425,7 @@ export default function ReaderPage({ id, page: routePage }: { id: number; page: 
   const known = lastIdx && lastIdx.page === page && lastIdx.size === prefs.chapterSize ? lastIdx.idx : null
   const boundary = page === null || !overview
     ? undefined
-    : spoilerBoundary(prefs.spoilerFree, known, page, prefs.chapterSize, overview.line_count)
+    : spoilerBoundary(prefs.spoilerFree, known, pageLast)
 
   // The label and frame show the move to another page until its HTML arrives.
   const pageError =
@@ -484,7 +509,7 @@ export default function ReaderPage({ id, page: routePage }: { id: number; page: 
           <ListenWatch dramaId={id} media={media} setMedia={setMedia} sourceLanguage={sourceLanguage} />
           {!phone && page !== null && (
             <div className="reader-bar">
-              <Pager page={page} count={count} loading={pageLoading} onGo={onGo} goTo chapters={<ChapterJump dramaId={id} page={page} pageSize={prefs.chapterSize} onGo={onGo} />} />
+              <Pager page={page} count={count} loading={pageLoading} onGo={onGo} goTo chapters={<ChapterJump dramaId={id} page={page} starts={starts} onGo={onGo} />} />
               {editToggle}
               {metrics && <span className="muted" data-testid="reader-metrics">{metrics}</span>}
             </div>
@@ -569,7 +594,7 @@ export default function ReaderPage({ id, page: routePage }: { id: number; page: 
           )}
           {phone && page !== null && (
             <div className="reader-bottom">
-              <Pager page={page} count={count} loading={pageLoading} onGo={onGo} goTo={false} chapters={<ChapterJump dramaId={id} page={page} pageSize={prefs.chapterSize} onGo={onGo} />} />
+              <Pager page={page} count={count} loading={pageLoading} onGo={onGo} goTo={false} chapters={<ChapterJump dramaId={id} page={page} starts={starts} onGo={onGo} />} />
             </div>
           )}
         </>

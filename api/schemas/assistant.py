@@ -46,6 +46,7 @@ class AssistantTier(BaseModel):
 
 class AssistantSettings(BaseModel):
     developer_mode: bool
+    quick_read_keep_pages: bool = False
     engine: Optional[str] = None
     model: Optional[str] = None
     engine_choices: List[str]
@@ -65,6 +66,7 @@ class AssistantSettings(BaseModel):
 class AssistantSettingsUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
     developer_mode: Optional[bool] = None
+    quick_read_keep_pages: Optional[bool] = None
     engine: Optional[str] = Field(None, max_length=40)
     model: Optional[str] = Field(None, max_length=100)
     roles_enabled: Optional[bool] = None

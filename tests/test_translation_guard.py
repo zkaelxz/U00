@@ -323,16 +323,18 @@ class TestMatchedById:
         return engine, calls
 
     def test_a_reordered_reply_lands_on_the_right_lines(self):
-        first = {str(100 + i): GOOD[i] for i in range(6)}
-        first["101"] = "Why didn't you 给我打电话 yesterday?"
-        first["104"] = "Another 句子 left over."
-        redo = {"101": GOOD[1], "104": GOOD[4]}
+        first = {str(1 + i): GOOD[i] for i in range(6)}
+        first["2"] = "Why didn't you 给我打电话 yesterday?"
+        first["5"] = "Another 句子 left over."
+        # The redo is its own request, numbered from 1 again.
+        redo = {"1": GOOD[1], "2": GOOD[4]}
         engine, calls = self._engine([first, redo])
         lines = _lines()
         _run(engine, lines, check_replies=True)
         assert len(calls) == 2
-        asked = calls[1]["messages"][0]["content"]
-        assert "101. " in asked and "104. " in asked and "100. " not in asked
+        asked = calls[1]["messages"][0]["content"].split("Translate these lines:")[1]
+        assert f"1. {SOURCES[1]}" in asked and f"2. {SOURCES[4]}" in asked
+        assert SOURCES[0] not in asked
         assert [ln.en for ln in lines] == GOOD
 
 
@@ -540,6 +542,28 @@ class TestFirstAlternative:
         translate_pipeline.translate_lines_with_engine(lines, Listy(), NOVEL, batch_size=1)
         assert lines[0].en == "Strange."
 
+    def test_the_pipeline_saves_no_em_dashes(self):
+        lines = [Line(idx=0, start=0, end=1, zh="我知道，不，我希望", id=302)]
+
+        class Dashy(Scripted):
+            def translate_batch(self, zh_lines, context):
+                self.calls.append(list(context["line_ids"]))
+                return ["I knew—no, I hoped."]
+        translate_pipeline.translate_lines_with_engine(lines, Dashy(), {}, batch_size=1)
+        assert lines[0].en == "I knew, no, I hoped."
+
+    def test_the_smaller_re_ask_saves_no_em_dashes_either(self):
+        lines = [Line(idx=0, start=0, end=1, zh="我知道", id=303), Line(idx=1, start=1, end=2, zh="他来了", id=304)]
+
+        class HalfThenDash(Scripted):
+            def translate_batch(self, zh_lines, context):
+                self.calls.append(list(context["line_ids"]))
+                if len(zh_lines) == 2:
+                    return ["I knew—no, I hoped.", ""]
+                return ["He—the king—came."]
+        translate_pipeline.translate_lines_with_engine(lines, HalfThenDash(), {}, batch_size=2)
+        assert [ln.en for ln in lines] == ["I knew, no, I hoped.", "He, the king, came."]
+
 
 class TestNovelImperialUnits:
     def test_metric_source_turned_imperial_is_detected(self):
@@ -657,3 +681,46 @@ class TestNovelNumbersAndHeaders:
         lines = [Line(idx=0, start=0, end=1, zh="外面气温35度，街上没有人动", id=501)]
         translate_pipeline.translate_lines_with_engine(lines, Eng(), NOVEL, batch_size=1)
         assert lines[0].flag == FLAG and lines[0].flag_note == guard.NUMBER_NOTE
+
+
+def test_the_merged_or_shifted_re_ask_saves_no_em_dashes():
+    lines = [Line(idx=0, start=0, end=1, zh="他来了", id=1), Line(idx=1, start=1, end=2, zh="好", id=2)]
+    lines[0].en, lines[1].en = "他来了", "Fine."
+    guard.guard_batch(lines, lambda part: ["He—the king—came."] * len(part), lambda: False)
+    assert lines[0].en == "He, the king, came."
+
+
+def test_the_pipeline_keeps_an_em_dash_the_source_has():
+    lines = [Line(idx=0, start=0, end=1, zh="我知道——不，我希望", id=310)]
+
+    class Dashy(Scripted):
+        def translate_batch(self, zh_lines, context):
+            self.calls.append(list(context["line_ids"]))
+            return ["I knew—no, I hoped."]
+    translate_pipeline.translate_lines_with_engine(lines, Dashy(), {}, batch_size=1)
+    assert lines[0].en == "I knew—no, I hoped."
+
+
+def test_a_novel_divider_line_becomes_a_scene_break_without_a_model_call():
+    lines = [Line(idx=0, start=0, end=1, zh="————————", id=5), Line(idx=1, start=1, end=2, zh="好", id=6)]
+
+    class Eng(Scripted):
+        def translate_batch(self, zh_lines, context):
+            self.calls.append(list(context["line_ids"]))
+            return ["Fine."] * len(zh_lines)
+    engine = Eng()
+    translate_pipeline.translate_lines_with_engine(lines, engine, NOVEL, batch_size=5)
+    assert [ln.en for ln in lines] == ["* * *", "Fine."]
+    assert engine.calls == [[6]]
+
+
+def test_a_dash_line_in_subtitles_still_goes_to_the_model():
+    lines = [Line(idx=0, start=0, end=1, zh="———", id=7)]
+
+    class Eng(Scripted):
+        def translate_batch(self, zh_lines, context):
+            self.calls.append(list(context["line_ids"]))
+            return ["..."] * len(zh_lines)
+    engine = Eng()
+    translate_pipeline.translate_lines_with_engine(lines, engine, {}, batch_size=5)
+    assert lines[0].en == "..." and engine.calls == [[7]]

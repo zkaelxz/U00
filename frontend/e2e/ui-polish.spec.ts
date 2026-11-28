@@ -1,6 +1,6 @@
 import { expect, test, type Locator, type Page } from '@playwright/test'
 
-import { animationsSettled } from './mockHelpers'
+import { animationsSettled, openLibraryFilters } from './mockHelpers'
 import { mockQueueApi, queueItem } from './queueMocks'
 import { pickTab } from './tabPicker'
 
@@ -76,6 +76,8 @@ for (const width of WIDTHS) {
         }
         expect(text.left).toBeGreaterThanOrEqual(8)
       }
+      // On a PC the status and other filter selects are in the Filters menu.
+      if (!phone) await openLibraryFilters(page)
       for (const select of await toolbar.locator('.toolbar-row select, .filter-sheet select').all()) {
         const box = await select.boundingBox()
         expect(box!.width).toBeLessThanOrEqual(width >= 1000 ? 320 : width)

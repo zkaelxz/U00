@@ -22,7 +22,7 @@ from .shared import (
     request_translations_with_retry,
 )
 from .temperature import ollama_sampling
-from .thinking import ollama_chat_with_think, thinking_choice
+from .thinking import ollama_chat_with_think
 from .translation_guard import allowed_source_runs
 from .ollama_server import (  # noqa: F401  (re-exported; callers and tests use local.*)
     OLLAMA_REACHABILITY_CACHE_SECONDS,
@@ -339,7 +339,7 @@ def ollama_task_reply(chat, engine, messages: list, max_tokens: int, expect: str
                "options": {"num_ctx": num_ctx, "num_predict": num_predict, **ollama_sampling()}}
     if expect == "json_object":
         payload["format"] = "json"
-    data = ollama_chat_with_think(chat, engine.base_url, payload, False)
+    data = ollama_chat_with_think(chat, engine.base_url, payload)
     if usage_cb:
         usage = ollama_usage(data)
         usage_cb(usage["input_tokens"], usage["output_tokens"])
@@ -710,17 +710,16 @@ class OllamaEngine:
             return TruncatedReply(text) if resp.get("done_reason") == "length" else text
 
         def send(payload):
-            choice = thinking_choice(context)
-            if choice is None:
+            if not context.get("reply_without_thinking"):
                 return _ollama_chat(self.base_url, payload)
-            return ollama_chat_with_think(_ollama_chat, self.base_url, payload, choice)
+            return ollama_chat_with_think(_ollama_chat, self.base_url, payload)
 
         rejected = {}
         line_ids = context.get("line_ids") or []
         try:
             return request_translations_with_retry(
                 zh_lines, context.get("speaker_labels"), call_model,
-                line_ids=line_ids, engine_name="ollama",
+                engine_name="ollama",
                 line_languages=context.get("line_languages"),
                 sentence_groups=context.get("sentence_groups"), recover_replies=True,
                 # The reply guard set to Off in Settings switches these off too. Its

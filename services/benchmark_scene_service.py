@@ -269,7 +269,7 @@ def option_choices() -> dict:
     glossary can be used, and the defaults a title starts with."""
     from services import translate_service
     engines = translate_service.list_engines()
-    return {"style_presets": [{"key": k, "label": v["label"]} for k, v in tguide.STYLE_PRESETS.items()],
+    return {"style_presets": [{"key": k, "label": v["label"]} for k, v in tguide.PICKER_STYLE_PRESETS.items()],
             "series": [{"id": s["id"], "name": s["name"]} for s in db.list_series(visible_to=ownership_service.visible_to_filter(None))],
             "defaults": {**engine_registry.default_translate_options(), "reflect": False,
                          "style_preset": DEFAULT_STYLE_PRESET, "memory_examples": False},

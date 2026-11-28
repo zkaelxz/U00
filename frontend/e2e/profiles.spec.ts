@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test'
 import { openFold } from './foldHelpers'
+import { openNewTitle } from './addBoxMocks'
 
 // Translation setting profiles: pick one on New title (the default is preselected), and
 // edit, make default or create one in Library tools. The profile list and the writes
@@ -19,7 +20,7 @@ test('New title preselects the default profile and sends the chosen one', async 
     ? r.fulfill({ status: 409, json: { error: { code: 'conflict', message: 'Stopped by the test.' } } })
     : r.fallback())
   await page.goto('/')
-  await page.getByRole('button', { name: 'Add a title by hand' }).click()
+  await openNewTitle(page)
   const sheet = page.getByRole('dialog', { name: 'New title' })
   const select = sheet.getByLabel('Profile', { exact: true })
   await expect(select).toHaveValue('7')

@@ -12,7 +12,7 @@ import { useCancelsAnyJob } from '../../../../hooks/useSession'
 import { cancelHint, isTerminalStatus, offersCancel, type JobRecord } from '../../../../types/jobs'
 import type { ThreeRunState } from '../../../../types/threeRun'
 import type { TranslateRunConfig, TranslateRunEstimate } from '../../../../types/translateStage'
-import { applyStartToForm, buildRunBody, initialForm, loadPresetStart, validateRun } from '../../translateForm'
+import { buildRunBody, savedRunEstimateParams, savedRunForm, validateRun } from '../../translateForm'
 import { LineAiPicker } from './LineAiPicker'
 import { useLineAiPick } from './lineAiPick'
 import { useLineSelectionContext } from './useLineSelectionContext'
@@ -60,20 +60,19 @@ export function ThreeRunReview({ dramaId, jobRunning, onChanged }: { dramaId: nu
 
   useEffect(() => {
     setEstimate(null)
+    if (!config) return
     const ctl = new AbortController()
-    getTranslateEstimate(dramaId, {
-      engine: engine || undefined, model: model || undefined, force_retranslate: true,
-      ...(selectedIds.length ? { line_ids: selectedIds } : {}),
-    }, withSignal(ctl.signal)).then((e) => !ctl.signal.aborted && setEstimate(e), () => undefined)
+    getTranslateEstimate(dramaId, savedRunEstimateParams(config, dramaId, engine, model, selectedIds), withSignal(ctl.signal))
+      .then((e) => !ctl.signal.aborted && setEstimate(e), () => undefined)
     return () => ctl.abort()
     // selectedIds is rebuilt each render; `key` stands for its content.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dramaId, key, engine, model])
+  }, [dramaId, key, engine, model, config])
 
   const startRun = useCallback((n: number, lineIds: number[]) => {
     if (!config) return
     const form = {
-      ...applyStartToForm(initialForm(config, loadPresetStart(dramaId)), config.translate_start, config),
+      ...savedRunForm(config, dramaId),
       engine, model, reflect: false, bulk: false, fallbacks: [] as string[], force: true, forceConfirmed: true,
     }
     const problem = validateRun(form, config.translation_engine, config.bulk_supported_engines)
@@ -191,7 +190,7 @@ export function ThreeRunReview({ dramaId, jobRunning, onChanged }: { dramaId: nu
   }
 
   const count = selectedIds.length || (review?.line_count ?? 0)
-  const per = estimate?.estimated_usd
+  const per = estimate?.estimated_usd != null ? estimate.estimated_usd + (estimate.alignment_check_usd ?? 0) : null
   return (
     <Section storageKey="review.threeRun" title="Run 3 times, review differences" summary="Translate three times, then pick between the lines the runs disagree on">
       <div className="compare-panel" data-testid="three-run">

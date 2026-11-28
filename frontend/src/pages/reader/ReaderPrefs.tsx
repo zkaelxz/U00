@@ -100,7 +100,7 @@ function PrefsForm({ prefs, onChange, phone }: Omit<Props, 'children'>) {
         />
       </Field>
       <div className="toggle-list">
-        <Field label="Readings">
+        <Field label="Pronunciation above words" help="Shows how each word is read above it: pinyin, kana or romanization. Words stay clickable with it off.">
           <Toggle checked={prefs.readings} onChange={(on) => set('readings', on)} />
         </Field>
         <Field

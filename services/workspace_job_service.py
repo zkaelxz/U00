@@ -198,8 +198,8 @@ def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
                        ollama_num_ctx_override=None, reflect=False, cost_cap_usd=None,
                        context_window_ahead=3, batch_size=20, summary_engine=None,
                        summary_engine_choice=None, target_ids=None,
-                       summary_monthly_cap_usd=None, own_lines_only=False, thinking=None,
-                       summary_skip_reason="", replace_flags=frozenset()):
+                       summary_monthly_cap_usd=None, own_lines_only=False,
+                       summary_skip_reason="", replace_flags=frozenset(), novel_char_budget=None):
     """
     The actual translation work, run inside a background thread. Touches
     only plain Python objects and the database, both of which are safe
@@ -249,7 +249,7 @@ def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
         style_preset=style_preset, reflect=bool(reflect), context_window=context_window,
         context_window_ahead=context_window_ahead, batch_size=batch_size,
         style_note=style_note or "", style_guidelines=style_guidelines or "",
-        scene_aware_batches=scene_aware, thinking=thinking)
+        scene_aware_batches=scene_aware)
 
     # A run takes minutes, and the user may type English meanwhile.
     _save, _notes, kept_edits = translation_finish.own_lines_callbacks(drama_id, lines, provenance)
@@ -259,12 +259,12 @@ def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
         lines, engine, drama_meta=drama_meta, style_note=style_note, novel_reference=novel_reference, force_retranslate=force_retranslate,
         locale=locale, glossary_terms=glossary_terms, style_guidelines=style_guidelines,
         context_window=context_window, context_window_ahead=context_window_ahead,
-        batch_size=batch_size, character_names=character_names,
+        batch_size=batch_size, novel_char_budget=novel_char_budget, character_names=character_names,
         ollama_num_ctx_override=ollama_num_ctx_override,
         reflect=reflect, target_ids=target_ids, scene_aware_batches=scene_aware,
         **timing_settings_service.translate_limits(),
         **_saved_translate_options(engine_choice, engine, job_id),
-        thinking=thinking, replace_flags=replace_flags, cost_cap_usd=cost_cap_usd, month_cap_spent_cb=_month_cap_check(engine_choice, engine),
+        replace_flags=replace_flags, cost_cap_usd=cost_cap_usd, month_cap_spent_cb=_month_cap_check(engine_choice, engine),
         cap_cb=lambda spent: cap_reached.update(spent=spent),
         notes_cb=_notes, sentence_groups_cb=(sentence_parts := []).extend,
         detail_cb=lambda frac, message: background_jobs.update_progress(
@@ -755,7 +755,7 @@ def _start_bulk_title(did, drama, rows, plan, title, per_job_id, default_locale,
             defs["context_window"], settings_service.get("ollama_num_ctx_override") or None,
             cost_cap_usd=plan["cost_cap"],
             context_window_ahead=defs["context_window_ahead"],
-            batch_size=defs["batch_size"],
+            batch_size=defs["batch_size"], novel_char_budget="batch_size" not in last,
             summary_engine=summary_engine, summary_engine_choice=summary_choice,
             summary_monthly_cap_usd=monthly_cap,
             description=f"Ollama translation ({title})" if engine_choice == "ollama" else None,

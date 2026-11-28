@@ -100,6 +100,16 @@ test('start, see lines arrive, stop', async ({ page }) => {
   expect(m.polls).toContain('after=2')
   await page.screenshot({ path: `${SCREENS}/desktop-running.png`, fullPage: true })
 
+  // Near the time limit the stop bar offers more time; once moved, the offer goes.
+  await expect(live.getByTestId('live-extend')).toHaveCount(0)
+  m.state.figures = { time_left_seconds: 290, can_extend: true }
+  m.state.cues = [cue(0), cue(1), cue(2)]
+  const extend = live.getByRole('button', { name: 'Add 60 min (5 min left)' })
+  await expect(extend).toBeVisible()
+  await extend.click()
+  await expect.poll(() => m.extends).toBe(1)
+  await expect(live.getByTestId('live-extend')).toHaveCount(0)
+
   await live.getByRole('button', { name: 'Stop', exact: true }).click()
   await expect(live.getByTestId('live-status')).toHaveText('Stopped · 3 lines')
   expect(m.posts[1].url).toContain(`/api/live/sessions/${SID}/stop`)

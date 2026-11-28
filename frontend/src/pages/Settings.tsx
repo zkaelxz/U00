@@ -16,6 +16,8 @@ import { RetryBanner } from '../components/RetryBanner'
 import { AppVersionLine } from '../components/AppVersionLine'
 import { PageShell } from '../components/PageShell'
 import { buttonClass } from '../components/uiClasses'
+import { downloadBlob } from '../components/downloadBlob'
+import { getSupportBundle } from '../api/diagnostics'
 import { Field } from '../components/Field'
 import { Toggle } from '../components/Toggle'
 import { usePersistedState } from '../hooks/usePersistedState'
@@ -40,6 +42,7 @@ import { InboxCard } from './settings/InboxCard'
 import { QuickVideoCard } from './settings/QuickVideoCard'
 import { JellyfinSection } from './settings/JellyfinSection'
 import { NotificationsSection } from './settings/NotificationsSection'
+import { NO_DESKTOP_POPUPS } from './settings/notifications'
 import { PcAlertsCard } from './settings/PcAlertsCard'
 import { OllamaKeyCard } from './settings/OllamaKeyCard'
 import { showOllamaKey } from './settings/ollamaKeyModel'
@@ -51,6 +54,10 @@ import { PhoneAppCard } from './settings/PhoneAppCard'
 import { inPhoneShell } from '../phoneShell'
 import { AdvancedCard, DefaultsCard, EndpointsCard, KeepFreeMemory, SpendingCard } from './settings/PreferencesSections'
 import { SharingCard } from './settings/SharingCard'
+import { YourLimitsCard } from './settings/YourLimitsCard'
+import { myLimits } from './settings/limitsModel'
+import { SchemaCard } from './settings/SchemaCard'
+import { blockedPhrasesSummary } from './settings/schemaValues'
 import { TimingSettingsCard } from './settings/TimingSettingsCard'
 import { useDeveloperMode } from './assistant/developerMode'
 import { TranscriptionExperimentsCard } from './settings/TranscriptionExperimentsCard'
@@ -235,7 +242,8 @@ export default function SettingsPage() {
     : null
 
   // A card that renders nothing for this person must not draw search hits to its tab.
-  const ownKeyShown = showOllamaKey(useSession())
+  const ownKeyShown = showOllamaKey(session)
+  const limitsShown = myLimits(session) !== null
   const pcMode = usePcOnly()
   const remote = pcMode === 'remote'
   const features = useFeatures()
@@ -244,9 +252,9 @@ export default function SettingsPage() {
   const canUpdate = useHolds('system.update')
   const available: ReadonlySet<string> = useMemo(() => {
     const cards = loaded ? ALL_CARDS : MEMBER_CARDS
-    return new Set([...cards].filter((id) => (ownKeyShown || id !== 'ollama-key') && (inPhoneShell() || id !== 'phone-app') && (canUpdate || id !== 'updates')
+    return new Set([...cards].filter((id) => (ownKeyShown || id !== 'ollama-key') && (limitsShown || id !== 'limits') && (inPhoneShell() || id !== 'phone-app') && (canUpdate || id !== 'updates')
       && !(remote && PC_ONLY_CARDS.has(id)) && !(id === 'transcription-experiments' && !developerMode) && !(id in FEATURE_CARDS && !featureOn(FEATURE_CARDS[id], features))))
-  }, [loaded, ownKeyShown, canUpdate, remote, features, developerMode])
+  }, [loaded, ownKeyShown, limitsShown, canUpdate, remote, features, developerMode])
   const shown = (id: string) => available.has(id)
   const searching = query.trim() !== ''
   const match = useMemo(() => filterSettings(query, available), [query, available])
@@ -312,7 +320,12 @@ export default function SettingsPage() {
       label="Settings"
       className="settings-page"
       meta={<AppVersionLine />}
-      actions={<a className={buttonClass('secondary', 'sm')} href={USER_GUIDE_URL} target="_blank" rel="noopener noreferrer">Help: user guide</a>}
+      actions={(
+        <>
+          {canDiagnostics && <SendLogsButton onError={setError} />}
+          <a className={buttonClass('secondary', 'sm')} href={USER_GUIDE_URL} target="_blank" rel="noopener noreferrer">Help: user guide</a>
+        </>
+      )}
       tabs={(
         <>
           <div className="settings-tabrow">
@@ -396,6 +409,18 @@ export default function SettingsPage() {
               </SettingsCard>
             )}
             {shown('timing-splitting') && <SettingsCard id="timing-splitting"><TimingSettingsCard {...prefProps} /></SettingsCard>}
+            {shown('blocked-phrases') && (
+              <SettingsCard id="blocked-phrases">
+                <SchemaCard
+                  {...prefProps}
+                  section="Transcription experiments"
+                  keys={['blocked_phrases']}
+                  as="card"
+                  title="Blocked phrases"
+                  summary={blockedPhrasesSummary(settings.preferences.blocked_phrases)}
+                />
+              </SettingsCard>
+            )}
             {shown('transcription-experiments') && <SettingsCard id="transcription-experiments"><TranscriptionExperimentsCard /></SettingsCard>}
           </>
         ))}
@@ -403,7 +428,15 @@ export default function SettingsPage() {
           <>
             {shown('notifications') && (
               <SettingsCard id="notifications">
-                <NotificationsSection popupOn={settings.notify_on_completion} notifyToggle={<div className="setting-list">{toggleField('notify_on_completion')}</div>} />
+                <NotificationsSection
+                  popupOn={settings.notify_on_completion && settings.desktop_popups !== false}
+                  notifyToggle={
+                    <div className="setting-list">
+                      {toggleField('notify_on_completion')}
+                      {settings.desktop_popups === false && <p className="muted">{NO_DESKTOP_POPUPS}</p>}
+                    </div>
+                  }
+                />
               </SettingsCard>
             )}
             {shown('pc-alerts') && <SettingsCard id="pc-alerts"><PcAlertsCard /></SettingsCard>}
@@ -423,6 +456,7 @@ export default function SettingsPage() {
         {panel('account', (
           <>
             <SettingsCard id="sharing"><SharingCard /></SettingsCard>
+            {shown('limits') && <SettingsCard id="limits"><YourLimitsCard /></SettingsCard>}
             {shown('display') && <SettingsCard id="display"><DisplayCard /></SettingsCard>}
             {shown('phone-app') && <SettingsCard id="phone-app"><PhoneAppCard /></SettingsCard>}
             <SettingsCard id="customize-menu"><CustomizeMenuCard /></SettingsCard>
@@ -447,5 +481,29 @@ export default function SettingsPage() {
       </CardChangesProvider>
       </SidePane>
     </PageShell>
+  )
+}
+
+/** Saves the scrubbed logs zip (app log, recent jobs, system info) for the person to send to the owner. */
+function SendLogsButton({ onError }: { onError: (e: unknown) => void }) {
+  const [busy, setBusy] = useState(false)
+  const save = async () => {
+    setBusy(true)
+    onError(null)
+    try {
+      const { blob, filename } = await getSupportBundle()
+      downloadBlob(blob, filename)
+    } catch (e) {
+      onError(e)
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <button type="button" className={buttonClass('secondary', 'sm')} disabled={busy} aria-busy={busy}
+      title="Saves a .zip of recent logs, jobs and system info, with keys, emails and folder names removed"
+      onClick={() => void save()}>
+      {busy ? 'Saving logs…' : 'Send logs'}
+    </button>
   )
 }

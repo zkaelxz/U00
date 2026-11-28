@@ -50,13 +50,13 @@ test('keyboard focus keeps the floating pill open and tapping outside closes it'
   await expect(rail).not.toHaveClass(/is-open/)
 })
 
-// The docked open menu (left or right, not minimized) is a list of words as drawn: no icons, an open title row of its own, a quiet 0 beside Jobs.
+// The docked open menu (left or right, not minimized) is a list of labelled rows with a small icon each, an open title row of its own, a quiet 0 beside Jobs.
 const docked = (mode: 'docked' | 'float' | 'minimized') => async ({ page }: { page: Page }) => {
   await page.addInitScript((m) => localStorage.setItem('baihe.navDock', m), mode)
 }
 const transparent = 'rgba(0, 0, 0, 0)'
 
-test('docked, the menu is 216px wide with the page to its right, and its rows are words with no icon', async ({ page }) => {
+test('docked, the menu is 216px wide with the page to its right, and each row has a small icon', async ({ page }) => {
   await docked('docked')({ page })
   await page.setViewportSize({ width: 1280, height: 900 })
   await page.goto('/#/library')
@@ -68,7 +68,12 @@ test('docked, the menu is 216px wide with the page to its right, and its rows ar
   expect(Math.round(box.width)).toBe(Math.round(216 * scale))
   // The header is the first thing in the page column: it starts clear of the menu.
   expect((await page.locator('.app-header').boundingBox())!.x).toBeGreaterThanOrEqual(box.width)
-  await expect(rail.locator('nav a svg:visible')).toHaveCount(0)
+  // Every row shows its icon at 18px; the label stays the link's accessible name (the icon is aria-hidden).
+  const rows = await rail.locator('nav a:not(.rail-title)').count()
+  await expect(rail.locator('nav a:not(.rail-title) svg:visible')).toHaveCount(rows)
+  const icon = (await rail.locator('nav a svg').first().boundingBox())!
+  expect([Math.round(icon.width), Math.round(icon.height)]).toEqual([18, 18])
+  await expect(rail.getByRole('link', { name: 'Library', exact: true })).toBeVisible()
   await expect(rail.locator('nav a').first()).toBeVisible()
   const mark = (await rail.locator('.rail-brand-mark').boundingBox())!
   expect([Math.round(mark.width), Math.round(mark.height)]).toEqual([30, 30])
@@ -130,7 +135,6 @@ test('docked, the two bottom rows are plain bold rows with icons: Minimize navig
     expect(Math.round((await button.boundingBox())!.height)).toBeGreaterThanOrEqual(44)
     await expect(button.locator('svg')).toBeVisible()
   }
-  await expect(page.locator('.app-rail nav svg:visible')).toHaveCount(0)
 })
 
 test('floating and minimized keep their icons', async ({ page }) => {

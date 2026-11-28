@@ -78,12 +78,6 @@ CAPABILITIES = {
         "pref": "episode_summary_engine",
         "choices": lambda: settings_service.SUMMARY_ENGINE_CHOICES,
     },
-    "research.grounded_search": {
-        "label": "Web-grounded research",
-        "help": "Looks up titles and names with web search results (metadata research).",
-        "requires": engine_registry.CAP_GROUNDED_SEARCH,
-        "default": "gemini",
-    },
 }
 
 ENGINE_TEST_PREFIX = settings_service.ENGINE_TEST_PREFIX

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import type { SettingsSchemaRow } from '../../types/settings'
-import { toDraftValue, toSavedValue } from './schemaValues'
+import { blockedPhrasesSummary, toDraftValue, toSavedValue } from './schemaValues'
 
 const row = (over: Partial<SettingsSchemaRow>): SettingsSchemaRow => ({
   key: 'k', type: 'text', default: null, scope: 'app', label: 'Thing', help: '', unit: '', placeholder: '',
@@ -76,5 +76,14 @@ describe('toDraftValue', () => {
     const cap = row({ key: 'monthly_cap_usd', type: 'float', default: null, min: 0 })
     expect(toSavedValue(cap, toDraftValue(cap, 0))).toEqual({ ok: true, value: 0 })
     expect(toSavedValue(cap, toDraftValue(cap, null))).toEqual({ ok: true, value: null })
+  })
+})
+
+describe('blockedPhrasesSummary', () => {
+  it('counts the non-empty lines', () => {
+    expect(blockedPhrasesSummary('')).toBe('Nothing blocked')
+    expect(blockedPhrasesSummary(null)).toBe('Nothing blocked')
+    expect(blockedPhrasesSummary('please subscribe\n\n  \nthanks for watching\n')).toBe('2 phrases')
+    expect(blockedPhrasesSummary('one phrase')).toBe('1 phrase')
   })
 })

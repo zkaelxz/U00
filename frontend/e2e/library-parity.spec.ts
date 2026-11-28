@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test'
 
+import { openLibraryFilters } from './mockHelpers'
 import { navLink, openMenu } from './settingsNav'
 
 // Library parity (inventory L02, L07, L15). Filters run against the real
@@ -11,16 +12,15 @@ import { navLink, openMenu } from './settingsNav'
 const dramas = (page: Page) => page.getByRole('region', { name: 'Titles' })
 const tools = (page: Page) => page.getByRole('region', { name: 'Library tools' })
 
-test('More filters: language, author and custom tags go through the API', async ({ page }) => {
+test('Filters: language, author and custom tags go through the API', async ({ page }) => {
   await page.goto('/')
   await expect(page.getByTestId('drama-count')).toHaveText('3 titles')
-  await page.getByText('More filters', { exact: true }).click()
-  const more = page.locator('.more-filters')
+  const more = await openLibraryFilters(page)
 
   await more.getByLabel('Language', { exact: true }).selectOption('ko')
   await expect(page.getByTestId('drama-count')).toHaveText('1 title')
   await expect(dramas(page).getByRole('link', { name: 'Signal', exact: true })).toBeVisible()
-  await expect(page.getByText('More filters (1)')).toBeVisible()
+  await expect(page.locator('.filters-menu > summary')).toHaveText('Filters (1)')
   await page.getByRole('button', { name: 'Clear these filters' }).click()
   await expect(page.getByTestId('drama-count')).toHaveText('3 titles')
 
@@ -36,16 +36,16 @@ test('More filters: language, author and custom tags go through the API', async 
   await expect(page.getByTestId('drama-count')).toHaveText('3 titles')
 })
 
-test('a More filters choice with no match: Clear filters resets it too', async ({ page }) => {
+test('a Filters choice with no match: Clear filters resets it too', async ({ page }) => {
   await page.goto('/')
-  await page.getByText('More filters', { exact: true }).click()
+  const more = await openLibraryFilters(page)
   await page.getByRole('checkbox', { name: 'wuxia' }).check()
-  await page.locator('.more-filters').getByLabel('Language', { exact: true }).selectOption('ko')
+  await more.getByLabel('Language', { exact: true }).selectOption('ko')
   await expect(page.getByText('No titles match.')).toBeVisible()
   await page.getByRole('button', { name: 'Clear filters', exact: true }).click()
   await expect(page.getByTestId('drama-count')).toHaveText('3 titles')
-  await expect(page.getByText('More filters', { exact: true })).toBeVisible()
-  await expect(page.getByRole('checkbox', { name: 'wuxia' })).not.toBeChecked()
+  await expect(page.locator('.filters-menu > summary')).toHaveText('Filters')
+  await expect((await openLibraryFilters(page)).getByRole('checkbox', { name: 'wuxia' })).not.toBeChecked()
 })
 
 test('Continue resumes reading at the saved page (GET /api/library/continue)', async ({ page }) => {
@@ -101,12 +101,14 @@ test('Reading history on a remote device: no Clear button', async ({ page }) => 
   await expect(section.getByRole('button', { name: 'Clear reading history' })).toHaveCount(0)
 })
 
-test('Library header holds no links; the Add box sits under it; Library tools lives in the rail or drawer (no Saved manga item)', async ({ page }) => {
+test('Library header holds one + Add link to Find & Add and no Add box; Library tools lives in the rail or drawer (no Saved manga item)', async ({ page }) => {
   await page.setViewportSize({ width: 800, height: 900 })
   await page.goto('/')
   const head = page.locator('.page-head')
-  await expect(page.getByRole('region', { name: 'Add' }).getByRole('heading', { name: 'Add something to translate' })).toBeVisible()
-  await expect(head.getByRole('link')).toHaveCount(0)
+  await expect(page.getByTestId('stats')).toBeVisible()
+  await expect(page.getByRole('region', { name: 'Add' })).toHaveCount(0)
+  await expect(head.getByRole('link')).toHaveCount(1)
+  await expect(head.getByRole('link', { name: '+ Add', exact: true })).toHaveAttribute('href', '#/make-subtitles')
   await expect(head.getByRole('button', { name: 'New title' })).toHaveCount(0)
   await expect(head.getByRole('link', { name: 'Saved manga' })).toHaveCount(0)
   await expect(head.getByRole('link', { name: 'Library tools' })).toHaveCount(0)

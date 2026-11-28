@@ -1,4 +1,5 @@
-"""Chapter-parallel novel translation: order inside a chapter, usage and cap, eligibility."""
+"""Chapter-parallel novel translation and scene-parallel subtitle translation: order inside a
+lane, usage and cap, eligibility, where scenes are cut."""
 import threading
 import time
 from types import SimpleNamespace
@@ -331,6 +332,238 @@ def test_the_first_batch_is_sent_even_when_it_alone_passes_the_cap(novel):
     assert len(usage) == 1
 
 
+def _subtitles(pauses, n=30):
+    """`n` timed lines two seconds apart, with a pause of `pauses[i]` seconds before line i."""
+    lines, t = [], 0.0
+    for i in range(n):
+        t += pauses.get(i, 0.0)
+        line = _Line(i, f"s{i}")
+        line.start, line.end = t, t + 1.5
+        lines.append(line)
+        t += 2.0
+    return lines
+
+
+@pytest.fixture
+def subtitles(monkeypatch):
+    monkeypatch.setattr(tp, "novel_paragraph_ends", lambda meta, lines: None)
+    monkeypatch.setattr(tp, "estimate_cost_for_engine", lambda *a, **k: 1.0)
+    parts = []
+    run_lanes = tp._TranslateRun._run_chapter_lanes
+
+    def spy(self, groups):
+        parts.append([[ln.idx for batch in g for ln in batch] for g in groups])
+        return run_lanes(self, groups)
+    monkeypatch.setattr(tp._TranslateRun, "_run_chapter_lanes", spy)
+    return parts
+
+
+def _run_subtitles(lines, parallel, **kw):
+    engine = _Engine()
+    details = []
+    _, errors = tp.translate_lines_with_engine(
+        lines, engine, drama_meta={"id": 1}, batch_size=3, parallel_chapters=parallel,
+        detail_cb=lambda frac, message: details.append(message), **kw)
+    return engine, errors, details
+
+
+def test_a_subtitle_run_translates_its_scenes_side_by_side(subtitles):
+    lines = _subtitles({9: 25.0, 21: 30.0})
+    engine, errors, details = _run_subtitles(lines, 3)
+    assert errors == []
+    assert all(ln.en == f"EN {ln.zh}" for ln in lines)
+    assert subtitles == [[list(range(9)), list(range(9, 21)), list(range(21, 30))]]
+    assert 1 < engine.stats["peak"] <= 3
+    assert any(m.startswith("Part 2 of 3, ") for m in details)
+
+
+def test_scenes_are_cut_at_the_long_pauses_nearest_an_even_split(subtitles):
+    lines = _subtitles({3: 40.0, 15: 21.0, 27: 60.0})
+    _run_subtitles(lines, 2)
+    assert subtitles == [[list(range(15)), list(range(15, 30))]]
+
+
+@pytest.mark.parametrize("pauses,parallel,kw", [
+    ({9: 19.0, 21: 15.0}, 3, {}),                       # no pause is long enough
+    ({9: 25.0, 21: 30.0}, 1, {}),                       # one at a time chosen
+    ({9: 25.0, 21: 30.0}, 3, {"target_ids": {109, 110, 121, 122}}),  # picked lines, not scenes
+])
+def test_a_subtitle_run_stays_in_one_lane_when_it_should(subtitles, pauses, parallel, kw):
+    engine, errors, _ = _run_subtitles(_subtitles(pauses), parallel, force_retranslate=True, **kw)
+    assert errors == [] and subtitles == [] and engine.stats["peak"] == 1
+
+
+def test_a_long_pause_inside_a_batch_still_cuts_and_the_batches_start_again_there(subtitles):
+    lines = _subtitles({10: 25.0})
+    engine, errors, _ = _run_subtitles(lines, 3)
+    assert errors == [] and subtitles == [[list(range(10)), list(range(10, 30))]]
+    assert ["s10", "s11", "s12"] in engine.calls
+
+
+def test_lines_already_translated_between_two_are_not_a_pause(subtitles):
+    lines = _subtitles({}, n=30)
+    for ln in lines[10:20]:
+        ln.en = "kept"
+    engine, errors, _ = _run_subtitles(lines, 3)
+    assert errors == [] and subtitles == [] and engine.stats["peak"] == 1
+    assert all(ln.en == "kept" for ln in lines[10:20])
+
+
+def test_a_line_already_in_english_is_saved_when_scenes_run_side_by_side(subtitles):
+    lines = _subtitles({9: 25.0, 21: 30.0})
+    lines[4].lang, lines[4].zh = "en", "Hello there."
+    saved = []
+    _run_subtitles(lines, 3, save_cb=lambda ls: saved.extend(ln.id for ln in ls if ln.en))
+    assert len(subtitles) == 1 and lines[4].en == "Hello there."
+    assert lines[4].id in saved
+
+
+def test_no_part_is_shorter_than_a_batch(subtitles):
+    _run_subtitles(_subtitles({1: 30.0, 2: 30.0}, n=60), 3)
+    _run_subtitles(_subtitles({30: 30.0, 31: 30.0}, n=60), 3)
+    assert subtitles == [[list(range(30)), list(range(30, 60))]]
+
+
+def test_a_picked_range_is_not_cut_even_across_a_long_pause(subtitles):
+    lines = _subtitles({9: 25.0, 21: 30.0})
+    engine, errors, _ = _run_subtitles(lines, 3, force_retranslate=True,
+                                       target_ids={ln.id for ln in lines[5:25]})
+    assert errors == [] and subtitles == [] and engine.stats["peak"] == 1
+
+
+class _SeenEngine(_Engine):
+    """Remembers what each call was shown before and after its lines."""
+
+    def __init__(self):
+        super().__init__()
+        self.seen = []
+
+    def translate_batch(self, zh_lines, context):
+        out = super().translate_batch(zh_lines, context)
+        with self.lock:
+            self.seen.append((list(zh_lines), [en for _zh, en in context.get("recent_context") or []],
+                              list(context.get("upcoming_lines") or [])))
+        return out
+
+
+def _run_seen(engine, lines, **kw):
+    _, errors = tp.translate_lines_with_engine(lines, engine, drama_meta={"id": 1}, batch_size=3,
+                                               parallel_chapters=3, **kw)
+    return errors
+
+
+def test_a_later_parts_first_batch_is_shown_the_source_lines_before_it(subtitles):
+    engine = _SeenEngine()
+    _run_seen(engine, _subtitles({9: 25.0, 21: 30.0}))
+    first_sends = [upcoming for zh, _recent, upcoming in engine.seen if zh[0] == "s9"]
+    assert "s8" in first_sends[0]
+
+
+
+def test_only_a_later_parts_first_batch_gets_the_lines_before_it(subtitles):
+    engine = _SeenEngine()
+    _run_seen(engine, _subtitles({9: 25.0, 21: 30.0}))
+    for zh, _recent, upcoming in engine.seen:
+        if zh[0] not in ("s9", "s21"):
+            assert not any(u in upcoming for u in (f"s{int(zh[0][1:]) - k}" for k in range(1, 4)))
+
+
+def test_chapter_lanes_get_no_lines_from_before_the_chapter(novel):
+    engine = _SeenEngine()
+    _run(engine, 2)
+    firsts = {zh[0]: ups for zh, _r, ups in engine.seen if zh[0].startswith("第")}
+    assert len(firsts) == CHAPTERS
+    assert not any(f"c{c - 1}l{PER_CHAPTER - 1}" in firsts[f"第{c}章"] for c in range(1, CHAPTERS))
+
+
+class _HeEngine(_Engine):
+    """Says "he" in chapter 0 until asked strictly; chapter 3 is slow."""
+
+    def __init__(self):
+        super().__init__()
+        self.order = []
+
+    def translate_batch(self, zh_lines, context):
+        strict = bool(context.get("pronoun_strict"))
+        if not strict and any(z.startswith(("第3", "c3")) for z in zh_lines):
+            time.sleep(0.3)
+        out = super().translate_batch(zh_lines, context)
+        with self.lock:
+            self.order.append(("strict" if strict else "plain", list(zh_lines)))
+        if strict:
+            return [f"she {z}" for z in zh_lines]
+        return [f"he {z}" if z.startswith(("第0", "c0")) else e for z, e in zip(zh_lines, out)]
+
+
+def _pronoun_run(engine, **kw):
+    from engine_backends.prompts import PRONOUN_DEFAULT_MARKER
+    return _run(engine, 2, style_guidelines=PRONOUN_DEFAULT_MARKER, **kw)
+
+
+def test_a_chapters_pronoun_recheck_runs_as_it_finishes_beside_the_others(novel):
+    engine = _HeEngine()
+    lines, errors, _u, _s = _pronoun_run(engine)
+    assert errors == []
+    kinds = [kind for kind, _ in engine.order]
+    assert "strict" in kinds and kinds.index("strict") < len(kinds) - 1 - kinds[::-1].index("plain")
+    rechecked = sorted(z for kind, zs in engine.order if kind == "strict" for z in zs)
+    assert rechecked == sorted(ln.zh for ln in lines[:PER_CHAPTER])  # each suspect asked once
+    assert all(ln.en.startswith("she ") and ln.flag != tp.PRONOUN_CHECK_FLAG for ln in lines[:PER_CHAPTER])
+
+
+def test_under_a_cap_each_recheck_request_takes_a_slot_like_a_batch(novel, monkeypatch):
+    engine = _HeEngine()
+    reserved = []
+    real = tp._TranslateRun._reserve_batch
+
+    def reserve(self, batch):
+        reserved.append([ln.zh for ln in batch])
+        return real(self, batch)
+    monkeypatch.setattr(tp._TranslateRun, "_reserve_batch", reserve)
+    lines, _errors, _u, _s = _pronoun_run(engine, cost_cap_usd=100.0)
+    kinds = [kind for kind, _ in engine.order]
+    assert "strict" in kinds and kinds.index("strict") < len(kinds) - 1 - kinds[::-1].index("plain")
+    strict = [zs for kind, zs in engine.order if kind == "strict"]
+    assert all(any(set(zs) <= set(chunk) for chunk in reserved) for zs in strict)
+    assert sum(1 for chunk in reserved if all(z.startswith(("第0", "c0")) for z in chunk)) > (
+        sum(1 for kind, zs in engine.order if kind == "plain" and zs[0].startswith(("第0", "c0"))
+            and len(zs) > 1))  # chapter 0's batches plus its re-check requests
+    assert all(ln.en.startswith("she ") for ln in lines[:PER_CHAPTER])
+
+
+def test_a_cap_reached_stops_the_recheck_too(novel, monkeypatch):
+    engine = _HeEngine()
+
+    def chapter0_done(self):
+        return any(kind == "plain" and "c0l5" in zs for kind, zs in engine.order)
+    # Reached right after chapter 0's last batch, so its lane gets as far as the re-check.
+    monkeypatch.setattr(tp._TranslateRun, "_cap_reached", chapter0_done)
+    lines, _errors, _u, _s = _pronoun_run(engine, cost_cap_usd=100.0)
+    assert all(ln.en for ln in lines[:PER_CHAPTER])
+    assert not any(kind == "strict" for kind, _ in engine.order)
+
+
+def test_a_recheck_that_ends_the_run_stops_the_other_lanes_before_they_wake(novel, monkeypatch):
+    engine = _HeEngine()
+    original = engine.translate_batch
+
+    def quota_on_recheck(zh_lines, context):
+        if context.get("pronoun_strict"):
+            raise TranslateRunStopped("quota")
+        return original(zh_lines, context)
+    engine.translate_batch = quota_on_recheck
+    stopped_at_release = []
+    real = tp._TranslateRun._release_batch
+
+    def release(self, cost, batch, stop=False):
+        real(self, cost, batch, stop)
+        stopped_at_release.append((batch[0].zh, self.stopped))
+    monkeypatch.setattr(tp._TranslateRun, "_release_batch", release)
+    _pronoun_run(engine, cost_cap_usd=100.0)
+    # The failed re-check chunk (chapter 0's first suspects) wakes the others already stopped.
+    assert ("第0章", True) in stopped_at_release
+
+
 # --- A slow DeepSeek run moves to the fallback at a chapter start -------------------------
 
 from engine_backends import fallback as fb  # noqa: E402
@@ -355,6 +588,7 @@ def quick_slow_line(monkeypatch):
     monkeypatch.setattr(fb, "SLOW_REQUEST_SECONDS", 0.05)
     monkeypatch.setattr(fb, "SLOW_SECONDS_PER_LINE", 0.01)
     monkeypatch.setattr(fb, "_slow_until", {})
+    monkeypatch.setattr(fb, "_slow_reason", {})
 
 
 def _switching(primary_delay, fallback_error=None):
@@ -496,3 +730,97 @@ def test_a_member_whose_key_cannot_be_read_gets_no_slow_switch(monkeypatch):
     monkeypatch.setattr(local, "member_cloud_key", lambda: local.UNREADABLE_MEMBER_KEY)
     deepseek = _Timed("deepseek", "deepseek-flash")
     assert translate_run_options.with_slow_switch(deepseek) is deepseek
+
+
+def _first_batch_under_budget(monkeypatch, **kw):
+    monkeypatch.setattr(tp, "novel_batch_chars", lambda engine: 10)
+    engine = _Engine()
+    lines = [_Line(i, "第1章" if i == 0 else "字" * 4) for i in range(9)]
+    tp.translate_lines_with_engine(lines, engine, drama_meta={"id": 1}, batch_size=9, **kw)
+    # The first request is the first batch; later checks may ask again.
+    return len(engine.calls[0])
+
+
+def test_a_default_batch_size_still_keeps_the_novel_character_budget(novel, monkeypatch):
+    # The run service always passes a size; only one the user chose lifts the budget.
+    assert _first_batch_under_budget(monkeypatch, novel_char_budget=True) <= 3
+    assert _first_batch_under_budget(monkeypatch, novel_char_budget=False) == 9
+    assert _first_batch_under_budget(monkeypatch) == 9
+
+
+def test_the_budget_of_a_slow_switch_run_is_its_starting_engines():
+    from engine_backends.fallback import SlowSwitchEngine
+    first, second = _Engine(), _Engine()
+    assert tp._planning_engine(SlowSwitchEngine([first, second], ["deepseek", "ollama"])) is first
+    assert tp._planning_engine(first) is first
+
+
+class _NoCredit(Exception):
+    status_code = 402
+
+
+def test_a_deepseek_out_of_credit_moves_the_run_to_the_fallback_at_once(novel, quick_slow_line):
+    engine = _switching(primary_delay=0.0)
+    engine.engines[0].error = _NoCredit("Insufficient Balance")
+    lines, errors, _, _ = _run(engine, 3)
+    assert errors == []
+    assert all(ln.en.startswith("ollama ") for ln in lines)
+    assert [e["reason"] for e in engine.events] == [fb.OUT_OF_CREDIT]
+    # The next run starts on the fallback and still says why.
+    after = _switching(primary_delay=0.0)
+    assert after.active == 1 and after.events[0]["reason"] == fb.OUT_OF_CREDIT
+
+
+def test_out_of_credit_after_a_slow_switch_is_still_reported(quick_slow_line):
+    engine = _switching(primary_delay=0.0)
+    engine._state.switched = True
+    engine._state.events.append({"from": "deepseek", "to": "ollama", "reason": "slow"})
+    # A lane whose chapter began before the slow switch still asks DeepSeek.
+    engine.engines[0].error = _NoCredit("Insufficient Balance")
+    assert engine.translate_batch(["a"], {}) == ["ollama a"]
+    assert [e["reason"] for e in engine.events] == ["slow", fb.OUT_OF_CREDIT]
+
+
+def test_out_of_credit_with_no_fallback_says_deepseek_is_out_of_credit(quick_slow_line):
+    from engine_backends.local import OllamaUnavailableError
+    engine = _switching(primary_delay=0.0,
+                        fallback_error=OllamaUnavailableError("ollama_unreachable", "down"))
+    engine.engines[0].error = _NoCredit("Insufficient Balance")
+    with pytest.raises(_NoCredit):
+        engine.translate_batch(["a"], {})
+    assert engine.active == 0 and engine._state.fallback_failed
+    # The next run asks DeepSeek again rather than an Ollama that isn't there.
+    assert _switching(primary_delay=0.0).active == 0
+
+
+def test_the_finished_job_says_deepseek_is_out_of_credit():
+    from services import jobs_service
+    result = jobs_service.project_result({
+        "errors": [], "translated_count": 3,
+        "fallbacks": [{"from": "deepseek", "to": "ollama", "reason": fb.OUT_OF_CREDIT,
+                       "detail": "Error code: 402 - Insufficient Balance"}]})
+    assert "Insufficient" not in str(result)
+    _, message = jobs_service.derive_outcome("done", None, result)
+    assert fb.OUT_OF_CREDIT_NOTICE in message
+    _, slow = jobs_service.derive_outcome("done", None, jobs_service.project_result({
+        "errors": [], "translated_count": 3,
+        "fallbacks": [{"from": "deepseek", "to": "ollama", "reason": "slow", "detail": "x"}]}))
+    assert fb.OUT_OF_CREDIT_NOTICE not in slow
+
+
+def test_a_partial_job_handed_back_from_the_fallback_does_not_say_gemma_is_translating(
+        quick_slow_line):
+    from engine_backends.local import OllamaUnavailableError
+    from services import jobs_service
+    engine = _switching(primary_delay=0.0,
+                        fallback_error=OllamaUnavailableError("ollama_unreachable", "down"))
+    engine.engines[0].error = _NoCredit("Insufficient Balance")
+    with pytest.raises(_NoCredit):
+        engine.translate_batch(["a"], {})
+    result = jobs_service.project_result({
+        "errors": ["DeepSeek: Insufficient Balance"], "translated_count": 5,
+        "fallbacks": list(engine.events)})
+    outcome, message = jobs_service.derive_outcome("done", None, result)
+    assert outcome == "partial"
+    assert "DeepSeek is out of credit. Top up at platform.deepseek.com." in message
+    assert "translating for now" not in message

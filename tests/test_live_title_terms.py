@@ -3,6 +3,7 @@ import pytest
 
 from jobs import job_launch
 import db
+import language_packs
 from live import live_cue_translation as lct
 from core import Line
 from engine_backends.prompts import build_batch_user_message, build_stable_system_text
@@ -174,7 +175,7 @@ def test_the_downloaded_vtuber_list_hints_only_when_nothing_is_picked(isolated_d
     from services import vdb_names_service
     monkeypatch.setattr(vdb_names_service, "entries_for_text", lambda text: [n for n in ("嘉然", "某某") if n in text])
     plain = live_service._hint_function(None, None, "zh", default_packs=live_service._default_packs("zh"))
-    rows = plain(["嘉然和某某"])
+    rows = plain(["嘉然，某某"])
     # 嘉然 already has the names pack's English, so the list adds only the name the pack lacks.
     assert [r for r in rows if r[2] == live_service.KNOWN_NAME_HINT] == [
         ("某某", live_service.KNOWN_NAME_EN, live_service.KNOWN_NAME_HINT)]
@@ -183,6 +184,51 @@ def test_the_downloaded_vtuber_list_hints_only_when_nothing_is_picked(isolated_d
     assert all(r[2] != live_service.KNOWN_NAME_HINT for r in _hints(did, lang="zh")(["嘉然和某某"]))
     korean = live_service._hint_function(None, None, "ko", default_packs=live_service._default_packs("ko"))
     assert korean(["嘉然和某某"]) == []
+
+
+EVERYDAY_PHRASES = ["向晚的时候", "我想养一只羊驼", "今天吃黑鱼", "白川乡很美", "木葉が落ちる", "夜霧が出た"]
+
+
+@pytest.mark.parametrize("lang", ["zh", "ja"])
+def test_default_hints_skip_short_names_inside_everyday_words(isolated_db, lang):
+    hints = live_service._hint_function(None, None, lang, default_packs=live_service._default_packs(lang))
+    names = {e["source"] for e in language_packs.all_packs()[f"{lang}-vtuber-names"]["entries"]}
+    for phrase in EVERYDAY_PHRASES:
+        assert not names & {r[0] for r in hints([phrase])}, phrase
+
+
+NAMES_PACK = {"id": "zh-vtuber-names", "version": 1, "language": "zh", "title": "t", "description": "d", "entries": [
+    {"source": "测例", "en": "Ce Li", "category": "streamer", "note": ""},
+    {"source": "测例名", "en": "Example Name", "category": "streamer", "note": ""},
+    {"source": "开播", "en": "going live", "category": "phrase", "note": ""}]}
+
+
+def test_default_hints_keep_longer_names_and_short_ones_said_alone(isolated_db, monkeypatch):
+    from services import vdb_names_service
+    pack = language_packs.validate_pack(NAMES_PACK, "zh-vtuber-names.json")
+    monkeypatch.setattr(language_packs, "all_packs", lambda: {"zh-vtuber-names": pack})
+    monkeypatch.setattr(vdb_names_service, "entries_for_text",
+                        lambda text: [n for n in ("样名", "样例名字") if n in text])
+    hints = live_service._hint_function(None, None, "zh", default_packs=live_service._default_packs("zh"))
+
+    def sources(text):
+        return {r[0] for r in hints([text])}
+    assert sources("测例名今天开播了") == {"测例名", "开播"}
+    assert sources("测例的歌") == set()
+    assert sources("测例！你好") == {"测例"}
+    assert sources("谢谢 测例") == {"测例"}
+    assert sources("样例名字和样名色") == {"样例名字"}
+    assert sources("我是样名。") == set()
+    assert sources("下一位\n样名\n") == {"样名"}
+
+
+def test_default_hints_cap_the_downloaded_names_per_chunk(isolated_db, monkeypatch):
+    from services import vdb_names_service
+    many = [f"测试名{i:02d}" for i in range(30)]
+    monkeypatch.setattr(vdb_names_service, "entries_for_text", lambda text: [n for n in many if n in text])
+    hints = live_service._hint_function(None, None, "zh", default_packs=live_service._default_packs("zh"))
+    rows = [r for r in hints([" ".join(many)]) if r[2] == live_service.KNOWN_NAME_HINT]
+    assert len(rows) == live_service.LIVE_KNOWN_NAMES
 
 
 def test_default_hints_keep_glossary_terms_first_under_the_prompt_cap(isolated_db, monkeypatch):

@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test'
 
 import { ME, USER, maybeScreenshot, mockAuth } from './authMocks'
+import { openNewTitle } from './addBoxMocks'
 
 // Desktop: the sign-in gate (auth on) against mocked /api/auth/* routes.
 // Nothing reaches Google; see authMocks.ts.
@@ -146,10 +147,10 @@ test('a 401 mid-visit shows a sign-in overlay above the still-mounted app', asyn
 })
 
 test('a 401 with a draft open keeps the draft; signing in from another tab brings it back', async ({ page }) => {
-  // The Add box, and with it New title, is for sessions that hold library.create.
+  // + Add, and with it New title, is for sessions that hold library.create.
   const s = await mockAuth(page, { ...ME.signedIn, permissions: [...ME.signedIn.permissions, 'library.create'] })
   await page.goto('/#/library')
-  await page.getByRole('button', { name: 'Add a title by hand' }).click()
+  await openNewTitle(page)
   const title = page.getByRole('dialog', { name: 'New title' }).getByLabel('English title')
   await title.fill('Unsaved draft title')
   // The session ends on the server; the next jobs read (on focus) gets the 401.

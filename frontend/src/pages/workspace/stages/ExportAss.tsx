@@ -137,8 +137,20 @@ export function ExportAss({ form, setForm, options, earMarks = false, sourceLang
       {!form.includeNotes && (
         <p className="muted" data-testid="ass-notes-reason">Turn on Include notes under Advanced to place notes.</p>
       )}
-      <Field label="Speaker colours" help={`One "Name = #RRGGBB" per line, at most ${MAX_SPEAKER_COLORS}.`}>
-        <textarea rows={3} value={form.speakerColors} onChange={(e) => set('speakerColors', e.target.value)} />
+      <Field
+        label="Speaker colours"
+        help={
+          form.perSpeakerColors
+            ? `One "Name = #RRGGBB" per line, at most ${MAX_SPEAKER_COLORS}: a character's name, or a speaker label such as SPEAKER_00 for a speaker with no name. Speakers not listed keep the text colour.`
+            : 'Turn on Colour each speaker to use these.'
+        }
+      >
+        <textarea
+          rows={3}
+          value={form.speakerColors}
+          disabled={!form.perSpeakerColors}
+          onChange={(e) => set('speakerColors', e.target.value)}
+        />
       </Field>
     </Section>
   )

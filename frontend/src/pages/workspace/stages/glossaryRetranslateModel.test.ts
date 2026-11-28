@@ -19,7 +19,7 @@ const line = (id: number, hand_edited: boolean): GlossaryAffectedLine => ({
 const est = (usd: number | null, n: number): TranslateRunEstimate => ({
   engine: 'claude', model: null, estimated_usd: usd, alignment_check_usd: null, target_line_count: n, free: false,
   cap_applies: true, effective_cap_usd: null, monthly_refusal: false, estimate_above_cap: false,
-  estimate_is_lower_bound: false, thinking: false,
+  balance_too_low: false,
 })
 const lines = [line(1, false), line(2, true), line(3, false)]
 const preview: GlossaryAffectedPreview = {
@@ -29,7 +29,7 @@ const preview: GlossaryAffectedPreview = {
 const form: RunForm = {
   engine: 'claude', model: '', style_preset: 'audio_drama', style_note: '', locale: 'en-GB',
   batch_size: '20', context_window: '6', context_window_ahead: '3', cost_cap: '1.5', fallbacks: [],
-  force: true, forceConfirmed: true, reflect: false, bulk: true, thinking: false, female_pronouns: false, genre_notes: true, memory_examples: false, chapter_from: '', chapter_to: '',
+  force: true, forceConfirmed: true, reflect: false, bulk: true, female_pronouns: false, genre_notes: true, memory_examples: false, chapter_from: '', chapter_to: '',
 }
 
 describe('glossary re-translate selection', () => {
@@ -56,7 +56,7 @@ describe('glossary re-translate selection', () => {
 
 describe('glossary re-translate requests', () => {
   it('uses the Translate form for the preview and the run, never force or bulk', () => {
-    expect(affectedParams(form, [4, 5])).toEqual({ term_ids: [4, 5], engine: 'claude', job_cost_cap_usd: 1.5 })
+    expect(affectedParams(form, [4, 5])).toEqual({ term_ids: [4, 5], engine: 'claude', job_cost_cap_usd: 1.5, style_preset: 'audio_drama', batch_size: 20 })
     expect(affectedParams({ ...form, cost_cap: '-1' }, [])).toBeNull()
     const body = buildAffectedRunBody(form, { ...preview, selected_term_ids: [] }, [1, 3], false)
     expect(body).toMatchObject({ line_ids: [1, 3], preview_hash: 'abc', include_hand_edited: false, locale: 'en-GB', engine: 'claude', job_cost_cap_usd: 1.5 })
@@ -70,6 +70,8 @@ describe('glossary re-translate requests', () => {
   it('builds the preview query and posts the run', async () => {
     expect(buildGlossaryAffectedQuery({ term_ids: [1, 2], engine: 'claude' })).toBe('?term_ids=1&term_ids=2&engine=claude')
     expect(buildGlossaryAffectedQuery({})).toBe('')
+    expect(buildGlossaryAffectedQuery({ style_preset: 'novel', batch_size: 12 })).toBe('?style_preset=novel&batch_size=12')
+    expect(affectedParams({ ...form, batch_size: '' }, [])).not.toHaveProperty('batch_size')
     const calls: { url: string; init?: RequestInit }[] = []
     const fake = (async (input: RequestInfo | URL, init?: RequestInit) => {
       calls.push({ url: String(input), init })

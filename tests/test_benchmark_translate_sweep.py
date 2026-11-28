@@ -139,6 +139,12 @@ class TestSweep:
         assert "memory_examples" in keys(tsweep.estimate("s", "zh", ENGINE, series_id=series_id))
         assert "temperature" in keys(tsweep.estimate("s", "zh", "ollama"))
 
+    def test_the_style_knob_sweeps_only_the_styles_the_pickers_offer(self, monkeypatch):
+        monkeypatch.setattr(tsweep, "KNOBS", (("style_preset", "Style preset", None),))
+        _cases()
+        [style] = [k for k in tsweep.estimate("s", "zh", ENGINE)["knobs"] if k["key"] == "style_preset"]
+        assert "manhua" not in style["values"] and "audio_drama" in style["values"]
+
     def test_a_winner_a_profile_cannot_hold_is_not_offered_for_approval(self, monkeypatch):
         _cases()
         plan = tsweep._Plan("s", "zh", ENGINE, None, None)

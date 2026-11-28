@@ -20,16 +20,26 @@ from lib.safe_paths import plain_file_in
 # "Prologue". Kept short and without sentence-ending punctuation, so an
 # ordinary sentence that merely starts the same way (第一回合他就输了。 /
 # "Chapter and verse, ...") isn't one. Markers that also start everyday
-# words (第一部电影, 1화를, 프롤로그가) must be followed by a space,
-# a separator or the end of the line.
-_HEADING_END = r"(?=\s|[:：.\-–—]|$)"
+# words (第一部电影, 1화를, 프롤로그가, 番外的, 闲话少说) must be followed by a
+# space, a separator, a closing bracket or the end of the line. Downloaded
+# TXT files often put 正文, a bracket or a decoration symbol in front
+# (正文 第一章 / 【第一章】 / ☆第3章).
+_HEADING_END = r"(?=\s|[:：.\-–—】\]］〕]|$)"
+_CJK_NUMBER = r"[0-9０-９零〇一二三四五六七八九十百千两兩]+"
 _CHAPTER_HEADING_RE = re.compile(
-    r"^\s*(第\s*[0-9０-９零〇一二三四五六七八九十百千两兩]+\s*[章回节節卷]|"
-    r"(?:第\s*[0-9０-９零〇一二三四五六七八九十百千两兩]+\s*[話话部篇集幕]|"
+    r"^\s*(?:[☆★◆◇●○■□※◎♦]+\s*)?(?:正文\s*)?(?:卷\s*" + _CJK_NUMBER + r"\s+)?[【\[［〔]?\s*"
+    r"(第\s*" + _CJK_NUMBER + r"\s*[章回节節卷]|"
+    r"(?:第\s*" + _CJK_NUMBER + r"\s*[話话部篇集幕]|"
     r"제\s*[0-9０-９]+\s*[장화권부]|[0-9０-９]+\s*화|"
-    r"终章|終章|プロローグ|エピローグ|幕間|프롤로그|에필로그|외전|서장|종장|"
+    r"番外篇?\s*" + _CJK_NUMBER + r"|最[終终][話话章回]|"
+    r"终章|終章|プロローグ|エピローグ|幕間|閑話|闲话|間章|间章|後日談|后日谈|"
+    r"프롤로그|에필로그|외전|서장|종장|"
     r"序章|序言|楔子|引子|尾声|尾聲|后记|後記|番外篇?)" + _HEADING_END + "|"
-    r"(?P<english>(chapter\s+\S+|prologue|epilogue)\s*(?:[:：.\-–—]|$)))", re.IGNORECASE)
+    # Afterword words open ordinary Korean sentences too ("후기 좋았어요"): only alone on the
+    # line, or before a separator or bracket.
+    r"(?:후기|작가의\s*말)(?=\s*(?:[:：.\-–—】\]］〕]|$))|"
+    r"(?P<english>(chapter\s+\S+|episode\s+\S+|ep\.?\s*\d+|ch\.\s*\d+|prologue|epilogue)"
+    r"\s*(?:[:：.\-–—\]]|$)))", re.IGNORECASE)
 _CHAPTER_HEADING_MAX_CHARS = 60
 _SENTENCE_END = tuple("。！？!?…」』”\"")
 
@@ -74,7 +84,8 @@ def is_heading_text(text: str) -> bool:
 # A volume heading groups chapters (第二卷, 제2권, "Volume 2: Title"); the same
 # length and punctuation limits keep an ordinary sentence from matching.
 _VOLUME_HEADING_RE = re.compile(
-    r"^\s*(第\s*[0-9０-９零〇一二三四五六七八九十百千两兩]+\s*[卷部篇]|제\s*[0-9０-９]+\s*[권부]|"
+    r"^\s*(第\s*[0-9０-９零〇一二三四五六七八九十百千两兩]+\s*[卷部篇]|卷\s*" + _CJK_NUMBER + r"|"
+    r"제\s*[0-9０-９]+\s*[권부]|"
     r"(?:volume|vol\.?|book|part)\s+[0-9ivxIVX]+)" + _HEADING_END, re.IGNORECASE)
 
 
@@ -111,7 +122,7 @@ def chapter_starts(text: str) -> list:
     for line in text.splitlines(keepends=True):
         stripped = line.strip()
         if stripped:
-            if is_heading_text(stripped):
+            if is_heading_text(stripped) or is_volume_heading_text(stripped):
                 run.append((offset, stripped))
             elif run:
                 # A volume heading over a chapter heading (or a chapter with no
@@ -474,14 +485,48 @@ NOVEL_SOURCE_FILENAME = "novel_narration_source.txt"
 NARRATION_TRACK_NAMES = ("narration_track.flac", "narration_track.wav")
 
 
+# A finished track that could not take the usual name (Windows refuses the replace while the
+# Reader still streams the old track) waits under this one until a read can swap it in.
+NARRATION_WAITING_NAME = "narration_track.next.flac"
+
+
 def find_narration_track(drama_dir: str) -> Optional[str]:
     """File name of the title's narration track, or None. Symlinks are skipped
-    so a link planted in the folder is never served."""
+    so a link planted in the folder is never served. A newer track waiting
+    under NARRATION_WAITING_NAME is swapped in first, and is the one named
+    while the old track is still held open."""
+    if _swap_in_waiting_track(drama_dir):
+        return NARRATION_WAITING_NAME
     for name in NARRATION_TRACK_NAMES:
         path = os.path.join(drama_dir, name)
         if os.path.isfile(path) and not os.path.islink(path):
             return name
     return None
+
+
+def _swap_in_waiting_track(drama_dir: str) -> bool:
+    """Whether the waiting track is newer than the title's track and still could not replace it."""
+    waiting = os.path.join(drama_dir, NARRATION_WAITING_NAME)
+    if not os.path.isfile(waiting) or os.path.islink(waiting):
+        return False
+    current = os.path.join(drama_dir, NARRATION_TRACK_NAMES[0])
+    try:
+        # A track made after the waiting one took the usual name: the waiting one is stale.
+        if os.path.isfile(current) and os.path.getmtime(current) > os.path.getmtime(waiting):
+            os.remove(waiting)
+            _log_waiting_track("was dropped: a newer track took the usual name")
+            return False
+        os.replace(waiting, current)
+        _log_waiting_track("was swapped in now that the old track is free")
+        return False
+    except OSError:
+        # Not logged: every read while the old track still plays lands here.
+        return os.path.isfile(waiting)
+
+
+def _log_waiting_track(outcome: str) -> None:
+    import applog
+    applog.get_logger().info(f"narration: the finished track that waited while the old one was in use {outcome}")
 # Chapter-move bookkeeping in a title's folder. Title copies leave out both: a copied journal
 # would have the copy's start-up recovery act on files that aren't the move's. Backups leave out
 # only the lock; they keep the journal so a restore can finish or undo the move.

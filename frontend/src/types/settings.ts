@@ -127,6 +127,7 @@ export type EndpointName = 'ollama_url'
 export interface SettingsOverview extends Record<SettingsToggleKey, boolean> {
   engine_keys: Record<string, boolean>
   gpu_max_parallel: number // 1..4; 1 = one GPU job at a time
+  desktop_popups?: boolean // false: Baihe runs as the boot service, so a pop-up has nowhere to show
   preferences: SettingsPreferences
   endpoints: Record<EndpointName, string | null>
   upload_max_mb_from_env: boolean // true: the environment sets the limit, the saved one is ignored

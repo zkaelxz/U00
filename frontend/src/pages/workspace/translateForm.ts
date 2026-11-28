@@ -45,7 +45,6 @@ export interface RunForm {
   forceConfirmed: boolean
   reflect: boolean
   bulk: boolean
-  thinking: boolean // "Think harder on tricky text"; only DeepSeek and Ollama can follow it
   female_pronouns: boolean // she/her default for ambiguous pronouns
   genre_notes: boolean // baihe/GL genre guidance in the prompt
   memory_examples: boolean // this run only: approved translation-memory pairs of the series as prompt examples
@@ -214,7 +213,6 @@ export function restoreRunOptions(
       }
       f.fallbacks = fb.slice(0, MAX_FALLBACKS)
     }
-    f.thinking = false
   }
 
   const style = str(s.style_preset)
@@ -280,7 +278,6 @@ export function initialForm(c: TranslateRunConfig, preset: PresetStart = {}): Ru
     forceConfirmed: false,
     reflect: false,
     bulk: false,
-    thinking: false,
     // The title's saved choice first (what every run, retry and AI action
     // uses), then a preset's value, then the API defaults.
     female_pronouns: c.default_female_pronouns ?? preset.default_female_pronouns ?? false,
@@ -374,7 +371,6 @@ export function buildRunBody(f: RunForm): TranslateRunStartBody {
     ...(chain.length ? { fallback_chain: chain } : {}),
     ...(f.reflect ? { reflect: true } : {}),
     ...(f.bulk ? { bulk: true } : {}),
-    thinking: f.thinking,
     default_female_pronouns: f.female_pronouns,
     include_genre_notes: f.genre_notes,
     ...(f.memory_examples ? { memory_examples: true } : {}),
@@ -393,7 +389,6 @@ export function buildEstimateParams(f: RunForm): EstimateParams | null {
     job_cost_cap_usd: cap,
     ...(f.reflect ? { reflect: true } : {}),
     ...(f.bulk ? { bulk: true } : {}),
-    thinking: f.thinking,
     ...(f.style_preset ? { style_preset: f.style_preset } : {}),
     ...(chapterRange(f.chapter_from, f.chapter_to) ?? {}),
     // Only a valid size: a half-typed one must not turn the estimate into a 422.
@@ -445,6 +440,24 @@ export function withSavedEngine(c: TranslateRunConfig, t: WorkflowTierApplied): 
 // " Left out for this title's language: beam size, ..." (empty when nothing was skipped).
 export function skippedNote(keys: string[] | undefined): string {
   return keys?.length ? ` Left out because they don't suit this title's language: ${keys.map((k) => k.replace(/_/g, ' ')).join(', ')}.` : ''
+}
+
+/** The form a run started outside the Translate stage uses: this browser's old preset, then the title's saved start. */
+export function savedRunForm(c: TranslateRunConfig, dramaId: number): RunForm {
+  return applyStartToForm(initialForm(c, loadPresetStart(dramaId)), c.translate_start, c)
+}
+
+/** The estimate for a Review redo of `lineIds` (every line when empty), priced with the Style and batch size that run uses. */
+export function savedRunEstimateParams(
+  c: TranslateRunConfig, dramaId: number, engine: string, model: string, lineIds: number[],
+): EstimateParams {
+  const f = savedRunForm(c, dramaId)
+  return {
+    engine: engine || undefined, model: model || undefined, force_retranslate: true,
+    style_preset: f.style_preset,
+    ...(intIn(f.batch_size, BATCH_SIZE_MIN, BATCH_SIZE_MAX) !== null ? { batch_size: Number(f.batch_size) } : {}),
+    ...(lineIds.length ? { line_ids: lineIds } : {}),
+  }
 }
 
 // Overlay the Translate form values a profile left on the title (the server's
@@ -551,7 +564,7 @@ export function validatePresetName(name: string): string | null {
 
 // Everything "Save as profile" captures from the Translate form: engine, model, style, the
 // two prompt toggles and the run options (style note, batch size, context window, cost cap,
-// fallbacks, Reflect, bulk, thinking). A blank model means the engine default and is saved
+// fallbacks, Reflect, bulk). A blank model means the engine default and is saved
 // as null. The English variant is not saved: a profile never carries it. Transcribe options
 // are not on this form; they are added when the profile is edited in Library Tools.
 export function buildPresetBody(
@@ -563,7 +576,6 @@ export function buildPresetBody(
   const options: ProfileOptions = {
     reflect: f.reflect,
     bulk: f.bulk,
-    thinking: f.thinking,
   }
   if (f.style_note.trim()) options.style_note = f.style_note.trim()
   const batch = intIn(f.batch_size, BATCH_SIZE_MIN, BATCH_SIZE_MAX)
