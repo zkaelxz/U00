@@ -1,4 +1,4 @@
-import type { NovelFlowStart, QueueBulkAdded, QueueSettingEdits, QueueState, QueueStep, QueueStepSettings, TitleFlowRun } from '../types/queue'
+import type { NovelFlowStart, QueueBulkAdded, QueueRetriedInterrupted, QueueSettingEdits, QueueState, QueueStep, QueueStepSettings, TitleFlowRun } from '../types/queue'
 import { getJson, postJson, type Fetch } from './client'
 
 export const getQueue = (f?: Fetch) => getJson<QueueState>('/api/queue', f)
@@ -32,6 +32,9 @@ export const retryQueueItem = (id: number, f?: Fetch) =>
 export const holdQueueItem = (id: number, f?: Fetch) => postJson<QueueState>(`/api/queue/items/${id}/hold`, undefined, f)
 export const resumeQueueItem = (id: number, f?: Fetch) => postJson<QueueState>(`/api/queue/items/${id}/resume`, undefined, f)
 export const cancelQueueItem = (id: number, f?: Fetch) => postJson<QueueState>(`/api/queue/items/${id}/cancel`, undefined, f)
+/** The restart notice's "Run them again": every interrupted item the caller may change, through Retry. */
+export const retryInterruptedQueueItems = (f?: Fetch) =>
+  postJson<QueueRetriedInterrupted>('/api/queue/retry-interrupted', undefined, f)
 export const clearFinishedQueueItems = (f?: Fetch) => postJson<QueueState>('/api/queue/clear-finished', undefined, f)
 export const startQueue = (f?: Fetch) => postJson<QueueState>('/api/queue/start', undefined, f)
 export const pauseQueue = (f?: Fetch) => postJson<QueueState>('/api/queue/pause', undefined, f)

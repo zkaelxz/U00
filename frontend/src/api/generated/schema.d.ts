@@ -8587,6 +8587,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/queue/retry-interrupted": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Put every interrupted item the caller may change back to waiting and start the queue */
+        post: operations["retry_interrupted_api_queue_retry_interrupted_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/queue/schedule": {
         parameters: {
             query?: never;
@@ -25751,7 +25768,7 @@ export interface components {
         /** NotificationEvent */
         NotificationEvent: {
             /** Action */
-            action: "start_live" | null;
+            action: ("start_live" | "retry_queue") | null;
             /** At */
             at: number;
             /** Follow Id */
@@ -25762,7 +25779,7 @@ export interface components {
              * Kind
              * @enum {string}
              */
-            kind: "job_done" | "job_failed" | "chapters" | "remote" | "resource" | "live" | "waiting";
+            kind: "job_done" | "job_failed" | "chapters" | "remote" | "resource" | "live" | "waiting" | "device_token";
             /** Starts At */
             starts_at: number | null;
             target: components["schemas"]["NotificationTarget"] | null;
@@ -27022,6 +27039,17 @@ export interface components {
             overlap_online_translate?: boolean | null;
             /** Stop On Failure */
             stop_on_failure?: boolean | null;
+        };
+        /** QueueRetriedInterrupted */
+        QueueRetriedInterrupted: {
+            /** Retried */
+            retried: number;
+            /** Skipped Paid */
+            skipped_paid: number;
+            /** Skipped Stale */
+            skipped_stale: number;
+            /** Started */
+            started: boolean;
         };
         /** QueueSchedule */
         QueueSchedule: {
@@ -45926,7 +45954,10 @@ export interface operations {
     };
     get_cover_api_dramas__drama_id__cover_get: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description thumb: a small JPEG copy for lists */
+                size?: "full" | "thumb";
+            };
             header?: never;
             path: {
                 drama_id: number;
@@ -45943,6 +45974,13 @@ export interface operations {
                 content: {
                     "application/json": unknown;
                 };
+            };
+            /** @description Not modified */
+            304: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Not Found */
             404: {
@@ -60071,6 +60109,62 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["QueueState"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    retry_interrupted_api_queue_retry_interrupted_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QueueRetriedInterrupted"];
                 };
             };
             /** @description Forbidden */
