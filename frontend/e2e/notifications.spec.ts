@@ -143,7 +143,7 @@ test('a refused save explains key writes and keeps nothing', async ({ page }) =>
   await input.fill('https://ntfy.sh/secret-topic-name')
   await section.getByRole('button', { name: 'Save ntfy address' }).click()
   await section.getByRole('button', { name: 'Confirm save ntfy address' }).click()
-  await expect(section.getByText(/Change this on the Baihe PC with key writes on/)).toBeVisible()
+  await expect(section.getByText(/Change this on the Baihe PC, with saving keys allowed/)).toBeVisible()
   await expect(input).toHaveValue('')
   expect(await page.content()).not.toContain('secret-topic-name')
   expect(unmocked).toEqual([])
@@ -330,7 +330,7 @@ test('header bell: empty list, and hidden when the list is refused', async ({ pa
     route.fulfill({ status: 403, contentType: 'application/json', body: JSON.stringify({ error: { code: 'forbidden', message: 'Not allowed.' } }) }),
   )
   await page.reload()
-  await expect(page.getByRole('button', { name: 'Report a problem' })).toBeVisible()
+  await expect(page.locator('details.you-menu > summary')).toBeVisible()
   await expect(page.getByRole('button', { name: /^Alerts/ })).toHaveCount(0)
   expect(unmocked).toEqual([])
 })

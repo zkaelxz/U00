@@ -69,6 +69,7 @@ export function buildEstimateQuery(p: EstimateParams): string {
   for (const id of p.line_ids ?? []) q.append('line_ids', String(id))
   if (p.chapter_from !== undefined) q.set('chapter_from', String(p.chapter_from))
   if (p.chapter_to !== undefined) q.set('chapter_to', String(p.chapter_to))
+  if (p.style_preset) q.set('style_preset', p.style_preset)
   return queryOf(q)
 }
 

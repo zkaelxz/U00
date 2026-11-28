@@ -1,6 +1,6 @@
-// Per-provider consent to send this app's code and logs to a cloud engine
-// The server refuses a cloud engine without it
-// (409); Ollama runs on this PC and needs none.
+// Per-provider consent to send this app's code and logs to an engine.
+// The server refuses an engine without it (409), Ollama included: it runs
+// only hosted models.
 import { useState } from 'react'
 
 import { saveAssistantSettings } from '../../api/assistant'
@@ -18,7 +18,7 @@ type Props = {
 }
 
 const CONSENT_HELP =
-  'The assistant reads Baihe’s source code and redacted logs. With this on, they are sent to this provider. Ollama keeps everything on this PC.'
+  'The assistant reads Baihe’s source code and redacted logs. With this on, they are sent to this provider’s servers. Every engine, Ollama included, answers from outside this PC.'
 
 export function CloudConsent({ settings, onSettings, only }: Props) {
   const [busy, setBusy] = useState(false)

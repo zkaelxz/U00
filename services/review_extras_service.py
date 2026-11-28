@@ -51,7 +51,7 @@ import subtitle_ass
 from engine_backends import engine_registry
 from engine_backends import gemini as engine_gemini
 from engine_backends import paid_calls
-from services import (engine_failure_service, export_service, media_playback_service, ownership_service,
+from services import (ear_marks_service, engine_failure_service, export_service, media_playback_service, ownership_service,
                       restructure_service, settings_service, translate_run_service, translate_service,
                       workspace_audio_job_service)
 from lib.errors import (
@@ -535,10 +535,13 @@ def _run_burn_preview_job(job_id, drama_id, video, ass, start, end, meta):
 def start_burn_preview(drama_id: int, line_id: int, pad_seconds: float | None = None,
                        preset: str | None = None, style: dict | None = None, speaker_colors: dict | None = None,
                        per_speaker_colors: bool = False, wrap_chars_en: int | None = None,
-                       wrap_chars_source: int | None = None) -> dict:
+                       wrap_chars_source: int | None = None, ear_placement: bool = False,
+                       field: str | None = None, reading_line: bool = False,
+                       karaoke: bool = False) -> dict:
     """Renders a short clip of the source video around one line with its
     subtitles burned in (an ASS preset, default Clean). `style`,
-    `speaker_colors`, `per_speaker_colors` and the wrap widths mean what they
+    `speaker_colors`, `per_speaker_colors`, the wrap widths, `ear_placement`,
+    `field`, `reading_line` and `karaoke` mean what they
     do in export_service.generate_ass_text, so the clip matches what the
     Export stage would burn. The clip is capped at
     MAX_CLIP_SECONDS and replaces any earlier preview of this drama. At
@@ -551,6 +554,8 @@ def start_burn_preview(drama_id: int, line_id: int, pad_seconds: float | None = 
     preset = preset or "Clean"
     if preset not in subtitle_ass.ASS_PRESETS:
         raise InvalidInputError("Unknown subtitle style preset.")
+    if field not in (None, "en", "zh", "bilingual"):
+        raise InvalidInputError("'field' must be en, zh or bilingual.")
     merged_style = export_service.build_ass_style(preset, style)
     if speaker_colors is not None:
         if not isinstance(speaker_colors, dict) or \
@@ -567,10 +572,14 @@ def start_burn_preview(drama_id: int, line_id: int, pad_seconds: float | None = 
         raise UnsupportedOperationError("This title has no source video to preview on.")
     if not _ffmpeg_available():
         raise DependencyUnavailableError("The preview needs ffmpeg (with libass) installed.")
-    lines = db.load_line_objects(drama_id)
+    lines = db.load_line_objects(drama_id, with_words=karaoke)
     line = next((ln for ln in lines if ln.id == line_id), None)
     if line is None:
         raise NotFoundError(f"No line with id {line_id} in this title.")
+    if reading_line and field in ("zh", "bilingual"):
+        export_service.require_reading_packages(lines, drama)
+    wrap_chars = export_service.build_wrap_chars(wrap_chars_en, wrap_chars_source)
+    frame_aspect = export_service.video_frame_aspect(video)
     if speaker_colors is not None:
         colors = dict(speaker_colors)
     elif per_speaker_colors:
@@ -581,9 +590,11 @@ def start_burn_preview(drama_id: int, line_id: int, pad_seconds: float | None = 
              for c in db.list_characters_with_series_names(drama_id) if c.get("character_name")}
     start, end, ass = media_playback_service.burn_preview_ass(
         lines, line, {"style": merged_style, "speaker_colors": colors, "speaker_names": names,
-                      "wrap_chars": export_service.build_wrap_chars(wrap_chars_en,
-                                                                     wrap_chars_source),
-                      "frame_aspect": export_service.video_frame_aspect(video),
+                      "wrap_chars": wrap_chars, "frame_aspect": frame_aspect, "field": field,
+                      "ear_placement": ear_marks_service.fresh_sides(drama_id, lines) if ear_placement else None,
+                      "source_text": subtitle_ass.source_rows(
+                          merged_style, field or "en", None, wrap_chars, frame_aspect,
+                          reading_line=reading_line, karaoke=karaoke, **export_service.break_language(drama)),
                       **export_service.break_language(drama)},
         pad=pad)
     end = min(end, start + MAX_CLIP_SECONDS)

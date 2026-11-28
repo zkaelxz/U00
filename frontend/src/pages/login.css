@@ -107,7 +107,7 @@ details.user-menu > summary:focus-visible { outline: 2px solid var(--accent, cur
   .header-end { flex: 1 1 0; justify-content: flex-end; }
   /* Icon buttons keep their 44px; only the user menu's email gives way. */
   .header-end { gap: var(--space-1); }
-  .header-end > :not(.user-menu) { flex-shrink: 0; }
+  .header-end > :not(.user-menu), .header-end > .you-menu { flex-shrink: 0; }
   /* Title yields first (ellipsis), then the email; the user menu keeps a 44px arrow. */
   .app-header { gap: var(--space-2); }
   .app-brand { flex: 0 0 auto; font-size: var(--text-md); white-space: nowrap; }

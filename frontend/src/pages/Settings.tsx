@@ -78,9 +78,10 @@ const TOGGLE_HELP: Partial<Record<SettingsToggleKey, string>> = {
   gpu_limit_enabled:
     'Jobs beyond "GPU jobs at once" wait in line, so the GPU does not run out of memory. To keep graphics memory or RAM free for other programs, see Keep free memory below.',
   notify_on_completion: 'Shows a Windows pop-up on this PC when a job finishes.',
-  use_gpu: 'Transcribe on the GPU when there is one (faster).',
+  use_gpu:
+    'Transcription, speaker detection and comic text removal run on the GPU when there is one (much faster). Off runs them on the processor, and a title with Separate vocals first turned on stops, because that step cannot be kept off the GPU.',
   bulk_auto_resume:
-    'Resumes interrupted translation batches at startup. Off by default: resumed batches can spend on your engine account.',
+    'On: after a restart, unfinished translation batches wait until you press Resume on the title, and one notification says so, so nothing is spent until then. Off: they still wait for Resume, with no notification.',
 }
 
 // Cards that disappear with a feature switch (lib/features.py). The extension's

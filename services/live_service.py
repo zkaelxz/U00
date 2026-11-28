@@ -54,10 +54,12 @@ from core import LANGUAGE_NAMES, SOURCE_LANGUAGES
 from lib import url_guard
 from services import (egress_proxy, job_stage_service, jobs_service, language_pack_service,
                       live_spend_service, ownership_service, run_settings_service, settings_service,
-                      translate_run_service, translate_service)
+                      translate_run_service, translate_service, vdb_names_service)
+from services import glossary_service
 from lib.errors import (
     ConflictError,
     DependencyUnavailableError,
+    ForbiddenError,
     InvalidInputError,
     MissingKeyError,
     NotFoundError,
@@ -94,6 +96,13 @@ DEFAULT_MAX_MINUTES = 60
 LIVE_DEFAULT_ENGINE = "ollama"
 # A glossary note is advice for a translator, not text to repeat per chunk.
 HINT_NOTE_CHARS = 120
+# The downloaded list holds names only, with no English spelling to give, so the row says how
+# to write one instead.
+KNOWN_NAME_EN = "(romanised)"
+KNOWN_NAME_HINT = "a VTuber's name: write it romanised, never translate its meaning"
+# The downloaded list is mostly Chinese and Japanese names; its Latin spellings would match
+# ordinary capitalised words in other languages.
+KNOWN_NAME_LANGUAGES = ("zh", "ja")
 MAX_SESSIONS = 32
 # Two streams share the one loaded Whisper and take turns (live_whisper._turn); a third would only add lag.
 MAX_LIVE_SESSIONS = 2
@@ -553,10 +562,20 @@ def _series_term_hints(principal, series_id, source_language, own_terms=()):
     return _hint_function(int(series_id), pack_title, source_language, own_terms=own_terms)
 
 
-def _hint_function(series_id, pack_title, source_language, glossary_title=None, own_terms=()):
+def _default_packs(source_language) -> dict:
+    """The built-in packs a stream with no title or series picked uses: VTuber names and stream terms."""
+    known = language_packs.all_packs()
+    return {pid: None for pid in (f"{source_language}-vtuber-names", f"{source_language}-vtuber-core")
+            if pid in known}
+
+
+def _hint_function(series_id, pack_title, source_language, glossary_title=None, own_terms=(),
+                   default_packs=None):
     """`pack_title`: the title whose packs apply, or None for glossary only.
     `glossary_title`: set when the hints are for one title, so its own terms count too.
-    `own_terms`: a followed channel's word list, which wins over a glossary entry for the same source text."""
+    `own_terms`: a followed channel's word list, which wins over a glossary entry for the same source text.
+    `default_packs`: {pack id: style} for a stream with no title or series picked; such a stream
+    also gets the downloaded VTuber name list, when there is one."""
     terms = (db.list_run_glossary_terms(glossary_title) if glossary_title
              else db.list_effective_glossary_terms(series_id) if series_id else [])
     own = [{"term_original": t["original"], "term_translation": t["translation"], "notes": ""} for t in own_terms]
@@ -573,9 +592,18 @@ def _hint_function(series_id, pack_title, source_language, glossary_title=None, 
         found = [(t["term_original"], t["term_translation"], (t.get("notes") or "")[:HINT_NOTE_CHARS])
                  for t in llm_tasks.matching_glossary_terms(text, glossary, cross_script=False)]
         if packs_apply and drama is not None:
-            for e in language_pack_service.entries_for_text(drama, text, glossary):
-                found.append((e["source"], e["en"], "; ".join(
-                    p for p in (e["context"], e["note"]) if p)[:HINT_NOTE_CHARS]))
+            entries = language_pack_service.entries_for_text(drama, text, glossary)
+        elif default_packs:
+            entries = language_packs.matching_entries(default_packs, text, glossary, language=source_language)
+        else:
+            entries = []
+        for e in entries:
+            found.append((e["source"], e["en"], "; ".join(
+                p for p in (e["context"], e["note"]) if p)[:HINT_NOTE_CHARS]))
+        if default_packs is not None and source_language in KNOWN_NAME_LANGUAGES:
+            covered = [row[0] for row in found]
+            names = [n for n in vdb_names_service.entries_for_text(text) if not any(n in c for c in covered)]
+            found.extend((n, KNOWN_NAME_EN, KNOWN_NAME_HINT) for n in names[:vdb_names_service.MAX_PROMPT_NAMES])
         # Same cap the packs have; a glossary term is listed first, so it is
         # the one kept when the cap cuts.
         return [tuple(re.sub(r"\s+", " ", v) for v in row) for row in found[:language_packs.MAX_PROMPT_ENTRIES]]
@@ -649,8 +677,11 @@ def start_session(url, source_language="zh", whisper_size="small", segment_secon
         term_hints = _title_term_hints(principal, glossary_drama_id, source_language, own_terms)
     elif series_id is not None:
         term_hints = _series_term_hints(principal, series_id, source_language, own_terms)
-    elif own_terms:
-        term_hints = _hint_function(None, None, source_language, own_terms=own_terms)
+    else:
+        term_hints = _hint_function(None, None, source_language, own_terms=own_terms,
+                                    default_packs=_default_packs(source_language))
+    glossary_target = (("drama", int(glossary_drama_id)) if glossary_drama_id is not None
+                       else ("series", int(series_id)) if series_id is not None else None)
     _reap()
     joined = _join_running(url, principal)
     if joined:
@@ -673,7 +704,8 @@ def start_session(url, source_language="zh", whisper_size="small", segment_secon
                                  segment_seconds, overlap_seconds, max_minutes, eng, engine_name,
                                  use_gpu, use_saved_cookies, reply_without_thinking, term_hints,
                                  player_height if delayed_player else 0, chat_video, model,
-                                 spend_limit_usd)
+                                 spend_limit_usd, glossary_target,
+                                 private_terms=bool(glossary_drama_id is not None or series_id is not None or own_terms))
 
 
 def _reads_saved_cookies(use_saved_cookies) -> bool:
@@ -686,7 +718,11 @@ def _start_registered(session_id, out_dir, url, source_language, whisper_size, s
                       overlap_seconds, max_minutes, eng, engine_name, use_gpu,
                       use_saved_cookies, reply_without_thinking, term_hints=None,
                       player_height=0, chat_video=None, requested_model=None,
-                      spend_limit_usd=live_spend_service.DEFAULT_SESSION_LIMIT_USD):
+                      spend_limit_usd=live_spend_service.DEFAULT_SESSION_LIMIT_USD,
+                      glossary_target=None, private_terms=False):
+    private = _reads_saved_cookies(use_saved_cookies) or private_terms
+    # Every session can take a name fixed mid-stream, glossary or not.
+    term_hints = term_hints or live_translate.TermHints()
     budget = live_spend_service.session_budget(eng, engine_name, spend_limit_usd)
     spend_guard = live_spend_service.LiveSpendGuard(
         eng, engine_name, functools.partial(_stop_for_spend, session_id), budget)
@@ -721,7 +757,8 @@ def _start_registered(session_id, out_dir, url, source_language, whisper_size, s
                                  "segment_seconds": segment_seconds, "delayed_player": bool(player_height),
                                  "source_language": source_language, "stream": stream_ref(url),
                                  "join_key": _join_key(url, stream_ref(url)),
-                                 "private": _reads_saved_cookies(use_saved_cookies) or term_hints is not None, "viewers": set(),
+                                 "private": private, "viewers": set(),
+                                 "term_hints": term_hints, "glossary_target": glossary_target,
                                  "owner_user_id": acting.acting_user_id(),
                                  "chat": live_chat.ChatBoard() if chat else None}
     try:
@@ -840,6 +877,87 @@ def stop_session(session_id, principal=None) -> dict:
     return {"session_id": session_id, "stopping": True, "finishing": False}
 
 
+def add_name_fix(session_id, source, english, save_to_glossary=False, principal=None) -> dict:
+    """Later captions of the session translate `source` as `english`, and Whisper is primed with
+    it. Captions already shown keep their text. The session's owner only, like Stop; a viewer who
+    joined someone else's session can't change what everyone sees. save_to_glossary also writes the
+    term into the glossary the session was started with (NotFoundError/ForbiddenError as the glossary
+    routes give), and is refused for a session started without one."""
+    job = _require(session_id, principal)
+    # One line each: a line break would end the prompt's "- source -> English" row.
+    source = " ".join(source.split()) if isinstance(source, str) else ""
+    english = " ".join(english.split()) if isinstance(english, str) else ""
+    if not source or not english:
+        raise InvalidInputError("Both the name as heard and the right name are needed.")
+    if len(source) > live_translate.MAX_FIX_SOURCE_CHARS or len(english) > live_translate.MAX_FIX_ENGLISH_CHARS:
+        raise InvalidInputError("That name is too long.")
+    with _lock:
+        entry = _sessions.get(session_id) or {}
+        hints, target = entry.get("term_hints"), entry.get("glossary_target")
+    if not _may_fix_names(principal, session_id, entry):
+        raise ForbiddenError("Only the person who started this session can fix a name in it.")
+    if hints is None or _status(job) not in ("queued", "running"):
+        raise ConflictError("This session has ended.")
+    # One fix at a time: two at the cap must not both write the glossary and then one be refused.
+    with _fix_lock:
+        if not hints.has_room(source):
+            raise ConflictError(f"A session keeps at most {live_translate.MAX_NAME_FIXES} fixed names.")
+        if save_to_glossary:
+            if target is None:
+                raise InvalidInputError("This session doesn't use a glossary.")
+            _save_fix_to_glossary(principal, target, source, english)
+        with _lock:
+            # Like a picked glossary: someone starting the same stream later gets their own session,
+            # not captions shaped by this person's fixes.
+            (_sessions.get(session_id) or {})["private"] = True
+        hints.add_fix(source, english)
+    return {"session_id": session_id, "fixes": [{"source": s, "english": e} for s, e in hints.fixes()]}
+
+
+_fix_lock = threading.Lock()
+
+
+def _save_fix_to_glossary(principal, target, source, english) -> None:
+    kind, item_id = target
+    ownership_service.require_editable(principal, kind, item_id)
+    if kind == "drama":
+        glossary_service.upsert_glossary_term(item_id, {"term_original": source, "term_translation": english})
+        return
+    # A series' own term keeps its notes and other fields; only the translation changes.
+    match = next((r for r in db.list_glossary_terms(item_id) if r["term_original"] == source), None)
+    base = glossary_service._serialize(match) if match else {}
+    fields = glossary_service.clean_term_fields({"term_original": source, "term_translation": english}, base)
+    db.upsert_glossary_term(item_id, *fields)
+
+
+def _may_fix_names(principal, session_id, entry) -> bool:
+    """The session's starter, or whoever may change anything (the PC, an admin at the PC). Unlike
+    Stop, an admin away from the PC may not: a fix changes what the starter reads, it stops nothing.
+    A session the PC started itself (a followed channel) counts as every admin's own."""
+    if ownership_service.may_override(principal):
+        return True
+    owner = entry.get("owner_user_id")
+    uid = ownership_service.user_id(principal)
+    if owner is None:
+        return bool(principal.get("is_admin"))
+    return uid is not None and uid == owner
+
+
+def _may_save_fix(principal, target) -> bool:
+    """Whether a fix by this caller can also go into the session's glossary, so the page offers it."""
+    if target is None:
+        return False
+    if principal is not None and "lines.edit" not in (principal.get("permissions") or ()):
+        return False
+    return ownership_service.can_edit(principal, *target)
+
+
+def name_fixes(session_id) -> list:
+    with _lock:
+        hints = (_sessions.get(session_id) or {}).get("term_hints")
+    return [{"source": s, "english": e} for s, e in hints.fixes()] if hints is not None else []
+
+
 def _status(job) -> str:
     if job is None:
         return "cancelled"
@@ -904,6 +1022,9 @@ def get_session(session_id, after=0, principal=None) -> dict:
             "player_stopped": bool(entry.get("delayed_player")) and entry.get("player_running") is False,
             "chat": entry.get("chat") is not None,
             "stream": entry.get("stream"),
+            "name_fixes": name_fixes(session_id),
+            "can_fix_names": _may_fix_names(principal, session_id, entry),
+            "has_glossary": _may_save_fix(principal, entry.get("glossary_target")),
             **{name: cast((entry.get("stats") or {}).get(name, 0)) for name, cast in STAT_FIELDS.items()},
             "cues": out, "next_index": max(after, len(cues))}
 

@@ -1,10 +1,12 @@
 package app.baihe.shell;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashSet;
 import java.util.List;
 import org.junit.Test;
 
@@ -32,7 +34,7 @@ public class SeriesRunTest {
 
     @Test
     public void newestFirstListsAreReadOldestFirst() {
-        SeriesRun.Plan plan = SeriesRun.plan(listed(), new ArrayList<>(), new ArrayList<>());
+        SeriesRun.Plan plan = SeriesRun.plan(listed(), new HashSet<>(), new ArrayList<>(), new ArrayList<>());
         assertEquals("https://site.test/c/1", plan.fresh.get(0).url);
         assertEquals("https://site.test/c/3", plan.fresh.get(2).url);
     }
@@ -43,7 +45,7 @@ public class SeriesRunTest {
                 new GrabQueue.Done(1, "c1", "Sent 12 pages to Owl", "https://site.test/c/1/?x=1", false),
                 new GrabQueue.Done(2, "c2", "Cancelled. Sent 0 pages", "https://site.test/c/2", false));
         List<GrabQueue.Item> queue = Arrays.asList(new GrabQueue.Item("https://site.test/c/3", 1, "c3"));
-        SeriesRun.Plan plan = SeriesRun.plan(listed(), history, queue);
+        SeriesRun.Plan plan = SeriesRun.plan(listed(), new HashSet<>(), history, queue);
         assertEquals(1, plan.done);
         assertEquals(1, plan.waiting);
         assertEquals(1, plan.fresh.size());
@@ -52,10 +54,65 @@ public class SeriesRunTest {
 
     @Test
     public void theWarningStatesCountTimeAndCost() {
-        SeriesRun.Plan plan = SeriesRun.plan(listed(), new ArrayList<>(), new ArrayList<>());
+        SeriesRun.Plan plan = SeriesRun.plan(listed(), new HashSet<>(), new ArrayList<>(), new ArrayList<>());
         String text = SeriesRun.warning(plan, 2);
         assertTrue(text.contains("adds 2 chapters"));
         assertTrue(text.contains("monthly cap"));
         assertTrue(text.contains("4 to 10 minutes"));
+    }
+
+    @Test
+    public void chaptersSentEarlierStayDoneWithoutAnyHistory() {
+        String done = "";
+        for (int i = 1; i <= 60; i++) done = SeriesRun.withDone(done, "https://site.test/c/" + i + "/?x=1");
+        List<GrabQueue.Item> links = new ArrayList<>();
+        for (int i = 1; i <= 60; i++) links.add(new GrabQueue.Item("https://site.test/c/" + i, 1, "Chapter " + i));
+        SeriesRun.Plan plan = SeriesRun.plan(links, SeriesRun.doneKeys(done), new ArrayList<>(), new ArrayList<>());
+        assertEquals(60, plan.done);
+        assertEquals(0, plan.fresh.size());
+    }
+
+    @Test
+    public void theDoneListKeepsEachChapterOnceAndDropsTheOldestPastItsCap() {
+        String done = SeriesRun.withDone("", "https://site.test/c/1");
+        done = SeriesRun.withDone(done, "https://www.site.test/c/1/");
+        assertEquals(1, SeriesRun.doneKeys(done).size());
+        for (int i = 2; i <= SeriesRun.MAX_DONE + 1; i++) done = SeriesRun.withDone(done, "https://site.test/c/" + i);
+        assertEquals(SeriesRun.MAX_DONE, SeriesRun.doneKeys(done).size());
+        assertFalse(SeriesRun.doneKeys(done).contains("site.test/c/1"));
+        assertTrue(SeriesRun.doneKeys(done).contains("site.test/c/2"));
+        assertEquals(0, SeriesRun.doneKeys("not json").size());
+    }
+
+    @Test
+    public void anOlderHistoryRowCountsOnlyWhenEveryPageWentWithEnglish() {
+        assertTrue(SeriesRun.isDone(new GrabQueue.Done(1, "c", "Sent 12 pages to Owl")));
+        assertFalse(SeriesRun.isDone(new GrabQueue.Done(1, "c", "Sent 0 pages to Owl. Not sent: 20. Limit reached")));
+        assertFalse(SeriesRun.isDone(new GrabQueue.Done(1, "c", "Sent 3 pages to Owl. Not sent: 17")));
+        assertFalse(SeriesRun.isDone(new GrabQueue.Done(1, "c", "Sent 12 pages to Owl. 12 pages saved without English")));
+    }
+
+    @Test
+    public void aRunToTheEndIsNotStoppedByTheChapterItJustGrabbed() {
+        java.util.Set<String> done = SeriesRun.doneKeys(SeriesRun.withDone("", "https://site.test/chapter.php?id=1"));
+        assertFalse(SeriesRun.stopsBefore("https://site.test/chapter.php?id=2", "https://site.test/chapter.php?id=1",
+                done, new ArrayList<>()));
+        done = SeriesRun.doneKeys(SeriesRun.withDone("", "https://site.test/c/2"));
+        assertTrue(SeriesRun.stopsBefore("https://site.test/c/2", "https://site.test/c/1", done, new ArrayList<>()));
+    }
+
+    @Test
+    public void forgettingCoversTheHistoryRowsWrittenBeforeIt() {
+        List<GrabQueue.Done> history = Arrays.asList(
+                new GrabQueue.Done(100, "c1", "Sent 12 pages to Owl", "https://site.test/c/1", false),
+                new GrabQueue.Done(300, "c2", "Sent 12 pages to Owl", "https://site.test/c/2", false),
+                new GrabQueue.Done(400, "c3", "Cancelled.", "https://site.test/c/3", false));
+        java.util.Set<String> done = SeriesRun.doneKeys(SeriesRun.withDone("", "https://site.test/c/9"));
+        assertEquals(3, SeriesRun.finished(done, history).size());
+        List<GrabQueue.Done> after = SeriesRun.since(history, 200);
+        assertEquals(2, after.size());
+        SeriesRun.Plan plan = SeriesRun.plan(listed(), new HashSet<>(), after, new ArrayList<>());
+        assertEquals(1, plan.done);
+        assertEquals("https://site.test/c/1", plan.fresh.get(0).url);
     }
 }

@@ -12,7 +12,7 @@ import weakref
 import sentence_groups
 from .engine_registry import default_batch_size, default_reply_guard, novel_batch_chars
 from . import glossary_check
-from .fallback import FallbackEngine
+from .fallback import FallbackEngine, SlowSwitchEngine
 from . import medium_prompts
 from . import stream_recipe
 from .novel_batches import chapter_start_idxs, novel_paragraph_ends, plan_paragraph_batches
@@ -213,13 +213,16 @@ def neighbour_context(lines, chunk, before: int, ahead: int):
 
 def _recheck_male_pronouns(engine, lines, translated, context, character_names, batch_size,
                            save_cb, record_usage, cap_reached, cancel_check_cb,
-                           context_window=NEIGHBOURS_BEFORE, context_window_ahead=NEIGHBOURS_AFTER):
+                           context_window=NEIGHBOURS_BEFORE, context_window_ahead=NEIGHBOURS_AFTER,
+                           slot=None):
     """With the she/her default on, asks once more for the lines it was meant to
     prevent: an English line saying he/him/his for a speaker with no he/him
     character. Only those ids go back, with a stricter instruction; a line still
     male afterwards is flagged for Review (flag/flag_note, which the finishing
     step saves on its own) rather than rewritten blind. The retry is bounded by
-    the run's cost cap and cancel, and a failed retry just leaves the flag."""
+    the run's cost cap and cancel, and a failed retry just leaves the flag. `slot`, from a
+    chapter lane, is a context manager per request that is falsy when there is no room under
+    the cap beside the batches other lanes have in flight."""
     guidelines = context.get("style_guidelines") or ""
     if (not pronoun_default_active(guidelines) or context.get("source_language", "zh") != "zh"
             or not getattr(engine, "supports_reference", False)):
@@ -251,7 +254,10 @@ def _recheck_male_pronouns(engine, lines, translated, context, character_names, 
         chunk_context["line_languages"] = tagged_line_languages(chunk, context["source_language"])
         sources = pronoun_neutral_texts(context, [ln.zh for ln in chunk])
         try:
-            redone = _translate_with_retries(engine, sources, chunk_context, record_usage)
+            with (slot(chunk) if slot else contextlib.nullcontext(True)) as room:
+                if not room:
+                    break
+                redone = _translate_with_retries(engine, sources, chunk_context, record_usage)
         except Exception as e:
             if stops_translate_run(e):
                 if retried and save_cb:
@@ -311,6 +317,7 @@ class _TranslateRun:
         self.errors = []
         self.stop_run = False
         self.translated = []
+        self.rechecked = set()  # line idx whose pronoun re-check already ran inside a chapter lane
         self.streak = FailureStreak()
         self.hard_failures = []
         self.spent = 0.0
@@ -615,6 +622,10 @@ class _TranslateRun:
             self.args.detail_cb(self.last_frac, message)
 
     def _set_batch_context(self, batch):
+        begin_chapter = getattr(self.engine, "begin_chapter", None)
+        starts = getattr(self, "chapter_starts", ())
+        if begin_chapter and (self.bi == 0 or not starts or batch[0].idx in starts):
+            begin_chapter()
         # Recomputed each batch (not just once outside the loop) since
         # more lines have been translated -- including by this very
         # loop -- by the time later batches run.
@@ -986,20 +997,29 @@ class _TranslateRun:
             return True
         return False
 
-    def _recheck_pronouns(self):
+    def _recheck_slot(self):
+        return None
+
+    def _recheck_pronouns(self, translated=None) -> bool:
+        """False when the re-check hit an error that ends the run."""
         a = self.args
         if self.stop_run or (a.cancel_check_cb and a.cancel_check_cb()):
-            return
+            return True
+        if translated is None:
+            translated = [ln for ln in self.translated if ln.idx not in self.rechecked]
         try:
             _recheck_male_pronouns(
-                self.engine, self.lines, self.translated, self.context, self.character_names,
+                self.engine, self.lines, translated, self.context, self.character_names,
                 self.size, a.save_cb, self._record_usage,
-                self._cap_reached, a.cancel_check_cb, a.context_window, a.context_window_ahead)
+                self._cap_reached, a.cancel_check_cb, a.context_window, a.context_window_ahead,
+                self._recheck_slot())
         except Exception as e:
             if not stops_translate_run(e):
                 raise
             self.errors.append({"batch_index": self.n_batches - 1, "lines": [],
                                 "error": redact_secrets(str(e))})
+            return False
+        return True
 
 
 # Engines whose requests are independent and billed per call. A model on this PC shares one GPU,
@@ -1009,6 +1029,8 @@ PARALLEL_ENGINE_NAMES = ("claude", "deepseek", "openai", "gemini")
 
 
 def can_run_in_parallel(engine) -> bool:
+    if isinstance(engine, SlowSwitchEngine):
+        return all(can_run_in_parallel(e) for e in engine.engines)
     if isinstance(engine, FallbackEngine) or getattr(engine, "free_tier", False):
         return False
     name = getattr(engine, "name", "")
@@ -1016,6 +1038,8 @@ def can_run_in_parallel(engine) -> bool:
 
 
 def _clone_engine(engine):
+    if isinstance(engine, SlowSwitchEngine):
+        return engine.lane_copy(_clone_engine)
     clone = copy.copy(engine)
     if isinstance(getattr(engine, "last_usage", None), dict):
         clone.last_usage = dict.fromkeys(engine.last_usage, 0)
@@ -1059,15 +1083,24 @@ class _LaneRun(_TranslateRun):
 
     def run_chapter(self, number, batches, bi_offset) -> bool:
         parent = self.parent
-        for name in ("context", "size", "guard_enabled", "groups", "split_by_length"):
+        for name in ("context", "size", "guard_enabled", "groups", "split_by_length", "chapter_starts"):
             setattr(self, name, getattr(parent, name))
         self.context = dict(parent.context)
         self.n_batches = len(batches)
         self.bi_offset = bi_offset
         self.chapter_label = f"Chapter {number + 1} of {parent.chapters_total}, "
         first_error = len(self.errors)
+        done_before = len(self.translated)
         try:
-            return self._run_batches(batches)
+            if not self._run_batches(batches):
+                return False
+            # The chapter's re-check runs here as it finishes, beside the chapters still going.
+            chapter = self.translated[done_before:]
+            self.batch_lines = chapter  # what this lane's save writes
+            finished = self._recheck_pronouns(chapter)
+            with parent.lock:
+                parent.rechecked.update(ln.idx for ln in chapter)
+            return finished
         finally:
             # Several places record errors with the chapter-local batch number.
             for error in self.errors[first_error:]:
@@ -1075,6 +1108,25 @@ class _LaneRun(_TranslateRun):
 
     def _would_pass_cap(self, batch) -> bool:
         return False  # the parent prices the batch when the lane asks it for a slot
+
+    def _recheck_slot(self):
+        """Each re-check request takes a slot like a batch, so under a cap it is priced beside
+        the batches other lanes have in flight."""
+        @contextlib.contextmanager
+        def slot(chunk):
+            if not self.parent._reserve_batch(chunk):
+                yield False
+                return
+            self.batch_cost = 0.0
+            stop = False
+            try:
+                yield True
+            except Exception as e:
+                stop = stops_translate_run(e)
+                raise
+            finally:
+                self.parent._release_batch(self.batch_cost, chunk, stop=stop)
+        return slot
 
     def _note_batch_cost(self, batch, cost):
         pass  # spend is the run's, so the parent notes each batch as its slot is released

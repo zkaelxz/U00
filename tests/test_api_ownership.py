@@ -99,6 +99,8 @@ JOB_ROUTES = {
     ("GET", "/api/live/sessions/{session_id}/chat"): "live_service.get_chat -> can_see_job",
     ("POST", "/api/live/sessions/{session_id}/stop"):
         "live_service.stop_session -> can_see_job",
+    ("POST", "/api/live/sessions/{session_id}/names"):
+        "live_service.add_name_fix -> can_see_job, then the session's starter only",
     ("GET", "/api/live/player/{session_id}/{name}"):
         "local_only(), then live_service.player_file -> can_see_job",
 }
@@ -754,6 +756,17 @@ class TestTranslateHistory:
         off = loopback_client(_app("off")).get("/api/translate/history").json()["items"]
         assert len(off) == 3
 
+    def test_rows_are_named_by_account_never_by_email(self, world):
+        db.auth_update_user(world["a_id"], display_name="Alex Example")
+        db.auth_update_user(world["b_id"], display_name="b@example.com")
+        db.save_translate_history("zh", "en", "ollama", "a-text", "A", user_id=world["a_id"])
+        db.save_translate_history("zh", "en", "ollama", "b-text", "B", user_id=world["b_id"])
+        db.save_translate_history("zh", "en", "ollama", "pc-text", "PC")
+        items = _client(_app()).get("/api/translate/history", headers=world["admin"]).json()["items"]
+        assert {i["source_text"]: i["account"] for i in items} == {
+            "a-text": "Alex Example", "b-text": f"User {world['b_id']}", "pc-text": "PC owner"}
+        assert not any("@" in str(v) for i in items for v in i.values())
+
 
 class TestNewItemsAreStamped:
     def _row(self, did):
@@ -1254,7 +1267,8 @@ class TestJobs:
         for method, path in JOB_ROUTES:
             url = (path.replace("{job_id}", "sources_search").replace("{session_id}", sid)
                    .replace("{name}", "master.m3u8"))
-            r = client.request(method, url, headers=world["b"])
+            body = {"source": "x", "english": "y"} if path.endswith("/names") else None
+            r = client.request(method, url, headers=world["b"], json=body)
             # PC-only: refused for any remote caller before the owner check.
             expected = 403 if path.endswith("/delete") or path.startswith("/api/live/player/") else 404
             if path == "/api/sources/jobs/{job_id}/result":

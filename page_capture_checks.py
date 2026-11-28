@@ -80,11 +80,12 @@ def save_read_bubbles(page_id: int, bubbles, newly_stored: bool, reused_rev: int
     return []
 
 
-def reused_page_response(data: bytes, saved, notes, drama_id: int, page_id: int) -> dict:
+def reused_page_response(data: bytes, saved, notes, drama_id: int, page_id: int,
+                         untranslated_lines: int) -> dict:
     width, height = image_size(data)
     return {"width": width, "height": height, "regions": regions_for_response(saved),
             "notes": notes, "drama_id": drama_id, "page_id": page_id,
-            "stored": True, "already_stored": True}
+            "stored": True, "already_stored": True, "untranslated_lines": untranslated_lines}
 
 
 MAX_ECHOED_URL = 200

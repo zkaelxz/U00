@@ -55,6 +55,24 @@ class TestBurnPreview:
         default = next(l for l in ass.splitlines() if l.startswith("Style: Default,"))
         assert default.split(",")[2] == str(subtitle_ass.ASS_PRESETS["Clean"]["size"])
 
+    def test_the_export_field_is_shown_and_english_falls_back_when_missing(self):
+        _, _, ass = burn_preview_ass(LINES, LINES[1], {"field": "zh"})
+        assert [l for l in ass.splitlines() if l.startswith("Dialogue:")][0].endswith(",再见")
+        lines = [Line(idx=0, start=0.0, end=2.0, zh="你好", en="")]
+        _, _, ass = burn_preview_ass(lines, lines[0], {"field": "en"})
+        assert [l for l in ass.splitlines() if l.startswith("Dialogue:")][0].endswith(",你好")
+
+    def test_karaoke_is_timed_to_the_clip(self):
+        from segment_splitting import encode_line_words
+        words = [{"word": "再", "start": 12.5, "end": 13.0}, {"word": "见", "start": 13.5, "end": 15.0}]
+        lines = [Line(idx=0, start=12.5, end=15.25, zh="再见", en="Goodbye",
+                      word_timings=encode_line_words("再见", words))]
+        clean = subtitle_ass.ASS_PRESETS["Clean"]
+        rows = subtitle_ass.source_rows(clean, "zh", None, None, karaoke=True)
+        _, _, ass = burn_preview_ass(lines, lines[0], {"field": "zh", "source_text": rows})
+        dialogue = [l for l in ass.splitlines() if l.startswith("Dialogue:")][0]
+        assert dialogue.endswith(r",{\2a&H90&}{\kf50}再{\k50}{\kf150}见{\r}")
+
     def test_clip_start_never_goes_negative(self):
         start, _, _ = burn_preview_ass(LINES, LINES[0], None)
         assert start == 0.0

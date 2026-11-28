@@ -63,7 +63,7 @@ export function TypedConfirm({ word, exact, autoFocus, action, busy, blocked, on
       </div>
       {blocked && <p className="muted">{blocked}</p>}
       <div className="actions">
-        <button type="submit" className="danger" disabled={!ready}>
+        <button type="submit" className={buttonClass('danger')} disabled={!ready}>
           {busy ? 'Working…' : action}
         </button>
         {onCancel && (

@@ -104,7 +104,7 @@ type SettingsEntry = { cardId: string; label: string; keywords: string }
 const e = (cardId: string, label: string, keywords = ''): SettingsEntry => ({ cardId, label, keywords })
 
 export const SETTINGS_INDEX: SettingsEntry[] = [
-  e('engine-routing', 'Which engine does what', 'engines keys api key test gemini openai deepl routing'),
+  e('engine-routing', 'Which engine does what', 'engines keys api key test gemini openai routing'),
   e('server-addresses', 'Server addresses', 'ollama url server address endpoint local model'),
   e('defaults', 'Translation style', 'english variant locale style note default novel chapters parallel at once lanes faster comic glossary honorifics sound effects cultivation ranks quick read scanlate'),
   e('language-packs', 'Language packs', 'honorifics address terms kinship set phrases glossary built-in defaults'),
@@ -114,7 +114,7 @@ export const SETTINGS_INDEX: SettingsEntry[] = [
   e('past-costs', 'Past costs', 'cost by title history spend'),
   e('spend-history', 'Spend history', 'monthly spend chart months'),
 
-  e('notifications', 'Notifications', 'alerts channels push email discord telegram webhook'),
+  e('notifications', 'Notifications', 'alerts channels push discord ntfy webhook'),
   e('notifications', 'Pop-up on this PC when a job finishes', 'notify me completion'),
   e('pc-alerts', 'PC alerts', 'gpu temperature throttling ram cpu disk space gpu memory limit minutes warning hot full'),
   e('updates', 'Updates', 'app updates version upgrade release phone app android apk packages python pip outdated'),
@@ -208,7 +208,8 @@ export const ELSEWHERE_INDEX: ElsewhereEntry[] = [
   tools('data', 'Data folder', 'data folder location move library path', true),
   people('people', 'Sign-in accounts', 'people users members accounts household invite password role permissions admin sign in login'),
   people('activity', 'Activity log', 'audit log who did what history'),
-  people('address', 'Public address check', 'remote access address tunnel cdn url away outside home internet'),
+  people('remote', 'Set up remote access', 'remote access setup away outside home internet google sign-in domain secret', true),
+  people('address', 'Public address check', 'remote access address tunnel cdn url away outside home internet', true),
   people('uploads', 'Uploads from away', 'allow uploads from away remote upload admin 7 days', true),
   people('pc-profiles', 'PC profiles', 'guest owner pin hide private titles brothers lock', true),
 ]

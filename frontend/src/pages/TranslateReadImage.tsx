@@ -353,7 +353,7 @@ export function TranslateReadImage({
         <p className="translate-warning">No key for that engine. Add a key in Settings or pick another.</p>
       )}
       {!auto && selected?.name === 'ollama' && (
-        <p className="muted translate-read-hint">A local model must support pictures (Gemma 4 does). It is free but slower.</p>
+        <p className="muted translate-read-hint">Ollama reads the picture with the hosted model you pick (Gemma 4 by default), billed per token.</p>
       )}
       {notice && <p className="muted" role="status">{notice}</p>}
     </div>

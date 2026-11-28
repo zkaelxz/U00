@@ -158,6 +158,7 @@ export function useZoom(
     zoom,
     zoomBy,
     reset: () => setZoom(NO_ZOOM),
+    zoomTo: setZoom,
     handlers: {
       onPointerDown,
       onPointerMove,

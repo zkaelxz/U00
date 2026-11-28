@@ -2,7 +2,7 @@ import { expect, type Locator, type Page } from '@playwright/test'
 import { BACKUP_SETTINGS_QUIET, REMOTE_HEALTH_OFF } from './authMocks'
 import { json } from './mockHelpers'
 import { LIVE_FORM_FALLBACK } from '../src/api/live'
-import type { LiveChatPage, LiveFormOptions } from '../src/types/live'
+import type { LiveChatPage, LiveCue, LiveFormOptions } from '../src/types/live'
 
 // Shared page.route mocks for the Live specs. A real session would run
 // yt-dlp, ffmpeg and Whisper, so every /api call the page makes is mocked
@@ -23,8 +23,8 @@ const OLLAMA = {
   models: ['llama3.1:8b', 'translategemma:27b'], model_labels: {},
 }
 
-export const cue = (n: number) => ({
-  id: n, translation: 'done' as 'done' | 'pending' | 'failed' | 'cancelled', start: n * 20, end: n * 20 + 4, text: `第${n}句台词，内容比较长一些以便测试换行效果。`,
+export const cue = (n: number): LiveCue => ({
+  id: n, translation: 'done', start: n * 20, end: n * 20 + 4, text: `第${n}句台词，内容比较长一些以便测试换行效果。`,
   translated: `Line ${n}: a longer English translation so the phone layout has to wrap it.`,
 })
 
@@ -80,7 +80,7 @@ interface LiveMocks {
     model: string | null
     notes: string[]
     /** Lag figures added to the status (lag_seconds, processing_seconds, ...). */
-    figures: Record<string, number | boolean>
+    figures: Record<string, unknown>
     /** The first Stop is taken as "finish": the session keeps running until a second one. */
     finishOnStop: boolean
     /** The session reads chat: GET .../chat answers this page. */

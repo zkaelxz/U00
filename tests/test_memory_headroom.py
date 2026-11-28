@@ -256,3 +256,20 @@ def test_reading_the_reserve_never_creates_a_library(tmp_path, monkeypatch):
     monkeypatch.setattr(db, "DB_PATH", str(tmp_path / "library" / "library.db"))
     assert mh.reserved_mb("vram") == 0.0
     assert not (tmp_path / "library").exists()
+
+
+def test_a_model_loads_beside_separation_only_when_both_fit_with_room_to_spare(reserve):
+    # large-v3 4800 MB + separation 3000 MB + 1024 MB margin = 8824 MB, plus a 2 GB reserve.
+    reserve(vram=2, vram_free=8824 + 2 * GB)
+    assert mh.fits_beside_separation("whisper", "large-v3", True)
+    reserve(vram=2, vram_free=8823 + 2 * GB)
+    assert not mh.fits_beside_separation("whisper", "large-v3", True)
+    reserve(ram_free=3800 + 3000 + 1024)
+    assert mh.fits_beside_separation("whisper", "large-v3", False)
+
+
+def test_unknown_memory_or_model_never_loads_beside_separation(reserve):
+    reserve()
+    assert not mh.fits_beside_separation("whisper", "large-v3", True)
+    reserve(vram_free=64 * GB)
+    assert not mh.fits_beside_separation("whisper", "/models/my-own-whisper", True)
