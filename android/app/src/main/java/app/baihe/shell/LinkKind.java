@@ -25,7 +25,7 @@ final class LinkKind {
             "ptwxz.com", "xbanxia.cc", "52shuku.net", "lightnovel.fun", "fanjiao.co", "miaoqumh.org");
 
     /** These sites change their number (marumaru113, newxtoon5, wfwf546), so any number counts. */
-    private static final Pattern ROTATING_COMIC_HOST = Pattern.compile("(^|\\.)(marumaru|newxtoon|wfwf)\\d+\\.com$");
+    private static final Pattern ROTATING_COMIC_HOST = Pattern.compile("(^|\\.)(marumaru|newxtoon|wfwf)\\d{1,4}\\.com$");
 
     static Kind of(String link) {
         String host = host(link);
