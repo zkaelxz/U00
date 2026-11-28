@@ -5,7 +5,7 @@ start and imports, and reloads the vocal separator and Whisper. Here a worker
 runs matching jobs one after another, at most one worker per GPU slot
 (gpu_max_parallel), so busy and idle workers together never outnumber the GPU
 jobs that may run at once, and fewer when the card is too small to carry the
-separator each one keeps (card_budget). The job runner still sees a
+separator each one keeps (card_fits). The job runner still sees a
 Process per job (WarmJob): the job ends when the worker reports it idle, a
 cancel, clear or stop kills the whole worker, and a native crash goes to the
 usual CPU retry in a fresh normal process. Every item on the worker's
@@ -55,7 +55,7 @@ GROWTH_LIMIT_MB = 1024.0
 # V100 (2708, 2926, 3148, 3350 MB idle after jobs 1-4), and Windows' WDDM driver
 # gives nvidia-smi no per-process reading, so GROWTH_LIMIT_MB may never see the
 # growth there. A worker that has served this many jobs is retired, which holds
-# the growth within GROWTH_LIMIT_MB, the share card_budget gives it.
+# the growth within GROWTH_LIMIT_MB, the share card_fits gives it.
 MAX_JOBS_PER_WORKER = 5
 
 
@@ -71,29 +71,50 @@ def _read_card_total() -> None:
         _card_total_mb = memory_headroom.total_mb("vram")
 
 
-def card_budget(key, slots) -> int:
-    """How many warm workers the card can carry at once with every GPU slot
-    busy, from the model size estimates, never from a reading of the moment.
+def card_room_mb():
+    """The card's total less "Keep free graphics memory" (at least the guard's
+    floor), or None before the total has been read. Reads settings: call it
+    outside _lock."""
+    import diagnostics_torch
+    if _card_total_mb is None:
+        return None
+    return _card_total_mb - diagnostics_torch.external_busy_min_free_mb()
+
+
+def _separator_mb() -> float:
+    """The separator's estimate; unknown counts as too much to fit."""
+    import memory_headroom
+    need = memory_headroom.estimate_mb("separation", "separator")
+    return need[0] if need is not None else float("inf")
+
+
+def _warm_cost_mb(key):
+    import memory_headroom
+    whisper = memory_headroom.estimate_mb("whisper", key[1]) if key[5] == "whisper" else None
+    if whisper is None:
+        return None
+    return whisper[0] + _separator_mb() + GROWTH_LIMIT_MB
+
+
+def card_fits(room_mb, keys, slots) -> bool:
+    """Whether warm workers with these keys, each in a GPU slot of its own, fit
+    the card with every other slot running a fresh transcription of the
+    largest model, from the size estimates, never from a reading of the moment.
 
     A warm worker keeps the separator on the card through Whisper's load and
     run, which a fresh run frees first, and may grow GROWTH_LIMIT_MB before
     it is retired. On a 12 GB card two such workers beside each other left
     0.6 GB free and the GPU guard stopped both jobs, which made the queue
-    2.8 times slower than fresh runs (3080 Ti, 2 GPU jobs at once). So a
-    worker is kept only when every slot running warm or fresh still leaves
-    the reserve free. Anything unknown says none: a fresh run is never the
-    slower choice by much."""
-    import diagnostics_torch
+    2.8 times slower than fresh runs (3080 Ti, 2 GPU jobs at once). Each
+    worker is costed by its own model, since workers with other settings can
+    share the card. Anything unknown says no: a fresh run is never the slower
+    choice by much."""
     import memory_headroom
-    total = _card_total_mb
-    whisper = memory_headroom.estimate_mb("whisper", key[1]) if key[5] == "whisper" else None
-    separator = memory_headroom.estimate_mb("separation", "separator")
-    if total is None or whisper is None or separator is None or slots < 1:
-        return 0
-    room = total - diagnostics_torch.external_busy_min_free_mb()
-    warm = whisper[0] + separator[0] + GROWTH_LIMIT_MB
-    fresh = max(whisper[0], separator[0])
-    return next((n for n in range(slots, 0, -1) if n * warm + (slots - n) * fresh <= room), 0)
+    costs = [_warm_cost_mb(key) for key in keys]
+    if room_mb is None or len(keys) > slots or None in costs:
+        return False
+    fresh = max(memory_headroom.largest_speech_model_vram_mb(), _separator_mb())
+    return sum(c for c in costs if c is not None) + (slots - len(keys)) * fresh <= room_mb
 
 
 def transcription_key(whisper_size, use_gpu, local_model_path, separation_backend,
@@ -497,13 +518,11 @@ def _forget(worker):
 
 def claim(job_id, target, args, key):
     """A WarmJob that runs target(*args, result channel) in an idle warm worker
-    it fits, or in a new one while the workers do not yet fill the GPU slots;
-    None when they do and all are busy (this job then gets a fresh worker of its
-    own, as before). Starts nothing: the caller may hold the job lock, and
-    WarmJob.start does the slow part."""
-    slots = card_budget(key, _slots())
-    if slots < 1:
-        return None
+    it fits, or in a new one while the workers do not yet fill the GPU slots
+    and the card can carry one more (card_fits); None otherwise (this job then
+    gets a fresh worker of its own, as before). Starts nothing: the caller may
+    hold the job lock, and WarmJob.start does the slow part."""
+    slots, room = _slots(), card_room_mb()
     stale = None
     with _lock:
         worker = next((w for w in _workers if not w.busy and w.fits(key)), None)
@@ -511,7 +530,7 @@ def claim(job_id, target, args, key):
             stale = next((w for w in _workers if not w.busy), None)
             if stale is not None:
                 _workers.remove(stale)
-            if len(_workers) >= slots:
+            if not card_fits(room, [w.key for w in _workers] + [key], slots):
                 if stale is not None:
                     _workers.append(stale)   # not replaced: it stays for the idle checks to end
                 return None
@@ -753,14 +772,14 @@ class WarmJob:
     def went_idle(self):
         """The worker stays only while the other running GPU jobs and the idle
         workers, this one included, fit the GPU slots, and the workers fit the
-        card's budget (card_budget): keeping it otherwise would put more on the
+        card (card_fits): keeping it otherwise would put more on the
         card than may run at once."""
         self._state = "done"
         worker = self._worker
         running = _running_others(self.job_id)
         grew = self._note_memory(worker, running)
         slots = _slots()
-        budget = card_budget(worker.key, slots)
+        room = card_room_mb()
         with _lock:
             # Marked idle, counted and removed in one step, so two workers going
             # idle together do not both count the other and both leave.
@@ -770,7 +789,7 @@ class WarmJob:
                 reason = "the running GPU jobs could not be checked"
             elif running + idle > slots:
                 reason = "every GPU slot is taken"
-            elif len(_workers) > budget:
+            elif not card_fits(room, [w.key for w in _workers], slots):
                 reason = "the card can't carry this many warm workers"
             elif worker.jobs >= MAX_JOBS_PER_WORKER:
                 reason = f"it has served {worker.jobs} jobs"
@@ -797,7 +816,11 @@ class WarmJob:
         if own is not None:
             worker.held_mb = own
         elif not shared and used is not None and worker.baseline_mb is not None:
-            worker.held_mb = max(0.0, used - worker.baseline_mb)
+            # The card's change also counts another program that loaded meanwhile, which
+            # admission would then take as this worker's memory to reuse: no more than
+            # an idle worker can hold (the separator and its growth) is counted.
+            most = _separator_mb() + GROWTH_LIMIT_MB
+            worker.held_mb = min(max(0.0, used - worker.baseline_mb), most)
         else:
             worker.held_mb = float(reserved or 0.0)
         mine = own if own is not None else reserved

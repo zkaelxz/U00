@@ -400,12 +400,12 @@ def test_the_workers_own_memory_counts_as_free_for_the_job_that_reuses_it(monkey
 
     def reading():
         worker = _one()
-        used = 1000.0 + (5000.0 if worker is not None and worker.started and worker.proc.is_alive() else 0.0)
+        used = 1000.0 + (3500.0 if worker is not None and worker.started and worker.proc.is_alive() else 0.0)
         return {"utilization_percent": 0, "memory_used_mb": used, "memory_total_mb": 6000.0,
                 "memory_free_mb": 6000.0 - used}
     _fake_card(monkeypatch, reading)
     pid = _run("warm_held_a", tagged_worker, ("a", False), gpu_touching=True)["result"]["pid"]
-    assert _one().held_mb == 5000.0
+    assert _one().held_mb == 3500.0
     status = _run("warm_held_b", tagged_worker, ("b", False), gpu_touching=True)
     assert status["status"] == "done", status
     assert status["result"]["pid"] == pid
@@ -822,17 +822,35 @@ def test_with_another_gpu_job_on_the_card_the_cards_reading_is_not_taken_as_the_
         bg.clear_job("busy_gpu_job")
 
 
-@pytest.mark.parametrize("total, slots, key, budget", [
-    (V100_MB, 1, KEY, 1), (V100_MB, 2, KEY, 2), (V100_MB, 4, KEY, 3),
-    (CARD_12_GB_MB, 1, KEY, 1), (CARD_12_GB_MB, 2, KEY, 0), (CARD_12_GB_MB, 2, OTHER_KEY, 1),
-    (None, 1, KEY, 0),
-    (V100_MB, 1, ("transcribe", "large-v3", True, "", "audio_separator", "qwen3_asr", "whisper", False), 0),
+MEDIUM_KEY = ("transcribe", "medium", True, "", "audio_separator", "whisper", "whisper", False)
+QWEN_KEY = ("transcribe", "large-v3", True, "", "audio_separator", "qwen3_asr", "whisper", False)
+
+
+@pytest.mark.parametrize("total, keys, slots, fits", [
+    (V100_MB, [KEY], 1, True), (V100_MB, [KEY, KEY], 2, True),
+    (V100_MB, [KEY] * 3, 4, True), (V100_MB, [KEY] * 4, 4, False),
+    (CARD_12_GB_MB, [KEY], 1, True), (CARD_12_GB_MB, [KEY], 2, False),
+    (CARD_12_GB_MB, [OTHER_KEY], 2, False),   # beside a fresh run of the largest model
+    (16384.0, [KEY], 2, True), (16384.0, [KEY, MEDIUM_KEY], 2, False),   # each by its own model
+    (None, [KEY], 1, False), (V100_MB, [QWEN_KEY], 1, False), (V100_MB, [KEY, KEY], 1, False),
 ])
-def test_the_card_budget_counts_a_kept_separator_in_every_slot_it_runs(total, slots, key, budget):
+def test_the_card_check_counts_a_kept_separator_for_every_worker_on_the_card(total, keys, slots, fits):
     """On a 12 GB card two workers each keeping the separator starved the jobs beside
     them (3080 Ti, 2 GPU jobs at once): large-v3 there gets no warm worker at 2 at once."""
     warm_worker._card_total_mb = total
-    assert warm_worker.card_budget(key, slots) == budget
+    assert warm_worker.card_fits(warm_worker.card_room_mb(), keys, slots) is fits
+
+
+def test_a_worker_with_other_settings_is_costed_when_a_second_one_starts(monkeypatch, tmp_path):
+    _two_slots(monkeypatch)
+    warm_worker._card_total_mb = 16384.0
+    release = str(tmp_path / "go")
+    _start("warm_mixed_big", waits_for_file, (release, "big"))
+    big = _pid_from(release + ".big.pid")
+    second = _run("warm_mixed_medium", tagged_worker, ("m", False), key=MEDIUM_KEY)
+    open(release, "w").close()
+    assert _wait_end("warm_mixed_big")["status"] == "done"
+    assert second["result"]["pid"] != big and second["result"]["keeps_separator"] is False
 
 
 def test_a_card_too_small_for_a_warm_worker_runs_each_job_fresh(monkeypatch):
@@ -913,3 +931,18 @@ def test_on_windows_only_a_process_started_after_the_worker_counts_as_its_child(
     table = {20: (1, 500), 21: (20, 600), 22: (20, 400), 23: (5, 700)}
     monkeypatch.setattr(ctypes, "WinDLL", lambda *a, **k: _FakeKernel32(20, table), raising=False)
     assert warm_worker._windows_child_pids(20) == [21]
+
+
+def test_another_programs_memory_is_not_counted_as_the_idle_workers(monkeypatch):
+    # No per-process reading: the card's growth stands in, and here another program
+    # loaded 6 GB while the job ran.
+    monkeypatch.setattr(warm_worker, "_process_used_mb", lambda pid: None)
+
+    def reading():
+        worker = _one()
+        used = 1000.0 + (9000.0 if worker is not None and worker.started and worker.proc.is_alive() else 0.0)
+        return {"utilization_percent": 0, "memory_used_mb": used, "memory_total_mb": 16000.0,
+                "memory_free_mb": 16000.0 - used}
+    _fake_card(monkeypatch, reading)
+    _run("warm_other_program", tagged_worker, ("a", False), gpu_touching=True)
+    assert _one().held_mb == 3000.0 + warm_worker.GROWTH_LIMIT_MB   # the separator's estimate and its growth

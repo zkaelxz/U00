@@ -242,6 +242,11 @@ def estimate_mb(kind: str, name: str):
     return _ESTIMATES_MB.get(kind, {}).get(name)
 
 
+def largest_speech_model_vram_mb() -> float:
+    """The most graphics memory any Whisper or Qwen3-ASR model is estimated to need."""
+    return max(need[0] for table in (_WHISPER_MB, _QWEN_ASR_MB) for need in table.values())
+
+
 def check(kind: str, name: str, use_gpu: bool) -> None:
     """Headroom check for a local model about to load, on the GPU or the CPU."""
     need = estimate_mb(kind, name)
