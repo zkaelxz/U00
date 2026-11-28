@@ -54,7 +54,7 @@ export function ChangelogCard({ engine, model, onModeOff }: Props) {
 
   return (
     <section aria-label="Changelog">
-      <Section title="Changelog" summary="Summarise the commits between two versions" storageKey="assistant.changelog" defaultOpen>
+      <Section title="Changelog" summary="Summarise the commits between two versions">
       <form
         className="assistant-changelog-form"
         onSubmit={(e) => {

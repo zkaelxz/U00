@@ -611,6 +611,58 @@ class TestLookaheadContext:
         assert engine.calls[0]["upcoming_lines"] == ["l4"]
 
 
+class TestScatteredLinesGetTheirOwnNeighbours:
+    """Re-translate selected (a target_ids run) sends far-apart lines in one batch; each
+    line needs the lines around it, not only those around the batch's first and last."""
+
+    def _lines(self, n=20):
+        return [Line(idx=i, start=0, end=1, zh=f"l{i}", en=f"E{i}", id=100 + i) for i in range(n)]
+
+    def test_each_chosen_line_sees_its_own_neighbours_in_story_order(self):
+        engine = ContextCapturingEngine()
+        translate_pipeline.translate_lines_with_engine(
+            self._lines(), engine, {}, batch_size=10, context_window=6, context_window_ahead=3,
+            force_retranslate=True, target_ids={102, 110, 117})
+        assert len(engine.calls) == 1
+        call = engine.calls[0]
+        assert call["zh_lines"] == ["l2", "l10", "l17"]
+        assert [zh for zh, _ in call["recent_context"]] == [
+            "l0", "l1", "l3", "l7", "l8", "l9", "l11", "l14", "l15", "l16"]
+        assert ("l9", "E9") in call["recent_context"]
+        assert call["upcoming_lines"] == ["l18", "l19"]
+
+    def test_a_contiguous_batch_gets_the_same_context_as_before(self):
+        engine = ContextCapturingEngine()
+        translate_pipeline.translate_lines_with_engine(
+            self._lines(), engine, {}, batch_size=10, context_window=2, context_window_ahead=1,
+            force_retranslate=True, target_ids={105, 106, 107})
+        assert engine.calls[0]["recent_context"] == [("l3", "E3"), ("l4", "E4")]
+        assert engine.calls[0]["upcoming_lines"] == ["l8"]
+
+    def test_a_later_contiguous_batch_does_not_keep_the_scattered_ones_neighbours(self):
+        lines = self._lines(30)
+        lines[9].en = ""
+        engine = ContextCapturingEngine()
+        translate_pipeline.translate_lines_with_engine(
+            lines, engine, {}, batch_size=2, context_window=3, context_window_ahead=0,
+            force_retranslate=True, target_ids={102, 110, 120, 121})
+        assert engine.calls[0]["upcoming_lines"] == ["l9"]
+        assert engine.calls[1]["zh_lines"] == ["l20", "l21"] and engine.calls[1]["upcoming_lines"] == []
+
+    def test_zero_windows_still_mean_no_context(self):
+        engine = ContextCapturingEngine()
+        translate_pipeline.translate_lines_with_engine(
+            self._lines(), engine, {}, batch_size=10, context_window=0, context_window_ahead=0,
+            force_retranslate=True, target_ids={102, 110})
+        assert engine.calls[0]["recent_context"] == [] and engine.calls[0]["upcoming_lines"] == []
+
+    def test_the_prompt_calls_them_lines_around_the_batch(self):
+        block = engine_prompts.build_batch_context(recent_context=[("l1", "E1")], upcoming_lines=["l5"],
+                                                   around=True)
+        assert "around the ones in this batch" in block and "immediately before" not in block
+        assert "near this batch" in block and "AFTER this batch" not in block
+
+
 class TestSpeakerNamesReachTheBatch:
     def test_known_character_name_is_resolved_from_speaker_label(self):
         lines = [Line(idx=0, start=0, end=1, zh="l0", speaker="SPEAKER_00")]
