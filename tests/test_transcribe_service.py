@@ -1131,6 +1131,7 @@ class TestRunTranscribeAndApplyJob:
             if fits:
                 assert loaded.wait(5), "Whisper did not start loading during the separation"
             events.append("separated")
+            events.append(("separate", threading.current_thread().name))
             if separation_raises is not None:
                 raise separation_raises
             if separation_fails:
@@ -1140,8 +1141,10 @@ class TestRunTranscribeAndApplyJob:
             return out_path
         monkeypatch.setattr(audio_preprocess, "separate_vocals", separate)
         monkeypatch.setattr(transcribe_pipeline, "_to_speech_format", lambda path: path)
-        monkeypatch.setattr(transcribe_pipeline, "transcribe_for_timing",
-                            lambda *a, **k: [{"start": 0.0, "end": 1.0, "text": "hi"}])
+        def transcribe(*a, **k):
+            events.append(("transcribe", threading.current_thread().name))
+            return [{"start": 0.0, "end": 1.0, "text": "hi"}]
+        monkeypatch.setattr(transcribe_pipeline, "transcribe_for_timing", transcribe)
         transcribe_service._run_transcribe_and_apply_job(
             job_id, did, os.path.join(ddir, "audio.wav"), "whisper", None, "zh", "simplified",
             "large-v3", 5, 300, 0.5, True, "auto", False, False, False, None, None, None, use_gpu=True)
@@ -1149,16 +1152,20 @@ class TestRunTranscribeAndApplyJob:
         _clear(job_id)
         return events, result
 
-    def test_whisper_loads_while_the_vocals_are_separated(self, isolated_db, monkeypatch):
+    def test_whisper_loads_while_the_vocals_are_separated_on_the_thread_that_transcribes(
+            self, isolated_db, monkeypatch):
         events, result = self._preload_run(isolated_db, monkeypatch, fits=True)
-        assert events[0] == ("load", "whisper-preload")
-        assert events.index("separated") > 0 and "forget" not in events
+        threads = dict(e for e in events if isinstance(e, tuple))
+        assert events[0][0] == "load" and events.index("separated") > 0 and "forget" not in events
+        # A CTranslate2 model used from another thread than the one that built it, once that
+        # thread is gone, crashes the process; the separation is the one moved aside.
+        assert threads["load"] == threads["transcribe"] != threads["separate"] == "vocal-separation"
         assert result.get("failed_reason") is None
 
     def test_whisper_waits_for_the_separation_when_memory_would_not_hold_both(self, isolated_db, monkeypatch):
         events, _ = self._preload_run(isolated_db, monkeypatch, fits=False)
         assert events[0] == "separated"
-        assert all(e[1] != "whisper-preload" for e in events if isinstance(e, tuple))
+        assert ("separate", "vocal-separation") not in events
 
     def test_a_preload_that_fell_back_to_the_cpu_is_dropped(self, isolated_db, monkeypatch):
         events, _ = self._preload_run(isolated_db, monkeypatch, fits=True, gpu_error="out of memory")
@@ -1178,7 +1185,7 @@ class TestRunTranscribeAndApplyJob:
         monkeypatch.setattr(transcribe_pipeline, "_reusable_vocals", lambda *a: True)
         events, _ = self._preload_run(isolated_db, monkeypatch, fits=True)
         assert "separated" not in events
-        assert all(e[1] != "whisper-preload" for e in events if isinstance(e, tuple))
+        assert ("separate", "vocal-separation") not in events
 
     def test_vocal_separation_cancel_never_starts_transcription(self, isolated_db, monkeypatch):
         import audio_preprocess
