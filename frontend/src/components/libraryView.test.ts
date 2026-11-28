@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest'
 
 import {
-  cardProgress, continueAction, continueItems, countDramas, hideLibraryBar, listDelay, matchesReading, needsCheckCount, parseTime, readAction, readHref, readVerb,
+  cardProgress, continueAction, continueItems, countDramas, hideLibraryBar, lineHitCount, lineHitHref, listDelay, matchesReading, needsCheckCount, parseTime, readAction, readHref, readVerb,
   unreadChaptersText,
   shownTags, tileText, workspaceHref, type ContinueItem, type ShelfRow,
 } from './libraryView'
+import { routeHref } from '../router'
 
 const t = (title_en: string | null, title_zh: string | null) => ({ title_en, title_zh })
 
@@ -204,5 +205,17 @@ describe('reading filter', () => {
     expect(unreadChaptersText(0)).toBeNull()
     expect(unreadChaptersText(1)).toBe('1 unread chapter')
     expect(unreadChaptersText(12)).toBe('12 unread chapters')
+  })
+})
+
+describe('line search hits', () => {
+  it('says a capped answer is not the total', () => {
+    expect(lineHitCount({ count: 50, more: true })).toBe('First 50 matches, newest titles first. Add words to narrow the search.')
+    expect(lineHitCount({ count: 1, more: false })).toBe('1 match')
+    expect(lineHitCount({ count: 0, more: false })).toBe('0 matches')
+  })
+  it('opens Review searched for the words, like the top-bar search', () => {
+    expect(lineHitHref(7, 'old cat')).toBe(routeHref({ name: 'drama', id: 7, stage: 'review', find: 'old cat' }))
+    expect(lineHitHref(7, 'old cat')).toContain('find=old')
   })
 })

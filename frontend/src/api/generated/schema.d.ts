@@ -23285,6 +23285,11 @@ export interface components {
             count: number;
             /** Items */
             items: components["schemas"]["LibrarySearchHit"][];
+            /**
+             * More
+             * @default false
+             */
+            more: boolean;
         };
         /** LibrarySeries */
         LibrarySeries: {
@@ -24637,6 +24642,7 @@ export interface components {
         MeResponse: {
             /** Auth Enabled */
             auth_enabled: boolean;
+            limits: components["schemas"]["MemberLimits"] | null;
             /**
              * Own Ollama Key
              * @default false
@@ -24957,6 +24963,24 @@ export interface components {
             last4: string | null;
             /** Unreadable */
             unreadable: boolean;
+        };
+        /**
+         * MemberLimits
+         * @description A member's own limits and how much of each is used; a limit is None when none is set.
+         */
+        MemberLimits: {
+            /** Daily Job Limit */
+            daily_job_limit: number | null;
+            /** Jobs Today */
+            jobs_today: number;
+            /** Month Paid Spend Usd */
+            month_paid_spend_usd: number;
+            /** Monthly Paid Cap Usd */
+            monthly_paid_cap_usd: number | null;
+            /** Title Limit */
+            title_limit: number;
+            /** Titles Owned */
+            titles_owned: number;
         };
         /**
          * MemberPaidLimitRequest
@@ -34054,8 +34078,18 @@ export interface components {
              * @default normal
              */
             sensitivity_preset: string;
+            /**
+             * Separate Vocals Chosen
+             * @default false
+             */
+            separate_vocals_chosen: boolean;
             /** Separate Vocals First */
             separate_vocals_first: boolean;
+            /**
+             * Separates On Breeze By Default
+             * @default false
+             */
+            separates_on_breeze_by_default: boolean;
             /** Separation Backend */
             separation_backend: string;
             /**
@@ -34142,6 +34176,11 @@ export interface components {
             sensitivity_preset?: string | null;
             /** Separate Vocals First */
             separate_vocals_first?: boolean | null;
+            /**
+             * Separate Vocals Touched
+             * @default false
+             */
+            separate_vocals_touched?: boolean;
             /** Separation Backend */
             separation_backend?: string | null;
             /** Source Language */
@@ -52325,7 +52364,7 @@ export interface operations {
     list_dramas_api_library_dramas_get: {
         parameters: {
             query?: {
-                /** @description Substring of title or summary. */
+                /** @description Substring of a title, summary, author, studio, voice actor, tag or series name. */
                 search?: string;
                 studio?: string;
                 author?: string;
