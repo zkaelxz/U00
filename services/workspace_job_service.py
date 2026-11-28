@@ -174,7 +174,7 @@ def _saved_translate_options(engine_choice, engine, job_id) -> dict:
     """The saved Settings choices a translate run passes to the pipeline."""
     return {"check_replies": settings_service.reply_guard_override(),
             "reasoning": settings_service.reasoning_override(engine_choice),
-            "parallel_chapters": settings_service.parallel_chapters(),
+            "parallel_chapters": settings_service.parallel_chapters(engine_choice),
             "lane_thread_scope": _lane_thread_scope(job_id),
             "month_cap_left_cb": _month_cap_left(engine_choice, engine)}
 
