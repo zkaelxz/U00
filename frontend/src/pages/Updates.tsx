@@ -1,5 +1,5 @@
 /*
- * #/updates: everything new in one list, newest first. New chapters of tracked series (the same notifications
+ * Find & Add's Updates tab (#/updates): everything new in one list, newest first. New chapters of tracked series (the same notifications
  * as Sources > New chapters) and the viewer's followed Live channels that are live or scheduled. Each row is one
  * link: a chapter opens its series in Sources, a channel opens Live. Read-only: dismissing and checking stay
  * where they were, and nothing here is marked read.
@@ -13,11 +13,11 @@ import { featureOn } from '../api/features'
 import { Badge } from '../components/Badge'
 import { ButtonLink } from '../components/Button'
 import { RetryBanner } from '../components/RetryBanner'
-import { PageShell } from '../components/PageShell'
 import { buttonClass } from '../components/uiClasses'
 import { useFeatures } from '../hooks/useFeatures'
 import { useHolds } from '../hooks/useHolds'
 import { routeHref } from '../router'
+import { FindAddShell } from './FindAddShell'
 import { sourcesHref } from './sources/manageTabs'
 import type { LiveFollow } from '../types/live'
 import type { SourceNotification, SourceSummary, TrackedSeries } from '../types/sources'
@@ -94,12 +94,10 @@ export default function UpdatesPage() {
   const items = data ? buildUpdates(data.notifications, data.tracked, data.follows, display) : []
 
   return (
-    <PageShell
-      width="narrow"
-      title="Updates"
-      meta="New chapters and channels that are live or scheduled, newest first."
-      actions={<button type="button" className={buttonClass('secondary')} onClick={refresh} disabled={refreshing || !data}>{refreshing ? 'Refreshing…' : 'Refresh'}</button>}
-    >
+    <FindAddShell current="updates">
+      <div>
+        <button type="button" className={buttonClass('secondary')} onClick={refresh} disabled={refreshing || !data}>{refreshing ? 'Refreshing…' : 'Refresh'}</button>
+      </div>
       <RetryBanner error={error} what="updates" onRetry={refresh} busy={refreshing} />
       {data && !error && items.length === 0 && (
         <>
@@ -118,6 +116,6 @@ export default function UpdatesPage() {
         </Paged>
       )}
       {!data && <p className="muted" role="status">Loading…</p>}
-    </PageShell>
+    </FindAddShell>
   )
 }
