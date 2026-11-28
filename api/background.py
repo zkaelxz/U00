@@ -255,6 +255,37 @@ def stop_resource_monitor(timeout: float = 5.0) -> None:
         monitor[0].join(timeout)
 
 
+# Keeping the PC awake (lib/keep_awake.py): Windows counts neither CPU nor GPU
+# load as activity, so an overnight queue or a long run would freeze when the
+# power plan's sleep timer ends. Held while this process has a queued or
+# running job (Live sessions, queue items and phone runs are jobs too).
+_keep_awake = None
+
+
+def start_keep_awake(settings) -> bool:
+    global _keep_awake
+    if not settings.background_services:
+        return False
+    import background_jobs
+    from lib.keep_awake import KeepAwake
+    with _gpu_lock:
+        if _keep_awake is not None:
+            return False
+        keeper = KeepAwake(lambda: bool(background_jobs.active_job_ids()))
+        if not keeper.start():
+            return False
+        _keep_awake = keeper
+    return True
+
+
+def stop_keep_awake(timeout: float = 5.0) -> None:
+    global _keep_awake
+    with _gpu_lock:
+        keeper, _keep_awake = _keep_awake, None
+    if keeper is not None:
+        keeper.stop(timeout)
+
+
 def start_background_services(features_off=frozenset()) -> dict:
     """Starts what is due (and runs the startup sweeps above); returns
     {"chapter_scheduler": bool, "page_server": bool} (True = running after this call). Never raises: a
