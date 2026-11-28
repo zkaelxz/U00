@@ -41,7 +41,7 @@ export async function mockSourceChanged(page: Page): Promise<SourceChangedSeen> 
     return route.fulfill({
       json: {
         job_id: 'translate_3', drama_id: 3, engine: 'fake', model: null, target_line_count: body.line_ids.length,
-        fallback_engines: [], reflect: false, bulk: false, thinking: false, line_ids: body.line_ids,
+        fallback_engines: [], reflect: false, bulk: false, line_ids: body.line_ids,
       },
     })
   })

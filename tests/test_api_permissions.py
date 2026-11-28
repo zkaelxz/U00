@@ -828,13 +828,19 @@ class TestPaidEngines:
     def test_default_engine_run_passes_the_checked_engine_on(self, isolated_db, monkeypatch,
                                                              path, body):
         from lib.errors import ConflictError
-        from services import translate_thinking_service
+        from services import (failed_lines_service, glossary_retranslate_service,
+                              novel_chapter_retranslate_service, source_change_service, translate_run_service)
         seen = {}
 
-        def stub(start, drama_id, thinking, remember, *args, **kwargs):
+        def stub(drama_id, *args, **kwargs):
             seen.update(kwargs)
             raise ConflictError("stop here")
-        monkeypatch.setattr(translate_thinking_service, "start_with_thinking", stub)
+        for module, name in ((translate_run_service, "start_translate_run"),
+                             (glossary_retranslate_service, "start_affected_retranslate"),
+                             (source_change_service, "start_retranslate"),
+                             (failed_lines_service, "start_retry"),
+                             (novel_chapter_retranslate_service, "start")):
+            monkeypatch.setattr(module, name, stub)
         c = _remote(_app())
         _u, s = _user()
         did = db.create_drama(title_en="T", source_language="zh")

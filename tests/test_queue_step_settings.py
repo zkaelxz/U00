@@ -39,14 +39,13 @@ def test_translate_panel_shows_what_the_queued_run_resolves(isolated_db, seen_ru
     real = settings_service.get
     monkeypatch.setattr(settings_service, "get", lambda k: {
         "default_locale": "en-GB", "default_style_note": "Keep honorifics."}.get(k) or real(k))
-    did = _drama(engine=free_engine, translate_thinking=1)
+    did = _drama(engine=free_engine)
 
     rows = _rows(q.step_settings(None, did, "translate"))
     q._start_translate(None, db.get_drama(did))
 
     assert seen_run["locale"] == "en-GB" and rows["English variant"] == seen_run["locale"]
     assert bool(seen_run["style_note"]) and rows["Style note"] == "Set"
-    assert seen_run["thinking"] is False and rows["Thinking"] == "Off"
     options = translate_run_service.get_translate_config_defaults(False, free_engine)
     assert rows["Batch size"] == str(options["batch_size"])
     assert "Audio drama" in rows["Tone and character voice"]
@@ -60,11 +59,6 @@ def test_translate_panel_reads_the_title_engine_the_run_uses(isolated_db, seen_r
     row = next(r for r in q.step_settings(None, did, "translate")["rows"] if r["label"] == "Engine and model")
     assert row["engine"] == "claude" and row["value"]
     assert rows["Cost"].startswith(("About $", "No estimate yet")) and rows["Cost"].endswith("costs money")
-
-
-def test_thinking_reads_off_for_an_engine_without_the_switch(isolated_db, seen_run):
-    did = _drama(engine="claude", translate_thinking=1)
-    assert _rows(q.step_settings(None, did, "translate"))["Thinking"] == "Off"
 
 
 def test_translate_panel_lists_each_toggle_the_run_applies(isolated_db, seen_run):

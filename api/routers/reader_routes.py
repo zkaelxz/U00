@@ -33,8 +33,7 @@ ffmpeg time). The rich .apkg only embeds audio clips for a caller holding
 the response carries `X-Audio-Omitted: true`. `X-Clips-Missing: true` means some
 cards lost their clip (ffmpeg failed or the time budget ran out); only the flag is sent. Downloads are named like the Export UI's (`<Title> - vocabulary.csv`) through
 `export_service.content_disposition`, never a path. Media files themselves are played through
-/api/media and /api/dub; `media_file_path` is not exposed here, nor is
-the series glossary (the glossary routes cover it).
+/api/media and /api/dub; the series glossary is not exposed here either (the glossary routes cover it).
 """
 
 from typing import Literal, Optional
