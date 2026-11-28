@@ -46,6 +46,9 @@ class _Words:
     def is_compound(self, word, language):
         return word in ("小松鼠",)
 
+    def inside_common_word(self, word, language):
+        return word in ("メダ",)
+
 
 def test_names_nicknames_and_fans_become_entries_in_both_scripts_and_risky_ones_are_held():
     pytest.importorskip("opencc")
@@ -184,6 +187,21 @@ def test_short_hiragana_names_need_an_agency_or_wikidata_listing():
     kept, held = vnp.filter_candidates(vnp.candidates([row], (), wikidata), _Words(), {"zh": set(), "ja": set()})
     assert ("はお", "short hiragana name") in [(h[1], h[4]) for h in held]
     assert "ひの" in {e["source"] for e in kept["ja"]}
+
+
+def test_a_short_name_inside_a_common_word_is_held():
+    pytest.importorskip("opencc")
+    row = {**vnp.parse_profile("a", "jp", PROFILE), "original": "メダ", "nicknames": []}
+    _, held = vnp.filter_candidates(vnp.candidates([row]), _Words(), {"zh": set(), "ja": set()})
+    assert ("メダ", "part of a common word") in [(h[1], h[4]) for h in held]
+
+
+def test_the_real_word_lists_find_names_inside_common_words():
+    pytest.importorskip("wordfreq")
+    pytest.importorskip("opencc")
+    words = vnp._Words()
+    assert words.inside_common_word("メダ", "ja") and words.inside_common_word("貓頭", "zh")
+    assert not words.inside_common_word("マイロ", "ja")
 
 
 def test_wikidata_only_names_holding_another_packs_term_are_held():

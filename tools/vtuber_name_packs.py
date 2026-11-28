@@ -57,6 +57,8 @@ COMMON_WORD_ZIPF = 2.5
 # a single character must be much more common than a word to count.
 COMPOUND_WORD_ZIPF = 3.0
 COMPOUND_CHAR_ZIPF = 4.0
+# A name this short is checked against the inside of common words too.
+MAX_PIECE_LEN = 3
 # A VTuber's own name longer than this is in the word lists because the VTuber is famous
 # (キズナアイ), not because it is an ordinary word; nicknames and fan names are checked at any length.
 MAX_CHECKED_LEN = 4
@@ -326,6 +328,11 @@ class _Words:
         import opencc
         self.freq = {"zh": get_frequency_dict("zh"), "ja": get_frequency_dict("ja")}
         self.t2s = opencc.OpenCC("t2s")
+        floor = 10 ** (COMPOUND_WORD_ZIPF - 9)
+        self.pieces = {lang: {w[i:j] for w, f in freq.items() if f >= floor
+                              for i in range(len(w)) for j in range(i + 1, min(i + MAX_PIECE_LEN, len(w)) + 1)
+                              if j - i < len(w)}
+                       for lang, freq in self.freq.items()}
 
     def zipf(self, word, language):
         if language == "zh":
@@ -335,6 +342,13 @@ class _Words:
 
     def is_common(self, word, language):
         return self.zipf(word, language) >= COMMON_WORD_ZIPF
+
+    def inside_common_word(self, word, language):
+        """True when a short word is part of a longer common one (メダ in メダル, 猫头 in 猫头鹰): packs
+        match plain substrings, so it would fire inside that word."""
+        if len(word) > MAX_PIECE_LEN:
+            return False
+        return (self.t2s.convert(word) if language == "zh" else word) in self.pieces[language]
 
     def is_compound(self, word, language):
         """True when the word splits into two ordinary words (小+松鼠, 五分+熟). Chinese only:
@@ -494,6 +508,8 @@ def filter_candidates(cands, words, taken, inner_terms=None):
         elif (len(source) <= MAX_UNCONFIRMED_KANA and HIRAGANA.fullmatch(source)
               and not any(g[4].startswith(CONFIRMING) for g in group)):
             reason = "short hiragana name"
+        elif words.inside_common_word(source, language):
+            reason = "part of a common word"
         elif (len(source) <= MAX_CHECKED_LEN or c[5] != "name" or KANA.fullmatch(source)) and words.is_common(
                 source, language):
             reason = f"ordinary word (frequency {words.zipf(source, language):.1f})"

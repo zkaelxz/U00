@@ -1,7 +1,25 @@
 {
  "zh": {
-  "受保人": {"en": "Shou Bao Ren (Asa Ifrit's fans)"},
-  "曉泠": {"en": "Xiao Ling"},
-  "晓泠": {"en": "Xiao Ling"}
+  "受保人": {
+   "en": "Shou Bao Ren (Asa Ifrit's fans)"
+  },
+  "曉泠": {
+   "en": "Xiao Ling"
+  },
+  "晓泠": {
+   "en": "Xiao Ling"
+  },
+  "V圈奧黛麗赫本": {
+   "drop": true
+  },
+  "V圈奥黛丽赫本": {
+   "drop": true
+  },
+  "奧黛麗赫本": {
+   "drop": true
+  },
+  "奥黛丽赫本": {
+   "drop": true
+  }
  }
 }
