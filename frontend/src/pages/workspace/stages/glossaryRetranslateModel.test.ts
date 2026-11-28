@@ -19,7 +19,7 @@ const line = (id: number, hand_edited: boolean): GlossaryAffectedLine => ({
 const est = (usd: number | null, n: number): TranslateRunEstimate => ({
   engine: 'claude', model: null, estimated_usd: usd, alignment_check_usd: null, target_line_count: n, free: false,
   cap_applies: true, effective_cap_usd: null, monthly_refusal: false, estimate_above_cap: false,
-  estimate_is_lower_bound: false, thinking: false,
+  estimate_is_lower_bound: false, thinking: false, balance_too_low: false,
 })
 const lines = [line(1, false), line(2, true), line(3, false)]
 const preview: GlossaryAffectedPreview = {

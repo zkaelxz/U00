@@ -366,6 +366,7 @@ def estimate_translate_cost(drama_id: int, engine_name: str | None = None, model
         "monthly_refusal": monthly_refusal,
         "estimate_above_cap": bool(estimated is not None and effective_cap is not None
                                    and estimated > effective_cap),
+        "balance_too_low": translate_run_options.balance_too_low(engine_name, estimated),
     }
 
 

@@ -321,3 +321,23 @@ def test_a_lib_http_fetch_error_is_a_transient_fallback_error():
     err = http.FetchError("The provider could not be reached.")
     assert is_fallback_error(err) and is_transient_fallback_error(err)
     assert not is_fallback_error(ValueError("bug"))
+
+
+class _NoCredit(Exception):
+    status_code = 402
+
+
+def test_an_engine_out_of_credit_hands_the_chain_on_at_once(_no_sleep):
+    a, b = _Flaky(_NoCredit("Insufficient Balance"), 99), _Flaky(AuthError("x"), 0)
+    fe = engine_fallback.FallbackEngine([a, b], ["deepseek", "claude"])
+    assert fe.translate_batch(["z"], {}) == ["ok:z"]
+    assert a.calls == 1 and _no_sleep == []
+    assert [e["reason"] for e in fe.events] == [engine_fallback.OUT_OF_CREDIT]
+
+
+def test_the_out_of_credit_notice_names_both_engines():
+    from services import jobs_service
+    result = jobs_service.project_result({"errors": [], "translated_count": 1, "fallbacks": [
+        {"from": "deepseek", "to": "claude", "reason": engine_fallback.OUT_OF_CREDIT, "detail": "402"}]})
+    _, message = jobs_service.derive_outcome("done", None, result)
+    assert "DeepSeek is out of credit. Top up at platform.deepseek.com; Claude is translating for now." in message

@@ -241,6 +241,8 @@ class TranslateRunEstimate(BaseModel):
     estimate_above_cap: bool
     thinking: bool = False
     estimate_is_lower_bound: bool = False
+    # DeepSeek's prepaid balance is below the estimate; the run still starts.
+    balance_too_low: bool = False
 
 
 class TranslateRunStart(BaseModel):

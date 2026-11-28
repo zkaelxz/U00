@@ -38,7 +38,7 @@ def _is_server_outage(status) -> bool:
 
 def is_fallback_error(e: Exception) -> bool:
     """True only for a real transient/credential failure worth trying the
-    next engine for: auth failure (401/403), rate limit, timeout, or
+    next engine for: auth failure (401/403), no credit left (402), rate limit, timeout, or
     connection error. Never a content-moderation refusal (handled
     separately) and never a bare/unknown exception, which could be a real
     bug rather than a real provider problem."""
@@ -50,7 +50,7 @@ def is_fallback_error(e: Exception) -> bool:
     resp = getattr(e, "response", None)
     if resp is not None:
         status = status or getattr(resp, "status_code", None)
-    if status in (401, 403) or _is_rate_limit_error(e) or _is_server_outage(status):
+    if status in (401, 402, 403) or _is_rate_limit_error(e) or _is_server_outage(status):
         return True
     return isinstance(e, FetchError) or any(
         hint in cls.__name__.lower()
@@ -69,14 +69,14 @@ _TRANSIENT_NAME_HINTS = ("timeout", "connectionerror", "apiconnection")
 
 def is_transient_fallback_error(e: Exception) -> bool:
     """True for the is_fallback_error cases where retrying the same engine
-    can help: rate limit, timeout, connection error. Never auth (401/403)."""
+    can help: rate limit, timeout, connection error. Never auth or credit (401/402/403)."""
     if not is_fallback_error(e):
         return False
     status = getattr(e, "status_code", None)
     resp = getattr(e, "response", None)
     if resp is not None:
         status = status or getattr(resp, "status_code", None)
-    if status in (401, 403):
+    if status in (401, 402, 403):
         return False
     if _is_rate_limit_error(e) or _is_server_outage(status):
         return True
@@ -186,7 +186,7 @@ class FallbackEngine:
                 retries = 0
                 self.events.append({"from": self.choices[self.active],
                                     "to": self.choices[self.active + 1],
-                                    "reason": type(e).__name__,
+                                    "reason": OUT_OF_CREDIT if is_out_of_credit(e) else type(e).__name__,
                                     "detail": redact_secrets(str(e))[:200]})
                 self.active += 1
                 continue
@@ -266,6 +266,21 @@ def _earlier_reason(engine) -> str:
 OUT_OF_CREDIT = "out_of_credit"
 OUT_OF_CREDIT_NOTICE = ("DeepSeek is out of credit. Top up at platform.deepseek.com; "
                         "Gemma is translating for now.")
+
+
+_TOP_UP_PAGES = {"deepseek": "platform.deepseek.com"}
+_ENGINE_LABELS = {"deepseek": "DeepSeek", "claude": "Claude", "gemini": "Gemini", "openai": "OpenAI",
+                  "ollama": "Ollama"}
+
+
+def out_of_credit_notice(from_engine: str, to_engine: str) -> str:
+    """The finished job's sentence for a switch made because `from_engine`'s account ran dry."""
+    if (from_engine, to_engine) == ("deepseek", "ollama"):
+        return OUT_OF_CREDIT_NOTICE
+    name = _ENGINE_LABELS.get(from_engine, from_engine)
+    page = _TOP_UP_PAGES.get(from_engine)
+    top_up = f"Top up at {page}" if page else "Top up that account"
+    return f"{name} is out of credit. {top_up}; {_ENGINE_LABELS.get(to_engine, to_engine)} is translating for now."
 
 
 def is_out_of_credit(e: Exception) -> bool:

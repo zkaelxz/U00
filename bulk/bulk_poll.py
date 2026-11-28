@@ -201,7 +201,7 @@ def run_scheduled_job(bulk_job_id: int, engine, cost_cap_usd: float | None = Non
         save_cb=save, cancel_check_cb=cancel_check_cb, stop_before_batch=gate, **options,
         check_replies=args.get("check_replies"),
         usage_cb=lambda inp, out, cache_read=0, cache_write=0: db.log_usage(
-            did, job["engine"], getattr(engine, "model", job["model"]), "translate_offpeak",
+            did, getattr(engine, "name", job["engine"]), getattr(engine, "model", job["model"]), "translate_offpeak",
             inp, out, pricing.estimate_cost_for_engine(engine, inp, out, cache_read, cache_write),
             cache_read_tokens=cache_read),
         thinking=args.get("thinking"),
@@ -216,7 +216,10 @@ def run_scheduled_job(bulk_job_id: int, engine, cost_cap_usd: float | None = Non
                            errors, cancelled=bool(cancel_check_cb and cancel_check_cb()) or gate.closed, enforce_ids={ln.id for ln in lines})
     return {"translated": len(eligible), "skipped_changed": len(rows) - len(eligible),
             "kept_your_edit": len(kept), "batch_errors": len(errors), "cap_reached": cap.get("spent"),
-            "window_closed": gate.closed}
+            "window_closed": gate.closed,
+            # Names and reason codes only: the summary is stored and shown on the Bulk jobs panel.
+            **({"fallbacks": [{k: ev.get(k) for k in ("from", "to", "reason")} for ev in engine.events]}
+               if getattr(engine, "events", None) else {})}
 
 
 def run_bulk_poller(job_id: str, bulk_job_id: int, provider=None, engine=None,

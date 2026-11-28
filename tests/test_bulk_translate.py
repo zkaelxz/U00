@@ -931,3 +931,53 @@ class TestSpokenLanguage:
         assert seen == [(["こんにちは", "안녕"], [None, "ko"])]
         rows = {r["zh"]: r["en"] for r in isolated_db.load_lines(did)}
         assert rows["hello there"] == "hello there" and rows["안녕"] == "EN:안녕"
+
+
+def test_an_offpeak_deepseek_run_out_of_credit_moves_to_gemma(isolated_db, monkeypatch):
+    from engine_backends import fallback as engine_fallback
+    from services import translate_run_options
+
+    class NoCredit(Exception):
+        status_code = 402
+
+    class DeepSeek:
+        name, model = "deepseek", "deepseek-flash"
+
+        def translate_batch(self, zh_lines, context):
+            raise NoCredit("Insufficient Balance")
+
+    class Gemma:
+        name, model = "ollama", "gemma4:31b-cloud"
+
+        def translate_batch(self, zh_lines, context):
+            return [f"G:{z}" for z in zh_lines]
+
+    monkeypatch.setattr(engine_fallback, "_slow_until", {})
+    monkeypatch.setattr(engine_fallback, "_slow_reason", {})
+    monkeypatch.setattr(translate_run_options.engine_registry, "get_engine", lambda *a, **k: Gemma())
+    did = _mixed_drama(isolated_db)
+    jid = bulk_translate.schedule_offpeak_translation(did, isolated_db.load_line_objects(did), "deepseek", "m", {})
+    summary = bulk_poll.run_scheduled_job(jid, translate_run_options.with_slow_switch(DeepSeek()))
+    assert summary["batch_errors"] == 0
+    assert [ln.en[:2] for ln in isolated_db.load_line_objects(did)][:2] == ["G:", "G:"]
+    assert summary["fallbacks"] == [{"from": "deepseek", "to": "ollama", "reason": engine_fallback.OUT_OF_CREDIT}]
+
+
+def test_offpeak_deepseek_runs_get_the_switching_engine_when_started_and_resumed(isolated_db, monkeypatch):
+    from engine_backends import fallback as engine_fallback
+    from services import translate_bulk_run_service as bulk_run, translate_run_options
+
+    class Plain:
+        def __init__(self, name):
+            self.name, self.model = name, "m"
+
+    monkeypatch.setattr(translate_run_options.engine_registry, "get_engine", lambda name, *a, **k: Plain(name))
+    monkeypatch.setattr(bulk_run.engine_registry, "get_engine", lambda name, *a, **k: Plain(name))
+    monkeypatch.setattr(bulk_run.translate_service, "resolve_api_key", lambda name: "k")
+    polled = []
+    monkeypatch.setattr(bulk_run.bulk_poll, "run_bulk_poller", lambda *a, engine=None, **k: polled.append(engine))
+    monkeypatch.setattr(bulk_run.db, "get_bulk_job", lambda _id: {"status": "applied"})
+    bulk_run.run_bulk_translate_job("j", Plain("deepseek"), "deepseek", lambda: 1)
+    assert isinstance(polled[0], engine_fallback.SlowSwitchEngine)
+    assert isinstance(bulk_run._bulk_engine_factory("deepseek", None), engine_fallback.SlowSwitchEngine)
+    assert bulk_run._bulk_engine_factory("claude", None).name == "claude"
