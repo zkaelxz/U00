@@ -554,3 +554,12 @@ def test_a_page_outside_a_chapter_is_not_asked_for_names(monkeypatch):
     monkeypatch.setattr(llm_tasks, "call_llm_json", call)
     scanlate_translate.translate_page_bubbles([_region("안녕")], _Engine(), {"source_language": "ko"})
     assert '"names"' not in prompts[0]
+
+
+def test_comic_translations_come_back_without_em_dashes(monkeypatch):
+    from engine_backends import llm_tasks
+    monkeypatch.setattr(llm_tasks, "call_llm_json", lambda engine, prompt, **kw: json.dumps(
+        {"translations": {"0": "Wait—", "1": "He—the king—came."}, "context_summary": "x"}))
+    got, _ = scanlate_translate.translate_regions_by_id({"0": "잠깐", "1": "왕이 왔다"}, _Engine(),
+                                                        {"source_language": "ko"})
+    assert got == {"0": "Wait...", "1": "He, the king, came."}
