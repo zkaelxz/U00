@@ -679,12 +679,12 @@ def add_new_chapters_from_sources(drama_id: int, from_chapter: int | None = None
         if covered is None:
             raise ConflictError(
                 "The translation text is not a copy of the first saved chapters (it was pasted, edited or cut), "
-                "so the new chapters can't be added to it automatically. Add them in the Source stage.")
+                "so the new chapters can't be added to it automatically. Add them in Media.")
         # A text that already holds every saved chapter has nothing to put back: a retried add is a no-op.
         if from_chapter is not None and covered != from_chapter - 1 and covered != len(chapters):
             raise ConflictError(
                 f"The translation text holds {covered} saved chapters, not the {from_chapter - 1} expected, so "
-                "the new chapters can't be told apart. Add them in the Source stage.")
+                "the new chapters can't be told apart. Add them in Media.")
         tail = "\n\n".join(chapters[covered:]).strip()
         waiting = novel_text.read_pending_lines(folder)
         if not tail:
