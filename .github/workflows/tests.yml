@@ -217,6 +217,7 @@ jobs:
     uses: ./.github/workflows/privacy.yml
     secrets:
       PRIVATE_TERMS: ${{ secrets.PRIVATE_TERMS }}
+      PRIVATE_ALLOW: ${{ secrets.PRIVATE_ALLOW }}
 
   # The mocked suite in four shards that run at the same time. pytest-split
   # assigns whole tests to shards from the recorded durations in

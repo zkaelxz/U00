@@ -22711,6 +22711,11 @@ export interface components {
             en: string | {
                 [key: string]: string;
             };
+            /**
+             * Link
+             * @default
+             */
+            link: string;
             /** Note */
             note: string;
             /** Source */
