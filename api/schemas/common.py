@@ -347,6 +347,7 @@ class AssExportRequest(BaseModel):
     sound_captions: bool = False
     reading_line: bool = False
     karaoke: bool = False
+    ear_placement: bool = False
 
 
 class BenchmarkJudgeEstimate(BaseModel):

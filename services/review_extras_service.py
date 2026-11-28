@@ -51,7 +51,7 @@ import subtitle_ass
 from engine_backends import engine_registry
 from engine_backends import gemini as engine_gemini
 from engine_backends import paid_calls
-from services import (engine_failure_service, export_service, media_playback_service, ownership_service,
+from services import (ear_marks_service, engine_failure_service, export_service, media_playback_service, ownership_service,
                       restructure_service, settings_service, translate_run_service, translate_service,
                       workspace_audio_job_service)
 from lib.errors import (
@@ -535,10 +535,10 @@ def _run_burn_preview_job(job_id, drama_id, video, ass, start, end, meta):
 def start_burn_preview(drama_id: int, line_id: int, pad_seconds: float | None = None,
                        preset: str | None = None, style: dict | None = None, speaker_colors: dict | None = None,
                        per_speaker_colors: bool = False, wrap_chars_en: int | None = None,
-                       wrap_chars_source: int | None = None) -> dict:
+                       wrap_chars_source: int | None = None, ear_placement: bool = False) -> dict:
     """Renders a short clip of the source video around one line with its
     subtitles burned in (an ASS preset, default Clean). `style`,
-    `speaker_colors`, `per_speaker_colors` and the wrap widths mean what they
+    `speaker_colors`, `per_speaker_colors`, the wrap widths and `ear_placement` mean what they
     do in export_service.generate_ass_text, so the clip matches what the
     Export stage would burn. The clip is capped at
     MAX_CLIP_SECONDS and replaces any earlier preview of this drama. At
@@ -584,6 +584,7 @@ def start_burn_preview(drama_id: int, line_id: int, pad_seconds: float | None = 
                       "wrap_chars": export_service.build_wrap_chars(wrap_chars_en,
                                                                      wrap_chars_source),
                       "frame_aspect": export_service.video_frame_aspect(video),
+                      "ear_placement": ear_marks_service.fresh_sides(drama_id, lines) if ear_placement else None,
                       **export_service.break_language(drama)},
         pad=pad)
     end = min(end, start + MAX_CLIP_SECONDS)

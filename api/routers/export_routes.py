@@ -154,7 +154,8 @@ def post_ass_text(request: Request, req: AssExportRequest, drama_id: int = Path(
         speaker_colors=req.speaker_colors, per_speaker_colors=req.per_speaker_colors,
         include_notes=req.include_notes, notes_as_separate_line=req.notes_as_separate_line,
         wrap_chars_en=req.wrap_chars_en, wrap_chars_source=req.wrap_chars_source,
-        sound_captions=req.sound_captions, reading_line=req.reading_line, karaoke=req.karaoke)
+        sound_captions=req.sound_captions, reading_line=req.reading_line, karaoke=req.karaoke,
+        ear_placement=req.ear_placement)
     _mark_exported_if_allowed(request, drama_id, req.field)
     return Response(
         content=text, media_type="text/x-ssa; charset=utf-8",
@@ -186,7 +187,8 @@ def post_burned_video(drama_id: int = Path(ge=1), req: Optional[AssExportRequest
         speaker_colors=req.speaker_colors, per_speaker_colors=req.per_speaker_colors,
         include_notes=req.include_notes, notes_as_separate_line=req.notes_as_separate_line,
         wrap_chars_en=req.wrap_chars_en, wrap_chars_source=req.wrap_chars_source,
-        sound_captions=req.sound_captions, reading_line=req.reading_line, karaoke=req.karaoke)
+        sound_captions=req.sound_captions, reading_line=req.reading_line, karaoke=req.karaoke,
+        ear_placement=req.ear_placement)
 
 
 @router.post("/dramas/{drama_id}/softsub-video", dependencies=[require_permission("jobs.start")], response_model=MediaExportStarted,
