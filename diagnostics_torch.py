@@ -110,17 +110,6 @@ def with_driver_vram_used(gpu: dict) -> dict:
     return gpu
 
 
-def gpu_reading() -> dict:
-    """Name and memory of the first nvidia-smi GPU, read in one query so they
-    describe one card (no torch import, no full diagnostics)."""
-    load = _recent_driver_load()
-    if load is None:
-        return {"found": False, "name": None, "vram_used_gb": None, "vram_total_gb": None}
-    return {"found": True, "name": load.get("name"),
-            "vram_used_gb": load["memory_used_mb"] / 1024,
-            "vram_total_gb": load["memory_total_mb"] / 1024}
-
-
 # Importing torch or ctranslate2 in the server opens a CUDA context that keeps
 # their DLLs locked until the process exits, so GPU PyTorch setup can't replace
 # them (WinError 5). The overview asks a short-lived child instead.

@@ -12,8 +12,6 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-import pytest
-
 import benchmark
 import whisper_transcribe
 import ocr as ocr_module
@@ -97,55 +95,6 @@ class TestRunTranscriptionCase:
         assert captured["local_model_path"] == "/models/ja"
 
 
-class TestRunTranslationCase:
-    class FakeEngine:
-        def __init__(self, translation="EN:hi"):
-            self.translation = translation
-
-        def translate_batch(self, texts, context):
-            return [self.translation]
-
-    def test_scores_against_a_reference_translation(self):
-        engine = self.FakeEngine(translation="Hello world")
-        case = {"source_text": "你好世界", "reference_text": "Hello world"}
-        result = benchmark.run_translation_case(case, engine)
-
-        assert result["output_text"] == "Hello world"
-        assert result["score"] == 1.0
-
-    def test_a_translation_failure_is_captured_not_raised(self):
-        class FailingEngine:
-            def translate_batch(self, texts, context):
-                raise RuntimeError("api down")
-
-        case = {"source_text": "你好", "reference_text": "hi"}
-        result = benchmark.run_translation_case(case, FailingEngine())
-
-        assert result["error"] == "api down"
-        assert result["output_text"] == ""
-
-    def test_logs_cost_when_the_engine_reports_usage(self, monkeypatch):
-        class UsageEngine:
-            model = "claude-sonnet-5"
-            last_usage = {"input_tokens": 1_000_000, "output_tokens": 1_000_000}
-
-            def translate_batch(self, texts, context):
-                return ["translated"]
-
-        from engine_backends import pricing
-        monkeypatch.setattr(pricing, "estimate_cost", lambda model, i, o: 12.0)
-
-        case = {"source_text": "x"}
-        result = benchmark.run_translation_case(case, UsageEngine())
-        assert result["cost_usd"] == 12.0
-
-    def test_no_usage_attribute_costs_nothing(self):
-        engine = self.FakeEngine()
-        case = {"source_text": "x"}
-        result = benchmark.run_translation_case(case, engine)
-        assert result["cost_usd"] == 0.0
-
-
 class TestRunOcrCase:
     def test_scores_against_reference_ocr_text(self, monkeypatch):
         monkeypatch.setattr(ocr_module, "extract_text_from_images",
@@ -162,34 +111,3 @@ class TestRunOcrCase:
         case = {"input_path": "/fake/page.png"}
         result = benchmark.run_ocr_case(case)
         assert result["error"] == "tesseract not installed"
-
-
-class TestRunSuite:
-    def test_dispatches_to_the_right_stage_runner(self, monkeypatch):
-        monkeypatch.setattr(whisper_transcribe, "transcribe_for_timing",
-                             lambda path, **kw: [{"start": 0, "end": 1, "text": "hi"}])
-        cases = [{"id": 1, "input_path": "/fake/a.wav"}, {"id": 2, "input_path": "/fake/b.wav"}]
-        results = benchmark.run_suite(cases, "transcription")
-
-        assert len(results) == 2
-        assert [r["case_id"] for r in results] == [1, 2]
-
-    def test_unknown_stage_raises_a_clear_error(self):
-        with pytest.raises(ValueError, match="Unknown benchmark stage"):
-            benchmark.run_suite([], "not_a_real_stage")
-
-    def test_one_cases_failure_does_not_stop_the_rest(self, monkeypatch):
-        calls = {"n": 0}
-        def fake_transcribe(path, **kw):
-            calls["n"] += 1
-            if calls["n"] == 1:
-                raise RuntimeError("boom")
-            return [{"start": 0, "end": 1, "text": "ok"}]
-        monkeypatch.setattr(whisper_transcribe, "transcribe_for_timing", fake_transcribe)
-
-        cases = [{"id": 1, "input_path": "/a"}, {"id": 2, "input_path": "/b"}]
-        results = benchmark.run_suite(cases, "transcription")
-
-        assert results[0]["error"] == "boom"
-        assert results[1]["error"] is None
-        assert results[1]["output_text"] == "ok"

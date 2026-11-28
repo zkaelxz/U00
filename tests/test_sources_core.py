@@ -1483,7 +1483,7 @@ def test_shared_soup_parses_html_and_tolerates_none():
 # The shared plain image download
 # ---------------------------------------------------------------------------
 
-_PLAIN_IMAGE_ADAPTERS = ("baozimh", "guazimanhua", "kuaikan", "miaoqumh",
+_PLAIN_IMAGE_ADAPTERS = ("baozimh", "fanjiao_comic", "guazimanhua", "kuaikan", "mh03", "miaoqumh",
                          "zerosumonline")
 
 
@@ -1511,6 +1511,25 @@ def test_plain_image_adapters_download_the_page_bytes_and_keep_the_extension(nam
     assert kw["action"] == "Downloading page 2"
     assert adapter.download_page(PageRef(source=name, chapter_id="c", index=0, url="https://cdn.example/a/b?x=1.png"))[1] == ".jpg"
     assert adapter.download_page(PageRef(source=name, chapter_id="c", index=0, url="https://cdn.example/a/b.png#x"))[1] == ".png"
+
+
+@pytest.mark.parametrize("name", ["fanjiao_comic", "mh03"])
+def test_sites_with_misnamed_pages_name_the_file_by_its_bytes(name, isolated_db):
+    from sources import registry
+    jpeg, png, webp = b"\xff\xd8\xff\xe0rest", b"\x89PNG\r\n\x1a\nrest", b"RIFF\0\0\0\0WEBPrest"
+
+    class Client(_RecordingClient):
+        body = b""
+
+        def get(self, url, **kw):
+            return type("R", (), {"content": self.body})()
+
+    client = Client()
+    adapter = registry.adapter_classes()[name](client=client)
+    for body, ext in ((jpeg, ".jpg"), (png, ".png"), (webp, ".webp"), (b"IMG", ".webp")):
+        client.body = body
+        assert adapter.download_page(PageRef(source=name, chapter_id="c", index=0,
+                                             url="https://cdn.example/a/b.webp")) == (body, ext)
 
 
 @pytest.mark.parametrize("name,default_ext", [

@@ -312,14 +312,14 @@ def test_cloud_models_are_priced_so_the_spend_cap_counts_them():
 def test_a_member_naming_no_engine_runs_on_the_member_model_not_a_refused_default(remote, run_url, monkeypatch):
     import db
     from lib.errors import ConflictError
-    from services import translate_thinking_service
+    from services import translate_run_service
     seen = {}
 
-    def fake_start(fn, drama_id, thinking, remember, *a, **kw):
+    def fake_start(drama_id, *a, **kw):
         seen.update(kw)
         raise ConflictError("stop here")
 
-    monkeypatch.setattr(translate_thinking_service, "start_with_thinking", fake_start)
+    monkeypatch.setattr(translate_run_service, "start_translate_run", fake_start)
     drama_id = int(run_url.split("/")[-2])
     db.update_drama(drama_id, translation_engine="claude")
     db.set_app_setting("pref.ollama_cloud_default", True)

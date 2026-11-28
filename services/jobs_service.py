@@ -25,6 +25,7 @@ from services import job_stage_service, ownership_service, run_settings_service
 import diagnostics_report
 import background_jobs
 from jobs import gpu_guard, gpu_queue, job_table
+from engine_backends import fallback as engine_fallback
 import job_force_stop
 from jobs import job_store
 from lib.errors import ConflictError, InvalidInputError, NotFoundError
@@ -68,6 +69,8 @@ RESULT_ALLOWED_KEYS = (
     "judge_skipped",
     # Translate: why the Source match check did not run (Ollama or bge-m3 missing; a fixed sentence).
     "source_match_skipped",
+    # Narration: the finished track waits because the old one was in use (a fixed sentence).
+    "track_waiting",
 )
 _MAX_STR = 500
 _MAX_LIST = 20
@@ -138,8 +141,10 @@ def _int_id(value):
 def _project_fallbacks(events):
     """A FallbackEngine's switch events ({"from", "to", "reason", "detail"})
     as [{"from", "to", "count"}]: engine names and how often each switch
-    happened, never error text. Also accepts its own output (re-projection)."""
-    counts = {}
+    happened, never error text. Also accepts its own output (re-projection).
+    A switch for lack of credit keeps its fixed reason code and the model it moved to, so
+    the outcome can say so."""
+    counts, no_credit = {}, {}
     for ev in events if isinstance(events, (list, tuple)) else []:
         if not isinstance(ev, dict):
             continue
@@ -147,7 +152,13 @@ def _project_fallbacks(events):
                 (_safe_scalar(str(ev.get("to") or "")) or "")[:40])
         n = _int_id(ev.get("count")) or 1
         counts[pair] = counts.get(pair, 0) + max(1, n)
-    return [{"from": a, "to": b, "count": n} for (a, b), n in list(counts.items())[:_MAX_LIST]]
+        if ev.get("reason") == engine_fallback.OUT_OF_CREDIT:
+            model = ev.get("to_model")
+            no_credit[pair] = (_safe_scalar(str(model)) or "")[:60] if model else None
+    return [{"from": a, "to": b, "count": n,
+             **({"reason": engine_fallback.OUT_OF_CREDIT, "to_model": no_credit[(a, b)]}
+                if (a, b) in no_credit else {})}
+            for (a, b), n in list(counts.items())[:_MAX_LIST]]
 
 
 def _cap_bytes(text: str, limit: int) -> str:
@@ -528,6 +539,8 @@ def _summary_outcome(result: dict) -> tuple:
         parts.append(str(result["judge_skipped"]))
     if result.get("source_match_skipped"):
         parts.append(str(result["source_match_skipped"]))
+    if result.get("track_waiting"):
+        parts.append(str(result["track_waiting"]))
     if result.get("speaker_count_hint"):
         # A suggestion, not a failure, so it doesn't make the outcome partial.
         parts.append(str(result["speaker_count_hint"]))
@@ -538,6 +551,12 @@ def _summary_outcome(result: dict) -> tuple:
     if fallbacks:
         parts.append("Switched engine: " + ", ".join(
             f"{f.get('from')} to {f.get('to')}" for f in fallbacks) + ".")
+        parts.extend(dict.fromkeys(
+            engine_fallback.out_of_credit_notice(
+                str(f.get("from")), str(f.get("to")), f.get("to_model"),
+                handed_back=any(later.get("from") == f.get("to") and later.get("to") == f.get("from")
+                                for later in fallbacks[n + 1:]))
+            for n, f in enumerate(fallbacks) if f.get("reason") == engine_fallback.OUT_OF_CREDIT))
     if cap is not None or errors or stopped or result.get("partial") or warnings:
         return "partial", " ".join(parts)
     return "ok", (" ".join(parts) or "Finished.")
@@ -745,6 +764,15 @@ def sweep_stale_job_records(records=None) -> int:
     """Closes every queued/running row left behind by a crashed, killed or
     restarted process (jobs/job_store.sweep_dead_owners). Returns how many."""
     return job_store.sweep_dead_owners(STALE_JOB_SECONDS, records=records)
+
+
+def sweep_at_startup() -> list:
+    """The startup sweep: closes what the last run left running, as
+    sweep_stale_job_records does, and returns those rows for the restart
+    notice."""
+    closed = []
+    job_store.sweep_dead_owners(STALE_JOB_SECONDS, closed_out=closed)
+    return closed
 
 
 def _still_active_here(job_id) -> bool:

@@ -2,11 +2,13 @@ import { expect, test } from '@playwright/test'
 
 import { expectFilterAndEnter, expectHiddenItemNotListed, expectNoMatches, palette, paletteInput, searchButton } from './paletteHelpers'
 
+// The Ctrl+K listener exists once the session has answered and the header has rendered.
+const headerReady = (page: import('@playwright/test').Page) => expect(page.locator('.header-end .jobs-menu-btn')).toBeVisible()
+
 // Ctrl+K quick search at the desktop viewport (left rail), against the seeded API (auth off).
 
 const viaShortcut = (page: import('@playwright/test').Page) => async () => {
-  // The listener exists once the session has answered and the header has rendered.
-  await expect(searchButton(page)).toBeVisible()
+  await headerReady(page)
   await page.keyboard.press('Control+k')
   await expect(palette(page)).toBeVisible()
 }
@@ -16,7 +18,7 @@ test('opens with Ctrl+K, filters and Enter goes to the page', async ({ page }) =
 })
 
 test('opens with the header button, and Esc closes it and returns focus to the button', async ({ page }) => {
-  await page.goto('/#/library')
+  await page.goto('/#/translate')
   await searchButton(page).click()
   await expect(palette(page)).toBeVisible()
   await expect(paletteInput(page)).toBeFocused()
@@ -27,7 +29,7 @@ test('opens with the header button, and Esc closes it and returns focus to the b
 })
 
 test('Ctrl+K from the bare page then Esc returns focus to the search button, not body', async ({ page }) => {
-  await page.goto('/#/library')
+  await page.goto('/#/translate')
   await expect(searchButton(page)).toBeVisible()
   await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur())
   expect(await page.evaluate(() => document.activeElement?.tagName)).toBe('BODY')
@@ -42,7 +44,7 @@ test('Ctrl+K from a text field opens it and Esc gives focus back to that field',
   await page.goto('/#/library')
   const field = page.locator('input[type="search"], input[type="text"]').first()
   await field.focus()
-  await expect(searchButton(page)).toBeVisible()
+  await headerReady(page)
   await page.keyboard.press('Control+k')
   await expect(palette(page)).toBeVisible()
   await page.keyboard.press('Escape')
@@ -52,13 +54,25 @@ test('Ctrl+K from a text field opens it and Esc gives focus back to that field',
 test('a plain k typed in a text field does not open it, and Ctrl+K again closes it', async ({ page }) => {
   await page.goto('/#/library')
   await page.locator('input[type="search"], input[type="text"]').first().focus()
-  await expect(searchButton(page)).toBeVisible()
+  await headerReady(page)
   await page.keyboard.press('k')
   await expect(palette(page)).toBeHidden()
   await page.keyboard.press('Control+k')
   await expect(palette(page)).toBeVisible()
   await page.keyboard.press('Control+k')
   await expect(palette(page)).toBeHidden()
+})
+
+test('pages with their own search box have no header search button, and Ctrl+K still opens the dialog', async ({ page }) => {
+  for (const hash of ['#/library', '#/make-subtitles', '#/discover', '#/sources', '#/updates', '#/jobs', '#/settings']) {
+    await page.goto(`/${hash}`)
+    await headerReady(page)
+    await expect(searchButton(page), hash).toHaveCount(0)
+    await page.keyboard.press('Control+k')
+    await expect(palette(page), hash).toBeVisible()
+    await page.keyboard.press('Escape')
+    await expect(palette(page), hash).toBeHidden()
+  }
 })
 
 test('arrow keys move the selection and Tab stays inside the dialog', async ({ page }) => {

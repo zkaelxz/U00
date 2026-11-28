@@ -40,12 +40,6 @@ def create_room(body: WatchPartyCreateRequest, request: Request):
     return watch_party_service.create_room(request.state.principal, body.drama_id)
 
 
-@router.get("/rooms/{code}", dependencies=[require_permission(PERMISSION)], response_model=WatchPartyRoom,
-            summary="A watch party's current play state", responses=_ERRS)
-def get_room(request: Request, code: str = Code):
-    return watch_party_service.get_room(request.state.principal, code)
-
-
 @router.post("/rooms/{code}/state", dependencies=[require_permission(PERMISSION)], response_model=WatchPartyRoom,
              summary="Play, pause or seek for everyone in the party", responses=_ERRS)
 def post_state(body: WatchPartyStateRequest, request: Request, code: str = Code):

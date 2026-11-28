@@ -149,6 +149,15 @@ def unbilled_bulk_usd_by_user() -> dict:
     return totals
 
 
+def unbilled_bulk_usd_for_user(user_id: int) -> float:
+    """unbilled_bulk_usd_by_user()[user_id], read from that member's rows only."""
+    where, args = _unbilled_where()
+    with contextlib.closing(db.get_conn()) as conn:
+        row = conn.execute(f"SELECT COALESCE(SUM(COALESCE(estimated_usd, 0)), 0) FROM bulk_jobs "
+                           f"WHERE {where} AND user_id = ?", [*args, user_id]).fetchone()
+    return float(row[0])
+
+
 def count_bulk_job_lines(bulk_job_id: int) -> int:
     with contextlib.closing(db.get_conn()) as conn:
         return conn.execute("SELECT COUNT(*) FROM bulk_job_lines WHERE bulk_job_id = ?",

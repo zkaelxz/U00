@@ -67,7 +67,7 @@ def hear_window(audio_path, start, end, language, slice_path, whisper_size, gpu_
         return whisper_transcribe.transcribe_for_timing(
             slice_path, whisper_size, language=language,
             on_gpu_fallback=lambda exc: gpu_fallback.append(whisper_models.short_reason(exc)),
-            fast_mode=False, **{**transcribe_kwargs, **extra})
+            fast_mode=False, standalone_extra_speech=False, **{**transcribe_kwargs, **extra})
     try:
         segments = hear()
         # The line already exists, so something was said here. A lone slice has no

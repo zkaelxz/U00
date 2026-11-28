@@ -76,7 +76,7 @@ def reflect_translate_batch(engine, zh_lines: list, context: dict, usage_cb=None
         raise RuntimeError(f"{getattr(engine, 'name', type(engine).__name__)} can't run Reflect "
                            "mode (needs an LLM engine, not a translation-only one).")
 
-    ids = _batch_ids(zh_lines, context)
+    ids = list(range(1, len(zh_lines) + 1))
     line_languages = context.get("line_languages")
     if line_languages and len(line_languages) == len(zh_lines):
         # Tagged here so all three passes show the model each source's language.
@@ -112,16 +112,6 @@ def reflect_translate_batch(engine, zh_lines: list, context: dict, usage_cb=None
     translations = [final_map.get(str(i), direct.get(i, "")) for i in ids]
     critiques = [critique_map.get(str(i), "") for i in ids]
     return translations, critiques
-
-
-def _batch_ids(zh_lines: list, context: dict) -> list:
-    """The ids the passes key lines by: the caller's line ids when they are one distinct int per
-    line, else positions from 1."""
-    line_ids = context.get("line_ids")
-    if (line_ids is not None and len(line_ids) == len(zh_lines)
-            and all(isinstance(i, int) for i in line_ids) and len(set(line_ids)) == len(line_ids)):
-        return list(line_ids)
-    return list(range(1, len(zh_lines) + 1))
 
 
 def _prompt_parts(context: dict) -> tuple:

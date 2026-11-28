@@ -330,7 +330,7 @@ class _ReAskEngine:
         self.requests = 0
 
     def translate_batch(self, sources, context=None):
-        ids = list(context["line_ids"])
+        ids = list(range(1, len(sources) + 1))
         self.last_usage = {"input_tokens": 0, "output_tokens": 0}
         if not context.get(self.reask_key):
             self.last_usage = {"input_tokens": 100, "output_tokens": 100}
@@ -351,7 +351,7 @@ class _ReAskEngine:
             return json.dumps({str(ids[2]): f"fixed {ids[2]}"})
 
         return shared.request_translations_with_retry(
-            sources, None, call_model, line_ids=ids, engine_name="claude")
+            sources, None, call_model, engine_name="claude")
 
 
 # Billed per request: the failed attempt's 17/4 (10/1 then 7/3), then the retry's 5/2.
@@ -375,7 +375,7 @@ class TestOtherRetryPathsDoNotRebill:
         engine = _ReAskEngine("He came.", "pronoun_strict")
         usage = self._run(engine, style_guidelines=tguide.build_style_guidelines(
             default_female_pronouns=True))
-        assert engine.asked == [[10, 11, 12], [12], [12]]
+        assert engine.asked == [[1, 2, 3], [3], [3]]
         assert usage == _REASK_USAGE
 
     def test_glossary_re_ask(self, monkeypatch):
@@ -384,7 +384,7 @@ class TestOtherRetryPathsDoNotRebill:
                   "enforce_exact": 0, "notes": ""}]
         engine = _ReAskEngine("no name here", "glossary_correction")
         usage = self._run(engine, glossary_terms=terms)
-        assert engine.asked == [[10, 11, 12], [12], [12]]
+        assert engine.asked == [[1, 2, 3], [3], [3]]
         assert usage == _REASK_USAGE
 
     def test_benchmark_case_failure_keeps_billed_tokens(self, monkeypatch):

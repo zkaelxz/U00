@@ -446,6 +446,276 @@ class TestSequentialNarration:
         assert dub.clone_map_uses_local_model({"A": {"engine": engine}})
 
 
+class _Killed(BaseException):
+    """A cancel: the worker is killed, nothing after it runs."""
+
+
+class TestListenWhileItIsMade:
+    """The part spoken so far is joined into the track at chapter ends, so it can be played
+    (and a cancelled run keeps it) before the whole title is spoken."""
+
+    @pytest.fixture(autouse=True)
+    def _every_chapter(self, monkeypatch):
+        monkeypatch.setattr(dub_narration, "JOIN_SPACING", 0)
+        monkeypatch.setattr(dub_narration, "MIN_JOIN_GAP_SECONDS", 0)
+
+    def _chapters(self, n):
+        lines = []
+        for c in range(n):
+            lines.append(Line(idx=len(lines), start=0, end=0, zh=f"第{c + 1}章", en=f"Chapter {c + 1}", speaker="N"))
+            lines.append(Line(idx=len(lines), start=0, end=0, zh="正文。", en=f"Body {c + 1}.", speaker="N"))
+        for i, ln in enumerate(lines):
+            ln.id = 100 + i
+        return lines
+
+    def _run(self, monkeypatch, tmp_path, lines, synth=None, parts=None):
+        speak_with(monkeypatch, synth or (lambda text, out_path, **kw: open(out_path, "w").close()))
+        return dub_narration.build_narration_track(
+            lines, str(tmp_path), NARRATORS, on_partial=None if parts is None else parts.append)
+
+    def test_each_chapter_end_joins_the_part_spoken_so_far(self, monkeypatch, fake_pydub, tmp_path):
+        track = tmp_path / "narration_track.flac"
+        heard_at = {}
+
+        def synth(text, out_path, **kw):
+            heard_at[text] = track.exists()
+            open(out_path, "w").close()
+        parts = []
+        lines = self._chapters(3)
+        self._run(monkeypatch, tmp_path, lines, synth, parts)
+        assert heard_at == {"Chapter 1": False, "Body 1.": False, "Chapter 2": True, "Body 2.": True,
+                            "Chapter 3": True, "Body 3.": True}
+        assert len(parts) == 2
+        first = {line_id: (start, end, clip) for line_id, start, end, clip in parts[0]}
+        # Chapter 1 is timed and has its clips; the rest waits at the part's end with none.
+        assert first[100][2] and first[101][2]
+        part_end = first[101][1]
+        assert all(first[i] == (part_end, part_end, None) for i in range(102, 106))
+        # The part's times are the ones the whole track gives those lines.
+        assert [first[ln.id] for ln in lines[:2]] == [(ln.start, ln.end, ln.dub_filename) for ln in lines[:2]]
+
+    def test_the_finished_track_is_the_same_as_without_listening_early(self, monkeypatch, fake_pydub, tmp_path):
+        early, plain = self._chapters(3), self._chapters(3)
+        (tmp_path / "a").mkdir()
+        (tmp_path / "b").mkdir()
+        self._run(monkeypatch, tmp_path / "a", early, parts=[])
+        self._run(monkeypatch, tmp_path / "b", plain)
+        assert [(ln.start, ln.end, ln.dub_filename) for ln in early] == [
+            (ln.start, ln.end, ln.dub_filename) for ln in plain]
+
+    def test_a_cancel_keeps_the_chapters_joined_before_it(self, monkeypatch, fake_pydub, tmp_path):
+        def synth(text, out_path, **kw):
+            if text == "Body 3.":
+                raise _Killed()
+            open(out_path, "w").close()
+        parts = []
+        with pytest.raises(_Killed):
+            self._run(monkeypatch, tmp_path, self._chapters(3), synth, parts)
+        assert (tmp_path / "narration_track.flac").exists()
+        last = {line_id: clip for line_id, _s, _e, clip in parts[-1]}
+        assert [bool(last[i]) for i in range(100, 106)] == [True, True, True, True, False, False]
+
+    def test_a_part_that_is_mostly_silence_is_not_joined(self, monkeypatch, fake_pydub, tmp_path):
+        def synth(text, out_path, **kw):
+            if text in ("Chapter 1", "Body 1."):
+                raise RuntimeError("down")
+            open(out_path, "w").close()
+        parts = []
+        self._run(monkeypatch, tmp_path, self._chapters(4), synth, parts)
+        # Chapter 1 alone was all silence; with chapter 2 the part is half spoken.
+        assert len(parts) == 2
+        assert {line_id for line_id, _s, _e, clip in parts[0] if clip} == {102, 103}
+
+    def test_a_title_without_chapters_joins_at_any_line_end(self, monkeypatch, fake_pydub, tmp_path):
+        lines = [Line(idx=i, start=0, end=0, zh=str(i), en=f"Line {i}.", speaker="AB"[i % 2]) for i in range(3)]
+        parts = []
+        self._run(monkeypatch, tmp_path, lines, parts=parts)
+        assert len(parts) == 2
+
+    def test_joins_wait_in_proportion_to_how_long_the_last_took(self, monkeypatch, fake_pydub, tmp_path):
+        monkeypatch.setattr(dub_narration, "JOIN_SPACING", 10 ** 6)
+        parts = []
+        self._run(monkeypatch, tmp_path, self._chapters(4), parts=parts)
+        assert len(parts) == 1
+
+    def test_a_title_without_chapters_waits_a_minute_between_joins(self, monkeypatch, fake_pydub, tmp_path):
+        monkeypatch.setattr(dub_narration, "MIN_JOIN_GAP_SECONDS", 60.0)
+        lines = [Line(idx=i, start=0, end=0, zh=str(i), en=f"Line {i}.", speaker="AB"[i % 2]) for i in range(6)]
+        parts = []
+        self._run(monkeypatch, tmp_path, lines, parts=parts)
+        assert len(parts) == 1
+
+    def test_an_early_join_that_fails_is_tried_again_and_the_run_finishes(self, monkeypatch, fake_pydub, tmp_path):
+        real = dub_narration.replace_file
+        calls = []
+
+        def held_once(src, dst):
+            calls.append(dst)
+            if len(calls) == 1:
+                raise PermissionError(13, "The process cannot access the file")
+            return real(src, dst)
+        monkeypatch.setattr(dub_narration, "replace_file", held_once)
+        parts = []
+        lines = self._chapters(4)
+        out, errors = self._run(monkeypatch, tmp_path, lines, parts=parts)
+        assert errors == [] and os.path.exists(out)
+        # The first try at chapter 1 failed and was made again at the next line's end.
+        assert len(calls) == 5 and len(parts) == 3
+        assert {line_id for line_id, _s, _e, clip in parts[0] if clip} == {100, 101}
+        assert all(ln.dub_filename for ln in lines)
+
+
+    def test_a_final_track_held_open_waits_beside_it_and_a_read_swaps_it_in(
+            self, monkeypatch, fake_pydub, tmp_path):
+        import novel_text
+        track = tmp_path / "narration_track.flac"
+        real = dub_narration.replace_file
+
+        def held(src, dst):
+            if dst == str(track):
+                raise PermissionError(13, "The process cannot access the file")
+            return real(src, dst)
+        monkeypatch.setattr(dub_narration, "replace_file", held)
+        track.write_bytes(b"the part the Reader is playing")
+        os.utime(track, (1, 1))
+        lines = self._chapters(2)
+        out, errors = self._run(monkeypatch, tmp_path, lines, parts=[])
+        assert errors == [] and all(ln.dub_filename for ln in lines)
+        waiting = tmp_path / novel_text.NARRATION_WAITING_NAME
+        made = waiting.read_bytes()
+        assert made != b"the part the Reader is playing"
+        # Still held at the next read: the waiting track is the one served.
+        real_replace = os.replace
+
+        def still_held(src, dst):
+            raise PermissionError(13, "The process cannot access the file")
+        monkeypatch.setattr(novel_text.os, "replace", still_held)
+        assert novel_text.find_narration_track(str(tmp_path)) == novel_text.NARRATION_WAITING_NAME
+        monkeypatch.setattr(novel_text.os, "replace", real_replace)
+        assert novel_text.find_narration_track(str(tmp_path)) == "narration_track.flac"
+        assert track.read_bytes() == made and not waiting.exists()
+
+    @pytest.fixture
+    def logged(self, monkeypatch):
+        import applog
+        seen = []
+        log = types.SimpleNamespace(warning=lambda msg: seen.append(("warning", msg)),
+                                    info=lambda msg: seen.append(("info", msg)))
+        monkeypatch.setattr(applog, "get_logger", lambda: log)
+        # The run's progress lines (pinned in test_dub.py) would probe the fake track and log that
+        # it can't be read; these tests pin only the track-in-use lines.
+        monkeypatch.setattr(dub_narration, "_RunLog", lambda drama_dir: types.SimpleNamespace(
+            started=lambda *a: None, tick=lambda *a: None, finished=lambda *a: None,
+            limit_hit=lambda *a: None))
+        return seen
+
+    def _hold(self, monkeypatch, *held_names):
+        real = dub_narration.replace_file
+
+        def held(src, dst):
+            if os.path.basename(dst) in held_names:
+                raise PermissionError(13, "The process cannot access the file", dst)
+            return real(src, dst)
+        monkeypatch.setattr(dub_narration, "replace_file", held)
+
+    def _work(self, monkeypatch, tmp_path, lines):
+        import queue
+        speak_with(monkeypatch, lambda text, out_path, **kw: open(out_path, "w").close())
+        result_queue = queue.Queue()
+        dub_narration.build_narration_subprocess_worker(lines, str(tmp_path), NARRATORS, result_queue)
+        items = []
+        while not result_queue.empty():
+            items.append(result_queue.get_nowait())
+        return items[-1]
+
+    def test_a_held_final_track_is_logged_and_the_job_says_what_to_do(
+            self, monkeypatch, fake_pydub, tmp_path, logged):
+        from services import jobs_service
+        (tmp_path / "narration_track.flac").write_bytes(b"playing")
+        os.utime(tmp_path / "narration_track.flac", (1, 1))
+        self._hold(monkeypatch, "narration_track.flac")
+        kind, result = self._work(monkeypatch, tmp_path, self._chapters(2))
+        assert kind == "ok" and result["track_waiting"] == dub_narration.TRACK_IN_USE_NOTICE
+        assert logged == [("warning", "narration: the finished track could not replace the old one, which is "
+                           "in use (the Reader may be playing it); it waits as narration_track.next.flac until "
+                           "the old file is free (PermissionError: The process cannot access the file)")]
+        outcome, message = jobs_service.derive_outcome("done", None, jobs_service.project_result(result))
+        assert outcome == "ok" and dub_narration.TRACK_IN_USE_NOTICE in message
+        logged.clear()
+        assert novel_text.find_narration_track(str(tmp_path)) == "narration_track.flac"
+        assert logged == [("info", "narration: the finished track that waited while the old one was in use "
+                           "was swapped in now that the old track is free")]
+
+    def test_a_track_swapped_in_at_once_has_no_note(self, monkeypatch, fake_pydub, tmp_path, logged):
+        kind, result = self._work(monkeypatch, tmp_path, self._chapters(2))
+        assert kind == "ok" and "track_waiting" not in result and logged == []
+
+    def test_a_track_that_cannot_wait_beside_it_either_fails_the_run_saying_what_to_do(
+            self, monkeypatch, fake_pydub, tmp_path, logged):
+        (tmp_path / "narration_track.flac").write_bytes(b"playing")
+        self._hold(monkeypatch, "narration_track.flac", novel_text.NARRATION_WAITING_NAME)
+        kind, name, message, _trace = self._work(monkeypatch, tmp_path, self._chapters(2))
+        assert (kind, name, message) == ("error", "RuntimeError", dub_narration.TRACK_IN_USE_ERROR)
+        assert [level for level, _msg in logged] == ["warning"]
+        assert "could not be saved beside it either, so the run failed" in logged[0][1]
+        assert str(tmp_path) not in logged[0][1]
+        assert (tmp_path / "narration_track.flac").read_bytes() == b"playing"
+
+    def test_a_waiting_track_older_than_the_title_track_is_dropped(self, tmp_path):
+        import novel_text
+        waiting = tmp_path / novel_text.NARRATION_WAITING_NAME
+        waiting.write_bytes(b"older")
+        os.utime(waiting, (1, 1))
+        (tmp_path / "narration_track.flac").write_bytes(b"newer")
+        assert novel_text.find_narration_track(str(tmp_path)) == "narration_track.flac"
+        assert not waiting.exists() and (tmp_path / "narration_track.flac").read_bytes() == b"newer"
+
+
+class TestMakeAgainKeepsTheOldTrack:
+    """A title that already has a track is not given a part of the new one: with its clips cached
+    the part would replace the whole track before anything is spoken."""
+
+    @pytest.fixture(autouse=True)
+    def _every_chapter(self, monkeypatch):
+        monkeypatch.setattr(dub_narration, "JOIN_SPACING", 0)
+        monkeypatch.setattr(dub_narration, "MIN_JOIN_GAP_SECONDS", 0)
+
+    def _lines(self):
+        return [Line(idx=i, start=0, end=0, zh=f"第{i // 2 + 1}章" if i % 2 == 0 else "正文。",
+                     en=f"Chapter {i // 2 + 1}" if i % 2 == 0 else f"Body {i}.", speaker="N")
+                for i in range(6)]
+
+    def test_a_cancel_leaves_the_old_track_whole(self, monkeypatch, fake_pydub, tmp_path):
+        speak_with(monkeypatch, lambda text, out_path, **kw: open(out_path, "w").close())
+        dub_narration.build_narration_track(self._lines(), str(tmp_path), NARRATORS)
+        track = tmp_path / "narration_track.flac"
+        track.write_bytes(b"the whole old track")
+
+        def synth(text, out_path, **kw):
+            if text == "Body 5 changed.":
+                raise _Killed()
+            open(out_path, "w").close()
+        speak_with(monkeypatch, synth)
+        parts = []
+        changed = self._lines()
+        changed[5].en = "Body 5 changed."
+        with pytest.raises(_Killed):
+            dub_narration.build_narration_track(changed, str(tmp_path), NARRATORS, on_partial=parts.append)
+        assert parts == [] and track.read_bytes() == b"the whole old track"
+
+    def test_an_engine_that_fails_keeps_the_old_track(self, monkeypatch, fake_pydub, tmp_path):
+        track = tmp_path / "narration_track.flac"
+        track.write_bytes(b"the whole old track")
+
+        def down(text, out_path, **kw):
+            raise RuntimeError("no engine")
+        speak_with(monkeypatch, down)
+        parts = []
+        with pytest.raises(RuntimeError, match="so the previous track was kept"):
+            dub_narration.build_narration_track(self._lines(), str(tmp_path), NARRATORS, on_partial=parts.append)
+        assert parts == [] and track.read_bytes() == b"the whole old track"
+
+
 # ------------------------------------------------------ paragraphs & M4B
 
 class TestNovelParagraphEnds:

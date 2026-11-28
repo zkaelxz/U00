@@ -15,6 +15,7 @@ import type {
   LiveNameFixes,
   LiveOllamaCheck,
   LiveSessionStart,
+  LiveSessionExtended,
   LiveSessionStarted,
   LiveSessionStatus,
   LiveSessionStopped,
@@ -220,6 +221,20 @@ export const getLive = async (id: string, after: number, f?: Fetch) =>
 export const getLiveChat = async (id: string, after: number, f?: Fetch) =>
   getJson<LiveChatPage>(`${sessionPath(id)}/chat?after=${Math.max(0, Math.floor(after))}`, f)
 export const stopLive = async (id: string, f?: Fetch) => postJson<LiveSessionStopped>(`${sessionPath(id)}/stop`, undefined, f)
+
+/** Moves a running session's time limit 60 minutes later; the session's starter only. */
+export const extendLive = async (id: string, f?: Fetch) =>
+  postJson<LiveSessionExtended>(`${sessionPath(id)}/extend`, undefined, f)
+
+/** Under this many seconds left, the stop bar offers more time. */
+export const EXTEND_OFFER_SECONDS = 600
+
+/** The "Add 60 min" label with the time left, or null when it is not offered. */
+export function extendLabel(s: Partial<Pick<LiveSessionStatus, 'status' | 'time_left_seconds' | 'can_extend'>>): string | null {
+  const left = s.time_left_seconds
+  if (s.status !== 'running' || !s.can_extend || left == null || left >= EXTEND_OFFER_SECONDS) return null
+  return `Add 60 min (${Math.max(1, Math.ceil(left / 60))} min left)`
+}
 
 /** Later lines of the session translate `source` as `english`; the session's starter only. */
 export const fixLiveName = async (id: string, body: LiveNameFixAdd, f?: Fetch) =>

@@ -432,6 +432,7 @@ class LibrarySearchHit(BaseModel):
 
 class LibrarySearchResponse(BaseModel):
     count: int
+    more: bool = False
     items: List[LibrarySearchHit]
 
 

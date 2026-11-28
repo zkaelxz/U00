@@ -889,6 +889,7 @@ class TestTranscribeConfigEndpoints:
             "beam_size": 5, "min_silence_ms": 1000, "vad_threshold": 0.5, "sensitivity_preset": "normal", "effective_vad_threshold": 0.5,
             "hallucination_silence_sec": 0.0, "min_pause_sec": 0.35,
             "separate_vocals_first": False, "separation_backend": "auto",
+            "separate_vocals_chosen": False, "separates_on_breeze_by_default": body["separates_on_breeze_by_default"],
             "realign_long_segments": False, "whisper_fast_mode": False,
             "whisper_repeat_guard": False, "split_by_sentences": False, "difficult_audio": False, "vocabulary_hint": False, "use_groq": False,
             "has_video_source": False, "hardsub_ocr_backend": "auto",

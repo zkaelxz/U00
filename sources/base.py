@@ -148,6 +148,9 @@ class PlainImageDownload:
     #: True for a site that can send an error or block page with a 200: a reply not sent
     #: as an image is refused instead of being saved as a page.
     images_only = False
+    #: True for a site whose file names don't match their bytes (JPEG under .webp names): the
+    #: importer re-encodes an extension it doesn't keep as is, so the bytes name the file.
+    name_by_bytes = False
     client: SourceClient
 
     def download_page(self, page):
@@ -161,7 +164,21 @@ class PlainImageDownload:
                                   FailureReason.HTTP_ERROR)
         name = urlsplit(page.url).path.rsplit("/", 1)[-1]
         ext = "." + name.rsplit(".", 1)[-1].lower() if "." in name else self.default_page_ext
-        return resp.content, ext
+        return resp.content, (self.name_by_bytes and _extension_from_bytes(resp.content)) or ext
+
+
+_JPEG_MAGIC = bytes.fromhex("ffd8ff")
+_PNG_MAGIC = bytes.fromhex("89504e470d0a1a0a")
+
+
+def _extension_from_bytes(content: bytes) -> str:
+    if content.startswith(_JPEG_MAGIC):
+        return ".jpg"
+    if content.startswith(_PNG_MAGIC):
+        return ".png"
+    if content[:4] == b"RIFF" and content[8:12] == b"WEBP":
+        return ".webp"
+    return ""
 
 
 class SourceAdapter:

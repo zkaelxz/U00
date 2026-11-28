@@ -17,7 +17,7 @@ row (SETTINGS), kept as JSON on the series (series.default_settings).
 Only the keys in SETTINGS are ever stored or written: they become SQL
 column names in db.update_drama / db.apply_series_settings. No secret is a
 setting: engine keys stay in Settings. A title setting whose own write needs
-engines.paid (use_groq, translate_thinking) is never a default: defaults are
+engines.paid (use_groq) is never a default: defaults are
 set with lines.edit and copied to every title. translation_engine is a
 default even so: choosing an engine spends nothing, and every run checks the
 engine it actually uses (api.auth.require_engines_allowed; a missing engine

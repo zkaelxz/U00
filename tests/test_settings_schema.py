@@ -24,6 +24,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 STATE_KEYS = {
     "auto_backup.state": "run bookkeeping for auto_backup_service, rewritten on every run",
     "auto_backup.identity": "library identity, copied across a restore by library_restore_service",
+    "auto_backup.same_drive_note_dismissed": "the owner closed the one-time note that backups share the library's drive (auto_backup_settings.py)",
     "jellyfin": "Jellyfin card document; its API key is in .env (BAIHE_JELLYFIN_API_KEY)",
     "job_queue": "the Jobs page queue document (services/queue_service.py), edited on that page",
     "nightly_check": "the nightly self-check's last night and failed-night counts (services/queue_night.py)",
@@ -32,7 +33,11 @@ STATE_KEYS = {
     "quick_video.profile_id": "the profile Quick video translate uses, chosen in Settings (services/quick_video_service.py)",
     "quick_video.runs": "recent Quick video translate runs and the watch-once titles to remove (services/quick_video_service.py)",
     "backfills.per_line_confidence": "marker that the one-time line-score rescoring has run (services/confidence_backfill_service.py), never shown",
+    "migrations.local_ollama_models_cleared": "marker that the one-time clearing of saved local Ollama models has run (services/local_model_cleanup_service.py), never shown",
     "app_update.before": "the library's tables and newest backup when the last app update started (app_update_service), rewritten by each update",
+    "update.app_first_verified": "version, name, SHA-256 and first-verified time of the app update download, so a restart doesn't restart its day's wait (app_update_service)",
+    "update.installer_first_verified": "the same for the full installer download (update_service)",
+    "update.last_check_failed": "whether the last update check failed, so the next app start checks again (update_service)",
     "source_update.pending": "the update-and-restart in flight (source_update_service), cleared by the next boot",
     "source_update.last_result": "the last update-and-restart's outcome sentence, rewritten on every update",
     "resource_alert_state": "which resource alerts are active and when each last notified (services/resource_monitor_service.py), rewritten as they change",
@@ -51,6 +56,8 @@ DYNAMIC_KEYS = {
         "the PC's quick_video.profile_id, or the account's own",
     ("services/benchmark_sweep_core.py", "self.key"):
         "a sweep's record; its callers' keys are checked by test_sweep_record_keys_are_declared",
+    ("services/update_service.py", "key"):
+        "_forget_stale_first_verified: update.installer_first_verified or update.app_first_verified",
     ("jobs/job_settings.py", "key"):
         "the _setting helper's own read; its callers are checked by test_background_jobs_setting_calls_are_declared",
     ("services/settings_service.py", "settings_schema.BY_KEY[key].store_key"):

@@ -7,8 +7,11 @@ import contextlib
 import contextvars
 import getpass
 import importlib.metadata
+import ipaddress
 import os
+import platform
 import re
+from urllib.parse import urlsplit
 
 import diagnostics
 import diarize
@@ -208,10 +211,12 @@ def check_engine_reachable(engine_name: str, api_key: str | None = None, model: 
 _PATH_CHARS = r'[^\s\\/:*?"<>|]'
 _PATH_WORD = (rf'(?!{_PATH_CHARS}*(?:\.[A-Za-z0-9]{{1,5}}|[,;])(?:\s|$))'
               rf'{_PATH_CHARS}+')
+_PATH_LAST = (rf'((?:{_PATH_WORD}(?: {_PATH_WORD}){{0,4}} '
+              rf'{_PATH_CHARS}+\.[A-Za-z0-9]{{1,5}}(?![A-Za-z0-9])|{_PATH_CHARS}+))')
 PATH_PATTERN = re.compile(
-    rf'(?:[A-Za-z]:)?[\\/]+(?:{_PATH_CHARS}+(?: {_PATH_CHARS}+)*[\\/]+)+'
-    rf'((?:{_PATH_WORD}(?: {_PATH_WORD}){{0,4}} '
-    rf'{_PATH_CHARS}+\.[A-Za-z0-9]{{1,5}}(?![A-Za-z0-9])|{_PATH_CHARS}+))')
+    rf'(?:[A-Za-z]:)?[\\/]+(?:{_PATH_CHARS}+(?: {_PATH_CHARS}+)*[\\/]+)+' + _PATH_LAST)
+# A path redact_for_support already cut to its last part (the support report).
+_CUT_PATH = re.compile(r'\.\.\./' + _PATH_LAST)
 
 # ANSI escape sequences (CSI: colours, cursor moves), e.g. yt-dlp's
 # "\x1b[0;31mERROR:\x1b[0m" -- unreadable noise in a report or log view.
@@ -306,6 +311,119 @@ def redact_for_support(text) -> str:
         text = re.sub(_SEGMENT_BEFORE + re.escape(name) + _SEGMENT_AFTER, "[USER]", text,
                       flags=re.IGNORECASE)
     return text
+
+
+# Only for the Send logs bundle, which carries whole log files (third-party
+# warnings included) rather than the error lines the rest of Diagnostics shows:
+# those can hold sign-in traffic (cookie headers, a password typed into a
+# source's sign-in form, a session JWT), account emails, title names in source
+# links and addresses on the home network. Kept out of redact_for_support so
+# job messages and install output shown elsewhere don't change.
+#
+# Any scheme, and anything up to whitespace or a quote: a "]" or ")" inside a
+# query must not end the match and leave the rest of the query behind.
+_BUNDLE_URL = re.compile(r"(?i)\b[a-z][a-z0-9+.-]{1,15}://[^\s\"'<>`]+")
+_LAN_NAME = re.compile(r"(?i)^(?:localhost|.+\.(?:local|lan|home|internal|ts\.net|home\.arpa|localdomain|fritz\.box))$")
+# A request path written without its scheme and host, as urllib3 does in
+# "Max retries exceeded with url: /book/<slug>?page=2": the path is a title's
+# slug as often as not, and the query its search words.
+_BARE_REQUEST_PATH = re.compile(r"(?i)(\burl:\s*)[^\s\"'<>`]+|(?<![\w/.:~])/[^\s\"'<>`/]+(?:/[^\s\"'<>`/]*)*\?[^\s\"'<>`]*")
+# Any query string left over ("login?password=...&next=..."): its values are what was asked for.
+_BARE_QUERY = re.compile(r"\?[\w.%\[\]-]+=[^\s\"'<>`]*")
+# host='nas' in a connection-pool error: a name with no dot is a PC on the network.
+_DOTLESS_HOST_ARG = re.compile(r"(?i)(\bhost=['\"]?)([a-z0-9-]+)(?=['\"]?[,)\s])")
+# The same private hosts written without a scheme ("172.20.9.5:11434", "nas.local").
+_LAN_IN_TEXT = re.compile(
+    r"(?i)(?<![\w.])(?:10\.\d{1,3}\.\d{1,3}\.\d{1,3}|192\.168\.\d{1,3}\.\d{1,3}"
+    r"|172\.(?:1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}|169\.254\.\d{1,3}\.\d{1,3}"
+    r"|100\.(?:6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.\d{1,3}\.\d{1,3}"
+    r"|[a-z0-9-]+(?:\.[a-z0-9-]+)*\.(?:local|lan|home|internal|ts\.net|home\.arpa|localdomain|fritz\.box))(?![\w.])")
+_BUNDLE_PATTERNS = [
+    (re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}"), "[EMAIL]"),
+    (re.compile(r"(?i)((?:set-)?cookie[\"']?\s*[:=]\s*)[^\r\n]*"), r"\1[REDACTED]"),
+    (re.compile(r"(?i)(passw(?:or)?d[\"']?\s*[:=]\s*[\"']?)[^\s\"',;}&]+"), r"\1[REDACTED]"),
+    (re.compile(r"(?i)(\bbearer\s+)[A-Za-z0-9_\-.=+/]{8,}"), r"\1[REDACTED]"),
+    (re.compile(r"\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]*"), "[REDACTED]"),
+]
+
+
+def _non_global_ip(host: str) -> bool:
+    try:
+        return not ipaddress.ip_address(host).is_global
+    except ValueError:
+        return False
+
+
+def _url_host_only(m) -> str:
+    try:
+        parts = urlsplit(m.group(0))
+        host = parts.hostname or ""
+    except ValueError:
+        return "[URL]"
+    if not host:
+        return "[URL]"
+    if "." not in host or _LAN_NAME.match(host) or _non_global_ip(host):
+        return "[LAN]"
+    return f"{parts.scheme.lower()}://{host}"
+
+
+def _terms_pattern(terms, min_length: int):
+    """One case-insensitive alternation, longest first so a title that
+    contains another is replaced whole. An ASCII letter or digit at either
+    end must not touch another one, so a short title doesn't eat the middle
+    of a word."""
+    words = sorted({t.strip() for t in terms if t and len(t.strip()) >= min_length},
+                   key=len, reverse=True)
+    if not words:
+        return None
+    parts = [(r"(?<![A-Za-z0-9])" if w[0].isascii() and w[0].isalnum() else "")
+             + re.escape(w)
+             + (r"(?![A-Za-z0-9])" if w[-1].isascii() and w[-1].isalnum() else "")
+             for w in words]
+    return re.compile("|".join(parts), re.IGNORECASE)
+
+
+def _path_extension(name: str) -> str:
+    m = re.search(r"\.[A-Za-z0-9]{1,5}$", name)
+    return m.group(0) if m else ""
+
+
+def bundle_redactor(titles=(), secrets=(), hosts=()):
+    """The Send logs scrubber: every URL cut to scheme and host (a private
+    host to [LAN]), the exact configured secret values, the library's titles
+    ([TITLE]), the configured endpoints' hosts ([LAN]), emails, cookie
+    headers, passwords, bearer tokens and JWTs, every path down to [PATH] and
+    its extension, then redact_for_support. URLs go first, while nothing has
+    put a placeholder in one yet; emails before redact_for_support, so an
+    email's user name is gone before account names become [USER] inside it."""
+    secret_re = _terms_pattern(secrets, 8)
+    title_re = _terms_pattern(titles, 2)
+    pc_re = _terms_pattern([platform.node()], 2)
+    host_re = _terms_pattern(hosts, 2)
+
+    def redact(text) -> str:
+        text = _ANSI_PATTERN.sub("", "" if text is None else str(text))
+        text = _BUNDLE_URL.sub(_url_host_only, text)
+        text = _BARE_REQUEST_PATH.sub(lambda m: (m.group(1) or "") + "[PATH]", text)
+        text = _BARE_QUERY.sub("?[QUERY]", text)
+        text = _DOTLESS_HOST_ARG.sub(lambda m: m.group(1) + "[LAN]", text)
+        if pc_re:
+            text = pc_re.sub("[PC]", text)
+        if secret_re:
+            text = secret_re.sub("[REDACTED]", text)
+        if title_re:
+            text = title_re.sub("[TITLE]", text)
+        if host_re:
+            text = host_re.sub("[LAN]", text)
+        text = _LAN_IN_TEXT.sub("[LAN]", text)
+        for pattern, repl in _BUNDLE_PATTERNS:
+            text = pattern.sub(repl, text)
+        # redact_for_support keeps a path's last part, which here is a media
+        # file or a title's folder; the extension alone still tells what failed.
+        text = PATH_PATTERN.sub(lambda m: "[PATH]" + _path_extension(m.group(1)), text)
+        text = _CUT_PATH.sub(lambda m: "[PATH]" + _path_extension(m.group(1)), text)
+        return redact_for_support(text)
+    return redact
 
 
 def format_diagnostics_report(results: dict, hf_cache: list | None = None,
