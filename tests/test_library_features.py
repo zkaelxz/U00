@@ -25,7 +25,7 @@ from engine_backends import engine_registry
 from core import Line
 
 
-pytestmark = pytest.mark.usefixtures("local_ollama_default")
+pytestmark = pytest.mark.usefixtures("isolated_db")
 
 
 class TestTimeEstimates:

@@ -7,6 +7,7 @@ send code and logs, and the escalation ladder of engines. UI-free.
 import re
 
 import db
+import stored_settings
 from engine_backends import echo
 from lib.errors import ConflictError, InvalidInputError
 
@@ -136,6 +137,7 @@ def get_settings() -> dict:
         "tiers": tier_ladder(choices),
         "engine_keys": {c: _key_set(c) for c in choices},
         "developer_mode": developer_mode_enabled(),
+        "quick_read_keep_pages": stored_settings.read("quick_read_keep_pages") is True,
         "engine": engine if engine in choices else None,
         "model": model if isinstance(model, str) and model else None,
         "engine_choices": choices,
@@ -176,7 +178,7 @@ def set_settings(updates: dict) -> dict:
         raise InvalidInputError("Settings must be an object.")
     cleaned = {}
     for key, value in updates.items():
-        if key in ("developer_mode", "roles_enabled"):
+        if key in ("developer_mode", "roles_enabled", "quick_read_keep_pages"):
             if not isinstance(value, bool):
                 raise InvalidInputError(f"{key} must be true or false.")
             cleaned[key] = value
@@ -213,6 +215,9 @@ def set_settings(updates: dict) -> dict:
     for eng, mod in (("engine", "model"), ("review_engine", "review_model")):
         if eng in cleaned and mod not in cleaned and cleaned[eng] != current[eng]:
             cleaned[mod] = None  # a model belongs to its engine
+    if "quick_read_keep_pages" in cleaned:
+        # Its schema row predates this card and is stored without the assistant prefix.
+        db.set_app_setting("quick_read_keep_pages", cleaned.pop("quick_read_keep_pages"))
     for key, value in cleaned.items():
         db.set_app_setting(_SETTINGS_PREFIX + key, value)
     echo.set_enabled(developer_mode_enabled())

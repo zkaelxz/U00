@@ -281,6 +281,18 @@ export function orderedLines(regions: ComicRegion[]): { idx: number; text: strin
     .filter((l) => l.text)
 }
 
+// A screen reader reads an alt in one go; a long strip's text past this is still in the page's text panel.
+export const PAGE_ALT_MAX = 4000
+
+/** The picture's description: its number, then its lines in reading order (null: the text is not loaded). */
+export function pageAlt(number: number, regions: { regions: ComicRegion[] } | null): string {
+  if (!regions) return `Page ${number}`
+  const text = orderedLines(regions.regions).map((l) => l.text).join(' ')
+  if (!text) return `Page ${number}, no text`
+  const alt = `Page ${number}: ${text}`
+  return alt.length > PAGE_ALT_MAX ? `${alt.slice(0, PAGE_ALT_MAX - 1).trimEnd()}…` : alt
+}
+
 // ---- Zoom: transform = translate(x, y) scale(scale), origin top left ----
 
 export interface Zoom {
