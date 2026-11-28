@@ -67,6 +67,7 @@ const KIND_BADGE: Record<NotificationKind, { tone: BadgeTone; label: string }> =
   resource: { tone: 'warn', label: 'This PC' },
   live: { tone: 'accent', label: 'Live' },
   waiting: { tone: 'warn', label: 'Waiting' },
+  device_token: { tone: 'warn', label: 'Key ending' },
 }
 
 const isId = (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v) && v > 0
@@ -93,6 +94,7 @@ export function kindLink(kind: string): { href: string; title: string } | null {
   if (kind === 'job_failed' || kind === 'job_done' || kind === 'waiting') return { href: routeHref({ name: 'jobs' }), title: 'Open the Jobs page' }
   if (kind === 'chapters') return { href: routeHref({ name: 'updates' }), title: 'Open Updates' }
   if (kind === 'live') return { href: routeHref({ name: 'live' }), title: 'Open Live' }
+  if (kind === 'device_token') return { href: routeHref({ name: 'settings', card: 'extension-devices' }), title: 'Open Remote access keys in Settings' }
   return null
 }
 

@@ -25671,7 +25671,7 @@ export interface components {
              * Kind
              * @enum {string}
              */
-            kind: "job_done" | "job_failed" | "chapters" | "remote" | "resource" | "live" | "waiting";
+            kind: "job_done" | "job_failed" | "chapters" | "remote" | "resource" | "live" | "waiting" | "device_token";
             /** Starts At */
             starts_at: number | null;
             target: components["schemas"]["NotificationTarget"] | null;
