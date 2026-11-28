@@ -16,7 +16,7 @@ export function SideNav({ route, context }: { route: Route; context: NavContext 
   const docked = mode !== 'float'
   const minimized = mode === 'minimized'
   const position = useNavPosition()
-  // Only the vertical docked menu reads as a list of words; a bar, a pill and the minimized rail keep their icons.
+  // Only the vertical docked menu is a list of labelled rows (each with its icon); a bar, a pill and the minimized rail show icons alone until opened.
   const listed = docked && !minimized && (position === 'left' || position === 'right')
   const [open, setOpen] = useState(false)
   const asideRef = useRef<HTMLElement>(null)

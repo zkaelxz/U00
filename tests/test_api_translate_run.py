@@ -238,3 +238,17 @@ def test_run_passes_own_lines_only_with_the_chosen_lines(local_client, monkeypat
     seen.clear()
     local_client.post(f"{BASE}/{did}/run", json={"engine": "fake"})
     assert seen["own_lines_only"] is False
+
+
+@pytest.mark.parametrize("holds_paid", [True, False])
+def test_the_balance_warning_needs_paid_engine_permission(local_client, monkeypatch, holds_paid):
+    from api.routers import translate_run_routes
+    from services import translate_run_options
+    asked = []
+    monkeypatch.setattr(translate_run_options, "balance_too_low", lambda *a: asked.append(a) or True)
+    monkeypatch.setattr(translate_run_routes, "holds_paid_engines", lambda request: holds_paid)
+    did = _seed()
+    r = local_client.get(f"{BASE}/{did}/estimate", params={"engine": "deepseek"})
+    assert r.status_code == 200, r.text
+    assert r.json()["balance_too_low"] is holds_paid
+    assert bool(asked) is holds_paid

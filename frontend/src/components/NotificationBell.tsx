@@ -17,8 +17,10 @@
 import { useCallback, useEffect, useId, useRef, useState } from 'react'
 
 import { ApiError } from '../api/client'
+import { describeError } from './errorMessages'
 import { announceLiveStarted, describeFollowError, startFromFollow } from '../api/liveFollows'
 import { listNotifications } from '../api/notifications'
+import { retryInterruptedQueueItems } from '../api/queue'
 import { plainJobText } from '../pages/diagnosticsFormat'
 import { routeHref } from '../router'
 import { useEventStream } from '../hooks/useEventStream'
@@ -39,6 +41,7 @@ import {
   shortAgo,
   startsAtText,
   kindLink,
+  retriedText,
   targetLink,
   unreadCount,
   writeSeen,
@@ -88,6 +91,39 @@ function StartLiveAction({ followId }: { followId: number }) {
   )
 }
 
+// After a restart: the interrupted queue items back to waiting, through the queue's own Retry (the
+// server leaves an item that may use a paid engine unless this account may use one).
+function RetryQueueAction() {
+  const [busy, setBusy] = useState(false)
+  const [note, setNote] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const run = async () => {
+    setBusy(true)
+    setError(null)
+    try {
+      setNote(retriedText(await retryInterruptedQueueItems()))
+    } catch (err) {
+      const { title, detail } = describeError(err, { serverText: true })
+      setError(detail ? `${title} ${detail}` : title)
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <div className="notify-action">
+      {note === null && (
+        <button type="button" className="btn btn-secondary btn-sm" disabled={busy}
+          title="Put the queue items the restart stopped back in the queue and start it."
+          onClick={() => void run()}>
+          {busy ? 'Starting…' : 'Run them again'}
+        </button>
+      )}
+      {note && <p className="notify-text" role="status">{note}</p>}
+      {error && <p className="error notify-text" role="alert">{error}</p>}
+    </div>
+  )
+}
+
 // One entry of the panel. A waiting entry's Open link is built here from its
 // typed target: the server never sends a link.
 export function NotificationRow({ item, isNew, onOpen }: { item: NotificationItem; isNew: boolean; onOpen?: () => void }) {
@@ -105,6 +141,7 @@ export function NotificationRow({ item, isNew, onOpen }: { item: NotificationIte
       <p className="notify-text">{plainJobText(item.text)}</p>
       {startsAtText(item.starts_at) && <p className="notify-text">{startsAtText(item.starts_at)}</p>}
       {item.action === 'start_live' && typeof item.follow_id === 'number' && <StartLiveAction followId={item.follow_id} />}
+      {item.action === 'retry_queue' && <RetryQueueAction />}
       {open && (
         <div className="notify-action">
           <ButtonLink size="sm" href={open.href} title={open.title} onClick={onOpen}>

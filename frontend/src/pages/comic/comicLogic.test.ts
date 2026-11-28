@@ -17,6 +17,8 @@ import {
   savedComicPrefs,
   NO_ZOOM,
   orderedLines,
+  PAGE_ALT_MAX,
+  pageAlt,
   inRenderWindow,
   preloadWindow,
   regionBox,
@@ -173,6 +175,18 @@ describe('text overlay', () => {
       [0, '零'],
       [2, 'Two'],
     ])
+  })
+
+  it("describes a page's picture with its lines in the text panel's order", () => {
+    const r = (idx: number, translated_text: string, source_text = '') => ({ idx, x: 0, y: 0, w: 1, h: 1, translated_text, source_text, kind: 'bubble' })
+    const regions = [r(2, 'Run!'), r(0, 'Where are we?'), r(1, '  ')]
+    expect(pageAlt(12, { regions })).toBe('Page 12: Where are we? Run!')
+    expect(pageAlt(12, { regions })).toBe(`Page 12: ${orderedLines(regions).map((l) => l.text).join(' ')}`)
+    expect(pageAlt(3, { regions: [] })).toBe('Page 3, no text')
+    expect(pageAlt(3, null)).toBe('Page 3')
+    const long = pageAlt(1, { regions: [r(0, 'word '.repeat(2000))] })
+    expect(long.length).toBeLessThanOrEqual(PAGE_ALT_MAX)
+    expect(long.endsWith('…')).toBe(true)
   })
 })
 

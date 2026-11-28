@@ -67,6 +67,7 @@ const KIND_BADGE: Record<NotificationKind, { tone: BadgeTone; label: string }> =
   resource: { tone: 'warn', label: 'This PC' },
   live: { tone: 'accent', label: 'Live' },
   waiting: { tone: 'warn', label: 'Waiting' },
+  device_token: { tone: 'warn', label: 'Key ending' },
 }
 
 const isId = (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v) && v > 0
@@ -93,6 +94,7 @@ export function kindLink(kind: string): { href: string; title: string } | null {
   if (kind === 'job_failed' || kind === 'job_done' || kind === 'waiting') return { href: routeHref({ name: 'jobs' }), title: 'Open the Jobs page' }
   if (kind === 'chapters') return { href: routeHref({ name: 'updates' }), title: 'Open Updates' }
   if (kind === 'live') return { href: routeHref({ name: 'live' }), title: 'Open Live' }
+  if (kind === 'device_token') return { href: routeHref({ name: 'settings', card: 'extension-devices' }), title: 'Open Remote access keys in Settings' }
   return null
 }
 
@@ -100,6 +102,19 @@ export function kindLink(kind: string): { href: string; title: string } | null {
 export function startsAtText(startsAt: number | null | undefined): string | null {
   if (typeof startsAt !== 'number' || !Number.isFinite(startsAt)) return null
   return `Starts at ${new Date(startsAt * 1000).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}`
+}
+
+/** What "Run them again" did, in one sentence. */
+export function retriedText(r: { retried: number; skipped_paid: number; skipped_stale: number; started: boolean }): string {
+  const plural = (n: number) => (n === 1 ? '1 item' : `${n} items`)
+  const parts = [r.retried === 0 ? 'Nothing was put back in the queue.' : `${plural(r.retried)} put back in the queue${r.started ? ', and the queue started.' : '. Start the queue on the Jobs page.'}`]
+  if (r.skipped_paid > 0) parts.push(r.skipped_paid === 1
+    ? "1 item left as it was: it may use a paid engine your account can't use."
+    : `${r.skipped_paid} items left as they were: they may use a paid engine your account can't use.`)
+  if (r.skipped_stale > 0) parts.push(r.skipped_stale === 1
+    ? '1 item left as it was: its saved settings no longer apply. Press Retry on it in the queue to see why.'
+    : `${r.skipped_stale} items left as they were: their saved settings no longer apply. Press Retry on them in the queue to see why.`)
+  return parts.join(' ')
 }
 
 export function kindBadge(kind: string): { tone: BadgeTone; label: string } {

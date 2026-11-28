@@ -332,7 +332,7 @@ def _wrap_process_hooks(target, on_done, cpu_retry_args, start_method, owner_use
 def start_process_job(job_id: str, target, args: tuple = (), gpu_touching: bool = False,
                       description: str | None = None, on_done=None, on_finish=None,
                       kill_whole_tree: bool = False, start_method: str | None = None, run_settings: dict | None = None,
-                      initial_result=None, line_fields=None, cpu_retry_args=None) -> bool:
+                      initial_result=None, line_fields=None, cpu_retry_args=None, on_partial=None) -> bool:
     """
     Like start_job(), but runs target in a real OS subprocess
     (multiprocessing.Process) instead of a thread -- the first
@@ -400,8 +400,8 @@ def start_process_job(job_id: str, target, args: tuple = (), gpu_touching: bool 
     args must pickle and target's module is imported fresh in the child.
 
     initial_result: the result shown while queued or running; on_done's
-    return or the subprocess's result replaces it. line_fields: as
-    start_job's; it limits what on_done writes.
+    return or the subprocess's result replaces it. line_fields: as start_job's; it limits what
+    on_done and on_partial write (on_partial: job_runner._apply_partial, work done so far).
 
     on_done/on_finish/kill_whole_tree/start_method/cpu_retry_args (one CPU run after a native
     crash: jobs/crash_retry.py) are carried through the GPU queue like target/args. Records its
@@ -418,7 +418,7 @@ def start_process_job(job_id: str, target, args: tuple = (), gpu_touching: bool 
             return False
         if status == "queued":
             _jobs[job_id] = _new_entry(status, "process", gpu_touching, description, owner_user_id,
-                                       run_settings, result=initial_result, process=None,
+                                       run_settings, result=initial_result, process=None, on_partial=on_partial,
                                        line_fields=line_fields, daily_day=counted_day, origin_device=origin_device)
             _new_run_locked(job_id)
             _enqueue_locked({"job_id": job_id, "target": target, "args": args,
@@ -433,7 +433,7 @@ def start_process_job(job_id: str, target, args: tuple = (), gpu_touching: bool 
                                                        description, owner_user_id,
                                                        start_method=start_method,
                                                        run_settings=run_settings,
-                                                       initial_result=initial_result,
+                                                       initial_result=initial_result, on_partial=on_partial,
                                                        line_fields=line_fields, daily_day=counted_day, origin_device=origin_device)
         except Exception:
             # mp.Queue()/Process() failed after the slot was taken; no run exists to free it.

@@ -269,6 +269,35 @@ class TestTitleMemory:
                                                   cast=cast)
         assert "Mira: she" in prompts[1]
 
+    def test_pages_side_by_side_ask_for_no_summary_but_still_for_names(self, monkeypatch):
+        prompts = []
+        self._reply(monkeypatch, [{"translations": {"0": "Mira!"}, "names": {"ミラ": "Mira"}},
+                                  {"translations": {"0": "Mira!"}, "context_summary": "x"},
+                                  {"translations": {"0": "Mira!"}}], prompts)
+        page_turns.translate_in_chain(None, "side", [_bubble("ミラ！")], _Engine(),
+                                      {"source_language": "ja"}, None, None, wait_for_turn=False)
+        assert "context_summary" not in prompts[0] and '"names"' in prompts[0]
+        assert page_turns.title_memory(None, "side")["names"] == {"ミラ": "Mira"}
+        # A saved title's pages translate in turn and still carry the summary to the next page.
+        page_turns.translate_in_chain(None, "saved", [_bubble("ミラ！")], _Engine(),
+                                      {"source_language": "ja"}, None, None)
+        assert "context_summary" in prompts[1]
+        assert page_turns._contexts[page_turns._chain_key(None, "saved")] == "x"
+        # A capture with no title has no chain to carry a summary to.
+        page_turns.translate_in_chain(None, "", [_bubble("ミラ！")], _Engine(),
+                                      {"source_language": "ja"}, None, None)
+        assert "context_summary" not in prompts[2]
+
+    def test_a_side_by_side_page_asks_its_leak_recheck_for_no_summary_either(self, monkeypatch):
+        prompts = []
+        self._reply(monkeypatch, [{"translations": {"0": "ミラ!"}},
+                                  {"translations": {"0": "Mira!"}}], prompts)
+        bubbles = [_bubble("ミラ！")]
+        page_turns.translate_in_chain(None, "side", bubbles, _Engine(),
+                                      {"source_language": "ja"}, None, None, wait_for_turn=False)
+        assert len(prompts) == 2 and "context_summary" not in prompts[1]
+        assert bubbles[0]["translated_text"] == "Mira!"
+
     def test_a_tied_pronoun_is_not_sent(self):
         assert scanlate_translate.settled_pronouns({"Ren": {"she": 1, "he": 1},
                                                     "Mira": {"she": 2, "he": 1}}) == {"Mira": "she"}
@@ -412,3 +441,26 @@ class TestEnglishOnlyAnswers:
         bubbles = [_bubble("予告犯は誰？")]
         scanlate_translate.translate_page_bubbles(bubbles, _LLM(), {"source_language": "ja"})
         assert bubbles[0]["translated_text"] == "Who is the Notice Criminal?"
+
+
+class TestMarksOnlyRegions:
+    @pytest.mark.parametrize("source, english", [
+        ("……", "..."), ("？！", "?!"), ("!?", "!?"), ("・・・", "..."), ("〜", "~"), ("♡", "♡"),
+        ("——", "..."), ("あ…", None), ("100", None), ("ㅋㅋ", None), ("ーー", None),
+        ("\u200b", None), ("\u200b……\u200b", "...")])
+    def test_only_punctuation_and_symbols_are_answered_on_the_pc(self, source, english):
+        assert scanlate_translate.marks_only_english(source) == english
+
+    def test_marks_are_answered_without_the_model_and_the_rest_still_go(self, monkeypatch):
+        prompts = TestEnglishOnlyAnswers()._llm(monkeypatch, [{"0": "Wait!"}])
+        bubbles = [_bubble("……"), _bubble("待って！"), _bubble("？！")]
+        scanlate_translate.translate_page_bubbles(bubbles, _LLM(), {"source_language": "ja"})
+        assert [b["translated_text"] for b in bubbles] == ["...", "Wait!", "?!"]
+        assert len(prompts) == 1 and "……" not in prompts[0] and "待って" in prompts[0]
+
+    def test_a_page_of_only_marks_makes_no_call(self, monkeypatch):
+        prompts = TestEnglishOnlyAnswers()._llm(monkeypatch, [])
+        bubbles = [_bubble("……"), _bubble("！")]
+        assert scanlate_translate.translate_page_bubbles(
+            bubbles, _LLM(), {"source_language": "ja"}, previous_context="ctx") == "ctx"
+        assert prompts == [] and [b["translated_text"] for b in bubbles] == ["...", "!"]

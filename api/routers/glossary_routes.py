@@ -32,8 +32,7 @@ from api.schemas import (AddressTerms, AddressTermsSaveRequest, AddressTermsSave
                          GlossaryCatalogues, GlossaryDismissals, GlossaryDismissRequest,
                          GlossaryDismissResult, GlossaryImportRequest,
                          GlossaryImportResult, GlossaryInstructions, GlossaryInstructionsUpdate, InstructionsDraft,
-                         GlossaryInbox, GlossaryInboxAccept, GlossaryInboxReject, GlossaryInboxRestore, GlossaryNameClusters, GlossaryVariants, NameFixPreview, NameFixRequest,
-                         NameFixResult,
+                         GlossaryInbox, GlossaryInboxAccept, GlossaryInboxReject, GlossaryInboxRestore, GlossaryNameClusters, GlossaryVariants,
                          NameConsistency, NameReportMarkRequest, NameReportMarkResult,
                          NameReportCancelRequest, NameReportRunResult, NameReportStatus,
                          SpellingSuggestRequest, SpellingSuggestRunResult,
@@ -43,7 +42,7 @@ from api.schemas import (AddressTerms, AddressTermsSaveRequest, AddressTermsSave
                          ChaptersGlossaryRunResult, LinesGlossaryRunResult, NovelGlossaryApplyResult, NovelGlossaryRunResult,
                          NovelGlossaryStatus, WordReplacement, WordReplacementDeleteResult,
                          WordReplacementWrite, error_responses)
-from services import (address_terms_service, word_replacement_service, export_service, glossary_name_report_service, glossary_service, name_fix_service,
+from services import (address_terms_service, word_replacement_service, export_service, glossary_name_report_service, glossary_service,
                       glossary_inbox_service, glossary_spelling_service, glossary_variants_service)
 from lib.errors import ForbiddenError, InvalidInputError
 
@@ -182,22 +181,6 @@ def get_address_terms(drama_id: int = Path(ge=1)):
              responses=error_responses(404, 422))
 def post_address_terms(payload: AddressTermsSaveRequest, drama_id: int = Path(ge=1)):
     return address_terms_service.save_address_terms(drama_id, [c.model_dump() for c in payload.terms])
-
-
-@router.get("/dramas/{drama_id}/name-fixes", dependencies=[require_permission("lines.read")],
-            response_model=NameFixPreview,
-            summary="Sound-alike spellings of glossary names that could be fixed (read-only, offline)",
-            responses=error_responses(404))
-def get_name_fixes(drama_id: int = Path(ge=1)):
-    return name_fix_service.preview(drama_id)
-
-
-@router.post("/dramas/{drama_id}/name-fixes", dependencies=[require_permission("lines.edit")],
-             response_model=NameFixResult,
-             summary="Confirm spellings: save them as aliases and rewrite the title's source lines",
-             responses=error_responses(404, 422))
-def apply_name_fixes(body: NameFixRequest, drama_id: int = Path(ge=1)):
-    return name_fix_service.apply_fixes(drama_id, [f.model_dump() for f in body.fixes])
 
 
 @router.get("/dramas/{drama_id}/name-clusters", dependencies=[require_permission("lines.read")],

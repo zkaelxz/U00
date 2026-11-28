@@ -816,6 +816,22 @@ class TestWarmStart:
         assert "private video" in background_jobs.get_status("live_bad_link")["error"]
         assert captured == []
 
+    def test_the_capture_is_settled_only_once_a_chunk_is_captioned(self, job, monkeypatch):
+        stream, start, notes = job
+        settled = []
+
+        class Proc(FakeProc):
+            def settle(self):
+                settled.append(1)
+        monkeypatch.setattr(lt, "start_segment_capture", lambda *a, **k: Proc())
+        monkeypatch.setattr(whisper_transcribe, "transcribe_for_timing",
+                            lambda p, **kw: [{"start": 0.5, "end": 1.0, "text": "t"}])
+        assert start("live_settle", Engine())
+        time.sleep(0.2)  # several idle passes with no chunk
+        assert settled == []
+        stream.add(2)
+        assert _wait(lambda: settled)
+
     def test_a_failed_warm_up_does_not_stop_the_job(self, job, monkeypatch):
         stream, start, notes = job
 

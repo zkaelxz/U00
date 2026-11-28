@@ -63,3 +63,62 @@ def test_render_text_in_box_uses_the_rectangle_only_when_asked():
     ink = np.argwhere(rect.min(axis=2) < 128)
     assert ink[:, 0].min() >= top and ink[:, 0].max() < bottom
     assert ink[:, 1].min() >= left and ink[:, 1].max() < right
+
+
+# -- balanced lines ---------------------------------------------------------
+
+def _first_fit(draw, text, font, avail):
+    lines, cur = [], ""
+    for word in text.split():
+        trial = f"{cur} {word}".strip()
+        if cur and scanlate_text_layout._ink_width(draw, trial, font) > avail:
+            lines.append(cur)
+            cur = word
+        else:
+            cur = trial
+    return lines + [cur]
+
+
+STUB_TEXT = "I can't believe you actually did that to me"
+
+
+def test_box_lines_are_balanced_with_the_same_line_count_and_no_stub():
+    from PIL import ImageFont
+    draw = ImageDraw.Draw(Image.new("RGB", (400, 200)))
+    font = ImageFont.load_default(20)
+    width = lambda t: scanlate_text_layout._ink_width(draw, t, font)  # noqa: E731
+    avail = width("I can't believe you actually") + 2
+    greedy = _first_fit(draw, STUB_TEXT, font, avail)
+    assert len(greedy) == 2 and width(greedy[-1]) < 0.6 * width(greedy[0])
+    lines = scanlate_text_layout._wrap_words(draw, STUB_TEXT, font, avail, hyphenate=False)
+    assert " ".join(lines) == STUB_TEXT and len(lines) == len(greedy)
+    assert all(width(ln) <= avail for ln in lines)
+    assert min(map(width, lines)) >= 0.6 * max(map(width, lines))
+
+
+def test_balancing_keeps_one_line_and_a_hyphenated_wrap_as_they_were():
+    from PIL import ImageFont
+    draw = ImageDraw.Draw(Image.new("RGB", (400, 200)))
+    font = ImageFont.load_default(20)
+    assert scanlate_text_layout._wrap_words(draw, "Short one", font, 300, False) == ["Short one"]
+    narrow = scanlate_text_layout._ink_width(draw, "Unbelievab", font)
+    hyphenated = scanlate_text_layout._wrap_words(draw, "Unbelievable", font, narrow, True)
+    assert len(hyphenated) > 1 and hyphenated[0].endswith("-")
+
+
+def test_balloon_lines_are_balanced_at_the_same_size_and_line_count():
+    from PIL import ImageFont
+    mask = np.ones((120, 300), dtype=bool)
+    draw = ImageDraw.Draw(Image.new("RGB", (300, 120)))
+    font = ImageFont.load_default(20)
+    width = lambda t: scanlate_text_layout._ink_width(draw, t, font)  # noqa: E731
+    span = width("I can't believe you actually") + 2
+    mask[:, span:] = False
+    laid = scanlate_text_layout._layout_in_mask(draw, STUB_TEXT, mask, 20, lambda size: font)
+    assert laid is not None
+    got_font, placed = laid
+    assert got_font is font
+    lines = [t for t, *_ in placed]
+    assert len(lines) == len(_first_fit(draw, STUB_TEXT, font, span)) == 2
+    assert " ".join(lines) == STUB_TEXT
+    assert min(map(width, lines)) >= 0.6 * max(map(width, lines))

@@ -70,7 +70,7 @@ def to_detail(drama: dict) -> DramaDetail:
             responses=error_responses(422))
 def list_dramas(
         request: Request,
-        search: str = Query("", max_length=200, description="Substring of title or summary."),
+        search: str = Query("", max_length=200, description="Substring of a title, summary, author, studio, voice actor, tag or series name."),
         studio: str = Query("", max_length=200),
         author: str = Query("", max_length=200),
         voice_actor: str = Query("", max_length=200),

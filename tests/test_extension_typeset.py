@@ -247,14 +247,17 @@ def test_lines_the_engine_left_empty_are_asked_for_again_and_the_rest_are_counte
 
     def translate(bubbles, engine, drama_meta, **kwargs):
         calls.append([b["source_text"] for b in bubbles])
-        # The first call answers one line; the retry answers one of the two still missing.
-        target = next(b for b in bubbles if not b["translated_text"])
-        target["translated_text"] = "Goodbye, Yeon Dana" if len(calls) == 1 else "Hello"
-        raise ValueError("2 of 3 regions weren't translated")
+        # The first call answers one line; the group retry leaves the other two out again;
+        # asked alone, "안녕" is answered and "뭐라고" still is not.
+        if len(calls) == 1:
+            bubbles[0]["translated_text"] = "Goodbye, Yeon Dana"
+        elif len(bubbles) == 1 and bubbles[0]["source_text"] == "안녕":
+            bubbles[0]["translated_text"] = "Hello"
+        raise ValueError("regions weren't translated")
 
     monkeypatch.setattr(scanlate_translate, "translate_page_bubbles", translate)
     page = _send(token, drama).payload["pages"][0]
-    assert len(calls) == 2 and len(calls[1]) == 2
+    assert [len(c) for c in calls] == [3, 2, 1, 1]
     assert page["untranslated_lines"] == 1
     assert any("still had no translation after a retry" in n[1] for n in page["notes"])
     assert [r["translated_text"] for r in page["regions"]].count("") == 1
@@ -264,21 +267,35 @@ def test_only_the_first_retry_for_empty_lines_sends_the_page_picture_again(token
     from scanlate import scanlate
     from scanlate import scanlate_translate
     from services import extension_service
-    box = {"x": 1, "y": 2, "w": 30, "h": 40, "source_text": "안녕", "translated_text": "",
-           "kind": "bubble", "font_category": "regular", "reading_order": 0}
-    monkeypatch.setattr(scanlate, "detect_and_ocr_page", lambda *a, **k: ([dict(box)], []))
+    boxes = [{"x": 1, "y": 2, "w": 30, "h": 40, "source_text": text, "translated_text": "",
+              "kind": "bubble", "font_category": "regular", "reading_order": i}
+             for i, text in enumerate(["안녕", "뭐라고"])]
+    monkeypatch.setattr(scanlate, "detect_and_ocr_page", lambda *a, **k: ([dict(b) for b in boxes], []))
     picture = {"data": b"x", "mime": "image/png", "scale": 1.0}
     monkeypatch.setattr(extension_service, "page_extras", lambda *a, **k: {"page_image": picture})
     seen = []
 
     def translate(bubbles, engine, drama_meta, **kwargs):
         seen.append(kwargs.get("page_image"))
-        if len(seen) == 3:
+        if len(seen) >= 3:
             bubbles[0]["translated_text"] = "Hello"
 
     monkeypatch.setattr(scanlate_translate, "translate_page_bubbles", translate)
     _send(token, drama)
-    assert seen == [picture, picture, None]
+    assert seen == [picture, picture, None, None]
+
+
+def test_a_lone_empty_line_is_asked_again_once(token, drama, monkeypatch):
+    from scanlate import scanlate
+    from scanlate import scanlate_translate
+    box = {"x": 1, "y": 2, "w": 30, "h": 40, "source_text": "안녕", "translated_text": "",
+           "kind": "bubble", "font_category": "regular", "reading_order": 0}
+    monkeypatch.setattr(scanlate, "detect_and_ocr_page", lambda *a, **k: ([dict(box)], []))
+    calls = []
+    monkeypatch.setattr(scanlate_translate, "translate_page_bubbles", lambda bubbles, *a, **k: calls.append(1))
+    page = _send(token, drama).payload["pages"][0]
+    # The first retry already asks it alone; a third call would repeat that without the picture.
+    assert len(calls) == 2 and page["untranslated_lines"] == 1
 
 
 @pytest.mark.parametrize("sent, expected_width", [(400, 400), (2000, 1000), (True, 1000), ("400", 1000), (100, 1000)])

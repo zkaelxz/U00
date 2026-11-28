@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test'
+import { openNewTitle } from './addBoxMocks'
 
 // New title with "Link (optional)": Fill from link never overwrites what was typed, only suggests the
 // channel as the series, and a nameless title is created from the link. The probe and the create are
@@ -23,7 +24,7 @@ test('Fill from link keeps typed text and fills only the ticked empty fields', a
     return route.fulfill({ status: 201, json: { id: 99999, title_zh: 'Typed', title_from_link: null } })
   })
   await page.goto('/')
-  await page.getByRole('button', { name: 'Add a title by hand' }).click()
+  await openNewTitle(page)
   const sheet = page.getByRole('dialog', { name: 'New title' })
   await sheet.getByLabel('Original title').fill('Typed')
   await sheet.getByRole('textbox', { name: 'Link (optional)' }).fill(LINK)
@@ -55,7 +56,7 @@ test('a title with only a link is created and says when it was named after the w
     return route.fulfill({ status: 201, json: { id: 99999, title_zh: 'youtube.com', title_from_link: 'placeholder' } })
   })
   await page.goto('/')
-  await page.getByRole('button', { name: 'Add a title by hand' }).click()
+  await openNewTitle(page)
   const sheet = page.getByRole('dialog', { name: 'New title' })
   await sheet.getByRole('textbox', { name: 'Link (optional)' }).fill(LINK)
   await sheet.getByRole('button', { name: 'Create title' }).click()

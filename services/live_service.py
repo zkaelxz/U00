@@ -29,6 +29,7 @@ import inspect
 import re
 import shutil
 import threading
+import unicodedata
 import uuid
 from typing import Optional
 from urllib.parse import urlsplit
@@ -93,6 +94,7 @@ def language_chunk(language: str, captions=None) -> dict:
 MAX_MINUTES_RANGE = (1, 240)
 WHISPER_NAME_TERMS = 20
 DEFAULT_MAX_MINUTES = 60
+EXTEND_MINUTES = 60
 LIVE_DEFAULT_ENGINE = "ollama"
 # A glossary note is advice for a translator, not text to repeat per chunk.
 HINT_NOTE_CHARS = 120
@@ -103,6 +105,14 @@ KNOWN_NAME_HINT = "a VTuber's name: write it romanised, never translate its mean
 # The downloaded list is mostly Chinese and Japanese names; its Latin spellings would match
 # ordinary capitalised words in other languages.
 KNOWN_NAME_LANGUAGES = ("zh", "ja")
+# A stream with nothing picked gets the built-in names pack and the downloaded list, and most
+# one- and two-character names there are everyday words too (a poetic "toward evening", an
+# animal, a surname), which the "keep the name" hint would turn into a streamer. A shorter
+# name is hinted only when it stands alone between punctuation, spaces or line ends.
+MIN_FREE_NAME_CHARS = 3
+# Downloaded names hinted per chunk. A few seconds of speech names a handful of people at
+# most, and every row costs prompt tokens and is one more line a weak model may echo.
+LIVE_KNOWN_NAMES = 10
 MAX_SESSIONS = 32
 # Two streams share the one loaded Whisper and take turns (live_whisper._turn); a third would only add lag.
 MAX_LIVE_SESSIONS = 2
@@ -569,6 +579,23 @@ def _default_packs(source_language) -> dict:
             if pid in known}
 
 
+def _boundary(ch: str) -> bool:
+    return ch.isspace() or unicodedata.category(ch)[0] in "PSZ"
+
+
+def _name_matches(name: str, text: str) -> bool:
+    """Whether a default-path name is clearly the name in `text`, not part of a word."""
+    if len(name) >= MIN_FREE_NAME_CHARS:
+        return True
+    pos = text.find(name)
+    while pos >= 0:
+        end = pos + len(name)
+        if (pos == 0 or _boundary(text[pos - 1])) and (end == len(text) or _boundary(text[end])):
+            return True
+        pos = text.find(name, pos + 1)
+    return False
+
+
 def _hint_function(series_id, pack_title, source_language, glossary_title=None, own_terms=(),
                    default_packs=None):
     """`pack_title`: the title whose packs apply, or None for glossary only.
@@ -594,7 +621,11 @@ def _hint_function(series_id, pack_title, source_language, glossary_title=None, 
         if packs_apply and drama is not None:
             entries = language_pack_service.entries_for_text(drama, text, glossary)
         elif default_packs:
-            entries = language_packs.matching_entries(default_packs, text, glossary, language=source_language)
+            names_pack = f"{source_language}-vtuber-names"
+            entries = [e for e in language_packs.matching_entries(default_packs, text, glossary,
+                                                                  language=source_language)
+                       if e["pack"] != names_pack or e["category"] != "streamer"
+                       or _name_matches(e["source"], text)]
         else:
             entries = []
         for e in entries:
@@ -602,8 +633,9 @@ def _hint_function(series_id, pack_title, source_language, glossary_title=None, 
                 p for p in (e["context"], e["note"]) if p)[:HINT_NOTE_CHARS]))
         if default_packs is not None and source_language in KNOWN_NAME_LANGUAGES:
             covered = [row[0] for row in found]
-            names = [n for n in vdb_names_service.entries_for_text(text) if not any(n in c for c in covered)]
-            found.extend((n, KNOWN_NAME_EN, KNOWN_NAME_HINT) for n in names[:vdb_names_service.MAX_PROMPT_NAMES])
+            names = [n for n in vdb_names_service.entries_for_text(text)
+                     if not any(n in c for c in covered) and _name_matches(n, text)]
+            found.extend((n, KNOWN_NAME_EN, KNOWN_NAME_HINT) for n in names[:LIVE_KNOWN_NAMES])
         # Same cap the packs have; a glossary term is listed first, so it is
         # the one kept when the cap cuts.
         return [tuple(re.sub(r"\s+", " ", v) for v in row) for row in found[:language_packs.MAX_PROMPT_ENTRIES]]
@@ -863,6 +895,7 @@ def stop_session(session_id, principal=None) -> dict:
             return {"session_id": session_id, "stopping": False, "finishing": False}
     ownership_service.require_job_changeable(principal, session_id, entry.get("owner_user_id"))
     if (job or {}).get("status") == "running" and live_pipeline.request_finish(session_id):
+        live_translate.mark_finishing(session_id)
         add_note(session_id, FINISHING_NOTE, key="finishing")
         return {"session_id": session_id, "stopping": True, "finishing": True}
     # A finished run has dropped its generation; bumping would only add it back.
@@ -875,6 +908,28 @@ def stop_session(session_id, principal=None) -> dict:
     else:
         background_jobs.request_cancel(session_id)
     return {"session_id": session_id, "stopping": True, "finishing": False}
+
+
+def extend_session(session_id, principal=None) -> dict:
+    """Moves a running session's time limit EXTEND_MINUTES later, never past
+    MAX_MINUTES_RANGE's longest from now; nothing restarts, and the spend limit
+    still applies. Its starter only (_started): it keeps an engine busy longer."""
+    job = _require(session_id, principal)
+    with _lock:
+        entry = _sessions.get(session_id) or {}
+    if not _started(principal, entry):
+        raise ForbiddenError("Only whoever started this session can give it more time.")
+    running = (job or {}).get("status") == "running"
+    if running and live_translate.is_finishing(session_id):
+        raise ConflictError("This session is already finishing.")
+    left = None
+    if running:
+        left = live_translate.extend_time_limit(session_id, EXTEND_MINUTES * 60,
+                                                MAX_MINUTES_RANGE[1] * 60)
+    if left is None:
+        raise ConflictError("This session is not running with a time limit.")
+    add_note(session_id, f"Time limit moved: stops in about {round(left / 60)} min.", key="time-limit")
+    return {"session_id": session_id, "time_left_seconds": int(left)}
 
 
 def add_name_fix(session_id, source, english, save_to_glossary=False, principal=None) -> dict:
@@ -943,6 +998,18 @@ def _may_fix_names(principal, session_id, entry) -> bool:
     return uid is not None and uid == owner
 
 
+def _started(principal, entry) -> bool:
+    """Only the session's starter: an admin or the PC owner may not lengthen someone else's
+    session (owner, 2026-11-28: every session is independent). No owner means the PC started it,
+    so whoever acts as the PC may: the local owner, or with sign-in on an admin on the PC's own
+    listener (the household listener clears admin_override)."""
+    owner = entry.get("owner_user_id")
+    if owner is None:
+        return ownership_service.may_override(principal)
+    uid = ownership_service.user_id(principal)
+    return uid is not None and uid == owner
+
+
 def _may_save_fix(principal, target) -> bool:
     """Whether a fix by this caller can also go into the session's glossary, so the page offers it."""
     if target is None:
@@ -971,6 +1038,11 @@ def _status(job) -> str:
 # errors and the stream address check (check_stream_url).
 _FIXED_TEXT_PREFIXES = tuple(f"{cls.__name__}: " for cls in (
     live_translate.LiveCaptureError, InvalidInputError, DependencyUnavailableError))
+
+
+def _time_left(status, session_id) -> Optional[int]:
+    left = live_translate.time_left(session_id) if status == "running" else None
+    return None if left is None else int(left)
 
 
 def get_session(session_id, after=0, principal=None) -> dict:
@@ -1024,6 +1096,8 @@ def get_session(session_id, after=0, principal=None) -> dict:
             "stream": entry.get("stream"),
             "name_fixes": name_fixes(session_id),
             "can_fix_names": _may_fix_names(principal, session_id, entry),
+            "time_left_seconds": (left := _time_left(status, session_id)),
+            "can_extend": left is not None and status == "running" and _started(principal, entry),
             "has_glossary": _may_save_fix(principal, entry.get("glossary_target")),
             **{name: cast((entry.get("stats") or {}).get(name, 0)) for name, cast in STAT_FIELDS.items()},
             "cues": out, "next_index": max(after, len(cues))}

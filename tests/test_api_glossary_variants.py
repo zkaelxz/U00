@@ -86,21 +86,3 @@ def test_errors_use_the_standard_shape(remote):
     assert remote.get(f"/api/glossary/dramas/{did}/variants?term=!!!", headers=headers).status_code == 422
     assert remote.get(f"/api/glossary/dramas/{did}/variants?term={'x' * 201}",
                       headers=headers).status_code == 422
-
-
-def test_name_fixes_routes_need_read_to_preview_and_edit_to_apply(remote):
-    did = _title()
-    sid = db.get_drama(did)["series_id"]
-    db.upsert_glossary_term(sid, "Yasoch", "X")
-    term_id = db.list_glossary_terms(sid)[0]["id"]
-    url = f"/api/glossary/dramas/{did}/name-fixes"
-    body = {"fixes": [{"term_id": term_id, "spelling": "Yasou"}]}
-    reader = _session("lines.read", drop=("lines.edit",))
-    assert remote.get(url).status_code == 401
-    assert remote.get(url, headers=reader).status_code == 200
-    assert remote.post(url, json=body, headers=reader).status_code == 403
-    editor = _session("lines.edit", keep=("lines.read", "library.read"))
-    out = remote.post(url, json=body, headers=editor)
-    assert out.status_code == 200
-    assert out.json() == {"lines_changed": 1, "replacements": 1, "aliases_added": 1}
-    assert remote.post(url, json={"fixes": []}, headers=editor).status_code == 422

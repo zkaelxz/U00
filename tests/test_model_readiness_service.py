@@ -334,7 +334,13 @@ def test_separation_ready_follows_the_roformer_model_file(caches, monkeypatch):
     assert mrs.separation_ready() is False
     with zipfile.ZipFile(caches["sep"] / audio_preprocess.MEL_ROFORMER_VOCAL_MODEL, "w") as z:
         z.writestr("w", "x")
-    assert mrs.separation_ready() is True
+    # The default runs the original when only that is on disk; a title that chose FV4 needs it.
+    assert mrs.separation_ready() is True and mrs.separation_ready("auto") is True
+    assert mrs.separation_ready("mel_roformer_fv4") is False
+    assert mrs.separation_ready("nonsense") is False
+    with zipfile.ZipFile(caches["sep"] / audio_preprocess.MEL_ROFORMER_FV4_MODEL, "w") as z:
+        z.writestr("w", "x")
+    assert mrs.separation_ready("mel_roformer_fv4") is True
 
 
 def test_dub_clip_without_transcript_needs_omnivoice_asr(isolated_db, caches):

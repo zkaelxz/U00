@@ -71,6 +71,7 @@ import itertools
 import os
 import re
 import subprocess
+import sys
 import threading
 import time
 import unicodedata
@@ -88,7 +89,7 @@ from live import live_whisper
 from live.live_audio import read_wav_tail, write_padded_chunk  # noqa: F401 -- re-exported for callers and tests
 from live.live_caption import ChunkCaptioner
 from live.live_cue_translation import CueTranslator
-from live.live_resolve import LiveCaptureError, StreamEnded, resolve_stream_url
+from live.live_resolve import LiveCaptureError, StreamEnded, resolve_stream_url, title_language_notice
 from live.live_tokens import LEADING_NON_WORD_RE, TOKEN_RE, tokens
 
 
@@ -119,6 +120,9 @@ class SegmentCapture:
     @property
     def ended_live(self):
         return self.pump.ended_live
+
+    def settle(self):
+        self.pump.settle()
 
 
 def start_segment_capture(source_url: str, out_dir: str, segment_seconds: int = 20,
@@ -352,6 +356,9 @@ MAX_NAME_FIXES = 50
 MAX_FIX_SOURCE_CHARS = 40
 MAX_FIX_ENGLISH_CHARS = 80
 MAX_PROMPTED_FIXES = 10
+# Names in Whisper's prompt made Live's Whisper ~60% slower and heard fewer of them (3/9 vs 5/9
+# on one title); the translator still gets the glossary either way.
+NAMES_IN_WHISPER_PROMPT = False
 
 
 class TermHints:
@@ -598,6 +605,9 @@ _timeline_clock = time.monotonic
 # the normal pipeline); beyond this the oldest are dropped, not queued, so
 # captions stay near the live edge when Whisper runs slower than the stream.
 MAX_BACKLOG_CHUNKS = 2
+# The first chunks each get their own start-timeline lines: a long wait before the first
+# caption is usually a chunk with no speech, which one "first chunk" line hides.
+STAGE_LOGGED_CHUNKS = 6
 
 
 def process_chunk(chunk_path: str, chunk_index: int, segment_seconds: float,
@@ -606,7 +616,8 @@ def process_chunk(chunk_path: str, chunk_index: int, segment_seconds: float,
                    overlap_tail_text: str = "", on_stage=None, is_cancelled=None,
                    translator=None, first_id: int = 0, on_cues=None, guard=None,
                    audio_shift: float = 0.0, on_transcribed=None, translate: bool = True,
-                   overlap_covered_seconds: float | None = None, on_overlap=None):
+                   overlap_covered_seconds: float | None = None, on_overlap=None,
+                   on_repeats_dropped=None):
     """
     Transcribes one chunk and translates each resulting line, shifting
     timestamps by this chunk's position in the stream so cues from
@@ -659,13 +670,19 @@ def process_chunk(chunk_path: str, chunk_index: int, segment_seconds: float,
     started = time.monotonic()
     segments = (guard or (lambda call: call(None)))(lambda progress_cb: whisper_transcribe.transcribe_for_timing(
         chunk_path, model_size=whisper_size, language=source_language, use_gpu=use_gpu,
-        initial_prompt=name_prompt + context_prompt, progress_cb=progress_cb))
+        initial_prompt=name_prompt + context_prompt, progress_cb=progress_cb,
+        standalone_extra_speech=False))
     if on_transcribed:
         on_transcribed(time.monotonic() - started)
     checkpoint()
+    heard = len(segments)
     segments = dedup_overlap(segments, overlap_seconds, overlap_tail_text, overlap_covered_seconds, on_overlap)
-    segments = drop_name_list_echo(segments, name_prompt)
-    segments = join_trailing_fragments(split_long_caption_lines(drop_repeated_lines(drop_stock_phrases(segments))))
+    repeats = heard - len(segments)
+    segments = drop_stock_phrases(drop_name_list_echo(segments, name_prompt))
+    unrepeated = drop_repeated_lines(segments)
+    if on_repeats_dropped:
+        on_repeats_dropped(repeats + len(segments) - len(unrepeated))
+    segments = join_trailing_fragments(split_long_caption_lines(unrepeated))
     offset = chunk_index * segment_seconds - overlap_seconds + audio_shift
     cues = live_cue_feed.pending_cues(segments, offset, first_id)
     if translate:
@@ -708,6 +725,45 @@ def drop_generation(job_id: str) -> None:
 
 def current_generation(job_id: str) -> int:
     return _generations.get(job_id, 0)
+
+
+# When each running session with a time limit stops, on time.monotonic()'s clock,
+# so its owner can move the limit without a restart (extend_time_limit).
+_deadlines = {}
+_deadlines_lock = threading.Lock()
+_finishing = set()
+
+
+def extend_time_limit(job_id: str, seconds: float, longest: float) -> float | None:
+    """Moves a running session's hard stop `seconds` later, but never more than
+    `longest` from now; returns the seconds left, or None for a session that is
+    not running or has no limit."""
+    with _deadlines_lock:
+        box = _deadlines.get(job_id)
+        if box is None:
+            return None
+        now = time.monotonic()
+        box[0] = max(box[0], min(box[0] + seconds, now + longest))
+        return box[0] - now
+
+
+def mark_finishing(job_id: str) -> None:
+    """A session that is finishing (its time is up, or Stop was pressed while
+    the tail is still captioned) can't be given more time: it stops anyway."""
+    with _deadlines_lock:
+        _deadlines.pop(job_id, None)
+        _finishing.add(job_id)
+
+
+def is_finishing(job_id: str) -> bool:
+    with _deadlines_lock:
+        return job_id in _finishing
+
+
+def time_left(job_id: str) -> float | None:
+    with _deadlines_lock:
+        box = _deadlines.get(job_id)
+        return None if box is None else max(0.0, box[0] - time.monotonic())
 
 
 class _Abortable:
@@ -772,7 +828,6 @@ class _LiveRun(ChunkCaptioner):
         self.cookies_browser = cookies_browser
         self.cookies_file = cookies_file
         self.overlap_seconds = max(0.0, min(float(overlap_seconds or 0), segment_seconds / 2))
-        self.max_seconds = max_seconds
         self.stream_url_check = stream_url_check
         self.proxy = proxy
         self.report_stage = report_stage
@@ -783,7 +838,7 @@ class _LiveRun(ChunkCaptioner):
         self.delayed_player = delayed_player
         self.report_player = report_player
         self.my_generation = bump_generation(job_id)
-        self.started = time.monotonic()
+        self.deadline = None if max_seconds is None else [time.monotonic() + max_seconds]
         self.note = report_note or (lambda text, key=None: None)
         self.runner = live_whisper.WhisperRunner(
             self.should_stop, self.note, clock=whisper_clock, gpu=use_gpu)
@@ -800,6 +855,15 @@ class _LiveRun(ChunkCaptioner):
         # {"since", "attempt", "reason"} from a stream break until a chunk arrives again.
         self.outage = None
         self.breaks = 0
+        self.resolved_at = time.monotonic()
+        self.timeline = live_pipeline.StartTimeline()
+        # Why the session ended, for the app log; set by _ended.
+        self.end_reason = None
+        # Last, so an __init__ that raises leaves no deadline behind for extend to find.
+        with _deadlines_lock:
+            _finishing.discard(job_id)
+            if self.deadline is not None:
+                _deadlines[job_id] = self.deadline
 
     def should_stop(self):
         return (background_jobs.is_cancel_requested(self.job_id)
@@ -817,8 +881,14 @@ class _LiveRun(ChunkCaptioner):
             background_jobs.update_progress(self.job_id, 0.0, message)
 
     def time_up(self):
-        return (self.max_seconds is not None
-                and time.monotonic() - self.started >= self.max_seconds)
+        with _deadlines_lock:
+            return self.deadline is not None and time.monotonic() >= self.deadline[0]
+
+    def forget_deadline(self):
+        with _deadlines_lock:
+            _finishing.discard(self.job_id)
+            if self.deadline is not None and _deadlines.get(self.job_id) is self.deadline:
+                del _deadlines[self.job_id]
 
     def run(self):
         self.report("Resolving the stream address...")
@@ -840,10 +910,20 @@ class _LiveRun(ChunkCaptioner):
 
     def _look_up(self):
         url = resolve_stream_url(self.url, cookies_browser=self.cookies_browser,
-                                 cookies_file=self.cookies_file, proxy=self.proxy)
+                                 cookies_file=self.cookies_file, proxy=self.proxy,
+                                 on_title=self._check_title)
+        # Set here, on the lookup's thread, so it is when the address was found and not when
+        # the Whisper load running alongside let the session collect it.
+        self.resolved_at = time.monotonic()
+        self.timeline.mark("stream address found")
         if self.stream_url_check is not None:
             self.stream_url_check(url)
         return url
+
+    def _check_title(self, title):
+        notice = title_language_notice(title, self.source_language)
+        if notice:
+            self.note(notice, "title-language")
 
     def _warm_whisper(self, give_up=None):
         """False when a cancel ended the job during the load; True, the load
@@ -867,6 +947,7 @@ class _LiveRun(ChunkCaptioner):
             # The first chunk repeats the load and shows the real error.
             live_whisper.log_failure("Whisper warm-up failed", exc)
             self.note("Whisper could not be warmed up; chunk 0 will try loading it.")
+        self.timeline.mark("Whisper ready")
         return True
 
     def _capture_and_caption(self):
@@ -876,9 +957,13 @@ class _LiveRun(ChunkCaptioner):
         self.limit = live_whisper.chunk_timeout(self.segment_seconds)
         self.stage = live_pipeline.Stage(self.report, self.note, self.whisper_size, self.device,
                                          self.limit, self.engine, self.segment_seconds)
+        self.stage.timeline = self.timeline
         self.board = live_pipeline.CueBoard(
             self.job_id, lambda: current_generation(self.job_id) == self.my_generation)
         self.stats = live_pipeline.LagStats(self.report_stats)
+        self.log = live_pipeline.SessionLog(
+            self.note, self.stats, getattr(self.spend_guard, "session_spend", None),
+            self._ffmpeg_procs, resolved_at=self.resolved_at)
         # Backoff waits notice a cancel; a blocked Ollama request is abandoned.
         cancel_token = _cancel_check_var.set(self.should_stop)
         abort_token = abort_check_var.set(self.should_stop)
@@ -913,7 +998,17 @@ class _LiveRun(ChunkCaptioner):
             live_pipeline.unregister(self.job_id, control)
             _cancel_check_var.reset(cancel_token)
             abort_check_var.reset(abort_token)
+            try:
+                self.log.ended(self._end_reason(sys.exc_info()[1], control))
+            except Exception:
+                pass   # a logging slip must never skip stopping ffmpeg below
             self._wind_down()
+
+    def _out_dir_has_files(self):
+        try:
+            return bool(os.listdir(self.out_dir))
+        except OSError:
+            return False
 
     def _capture_loop(self, control, worker):
         """Captions one waiting chunk per pass. True when it ended by finish,
@@ -922,17 +1017,24 @@ class _LiveRun(ChunkCaptioner):
             raise RuntimeError("capture is started before the loop runs")
         while not self.should_stop():
             proc = self.proc
+            self.log.tick()
             if control.finish.is_set():
                 return True
             if self.time_up():
-                self._ended("Stopped: time limit reached.")
+                self._ended("Stopped: time limit reached.", "max-minutes")
                 return True
             watched = live_player.watch(self.player, self.note, self.out_dir)
             if watched is not self.player:
                 self._set_player(watched)
             code = proc.poll()
+            if not self.timeline.has("first stream data") and self._out_dir_has_files():
+                self.timeline.mark("first stream data")
+            if self.captured_any and hasattr(proc, "settle"):
+                # A break now reconnects rather than ending the session, so the
+                # fetcher may notice a dead link sooner (live_fetch.SETTLED_*).
+                proc.settle()
             if getattr(proc, "ended_live", False):
-                self._ended("Capture stopped: the stream is no longer live.")
+                self._ended("Capture stopped: the stream is no longer live.", "the stream ended")
                 return True
             broke = proc.error or (FFMPEG_BROKE if code not in (None, 0) else None)
             if broke:
@@ -944,7 +1046,7 @@ class _LiveRun(ChunkCaptioner):
                     continue
                 return outcome == "finish"
             if code is not None:
-                self._ended("Capture stopped (stream likely ended).")
+                self._ended("Capture stopped (stream likely ended).", "the stream ended (ffmpeg exited)")
                 return True
 
             waiting, dropped_through = live_whisper.drop_backlog(
@@ -956,6 +1058,10 @@ class _LiveRun(ChunkCaptioner):
                 self.state["context"] = ""
             # One chunk per pass, so the backlog is looked at again after each.
             if waiting:
+                self.timeline.mark("first chunk closed")
+                if waiting[0][0] < STAGE_LOGGED_CHUNKS:
+                    self.timeline.mark(f"chunk {waiting[0][0]} closed")
+                after_break = self.outage is not None
                 self._resumed()
                 try:
                     self.caption(*waiting[0], worker)
@@ -963,6 +1069,10 @@ class _LiveRun(ChunkCaptioner):
                     # The while loop's own check ends the job.
                     pass
                 self.captured_any = True
+                self.log.chunk_seen()
+                if after_break:
+                    self.log.after_break(self.state["last"], self._stream_seconds(),
+                                         self.segment_seconds, self.board.cues)
                 continue
             self.stage.waiting(self.state["last"] + 1)
             control.idle(self.poll_interval)
@@ -976,11 +1086,15 @@ class _LiveRun(ChunkCaptioner):
         chunk), "finish" (Stop, the time limit, the stream no longer live or
         RECONNECT_GIVE_UP_SECONDS passed: end as a stream that ended) or
         "cancel". The board, the translator and its context stay as they are."""
+        new_break = self.outage is None
         if self.outage is None:
             self.breaks += 1
             self.outage = {"since": time.monotonic(), "attempt": 0}
         self._drain_broken(worker)
         self.outage["reason"] = reason
+        if new_break:
+            self.log.broke(reason, self.breaks, self.state["last"], self._stream_seconds(),
+                           len(self.board.cues))
         # A first Stop, the time limit or the reconnect budget must not wait
         # out a lookup that can take several yt-dlp tries (or DNS timeouts)
         # in an outage; the lookup thread is abandoned.
@@ -1019,7 +1133,7 @@ class _LiveRun(ChunkCaptioner):
                 return self._lookup_interrupted(control)
             except StreamEnded:
                 self._end_outage()
-                self._ended("Capture stopped: the stream is no longer live.")
+                self._ended("Capture stopped: the stream is no longer live.", "the stream ended")
                 return "finish"
             except Exception as exc:
                 live_whisper.log_failure(f"reconnect try {attempt}: resolve failed", exc)
@@ -1052,6 +1166,7 @@ class _LiveRun(ChunkCaptioner):
                 self.outage["reason"] = live_fetch.UNREACHABLE
                 continue
             self.source_url, self.proc, self.capture_stopped = url, proc, False
+            self.log.re_resolved()
             self._skip_outage_on_timeline()
             if self.delayed_player:
                 try:
@@ -1066,7 +1181,8 @@ class _LiveRun(ChunkCaptioner):
     def _give_up(self):
         self._end_outage()
         self._ended(f"Stopped: the stream broke off and could not be reconnected "
-                    f"within {RECONNECT_GIVE_UP_SECONDS // 60} minutes.")
+                    f"within {RECONNECT_GIVE_UP_SECONDS // 60} minutes.",
+                    "the stream broke off and did not come back")
         return "finish"
 
     def _lookup_interrupted(self, control):
@@ -1079,7 +1195,7 @@ class _LiveRun(ChunkCaptioner):
             return "finish"
         if self.time_up():
             self._end_outage()
-            self._ended("Stopped: time limit reached.")
+            self._ended("Stopped: time limit reached.", "max-minutes")
             return "finish"
         return self._give_up()
 
@@ -1118,7 +1234,7 @@ class _LiveRun(ChunkCaptioner):
             if control.finish.is_set():
                 return "finish"
             if self.time_up():
-                self._ended("Stopped: time limit reached.")
+                self._ended("Stopped: time limit reached.", "max-minutes")
                 return "finish"
             control.idle(min(live_pipeline.IDLE_WAIT_SECONDS, max(0.0, until - time.monotonic())))
         return "resumed"
@@ -1168,11 +1284,33 @@ class _LiveRun(ChunkCaptioner):
         self.stats.reconnect_attempt = 0
         self.stats.send()
 
-    def _ended(self, why):
+    def _ended(self, why, reason):
         """Names why capture ended. Also kept as a note: the final status is
-        replaced when the job ends, and the page then only says it finished."""
+        replaced when the job ends, and the page then only says it finished.
+        reason: the short form for the app log."""
         background_jobs.update_progress(self.job_id, 0.0, why)
         self.note(why, "ended")
+        mark_finishing(self.job_id)
+        self.end_reason = self.end_reason or reason
+
+    def _end_reason(self, exc, control):
+        if exc is not None and not isinstance(exc, background_jobs.JobCancelled):
+            return f"an error ({type(exc).__name__})"
+        if self.end_reason:
+            return self.end_reason
+        if getattr(self.spend_guard, "halted", False):
+            return "the spend limit, monthly cap or failed translations"
+        if self.should_stop() or control.finish.is_set():
+            return "Stop"
+        return "unknown"
+
+    def _stream_seconds(self):
+        """Where the captioned audio ends on the stream's timeline."""
+        return (self.state["last"] + 1) * self.segment_seconds + self.state["jump"]
+
+    def _ffmpeg_procs(self):
+        captures = [self.proc, *getattr(self.player, "recorders", ())]
+        return [getattr(c, "proc", None) for c in captures if c is not None]
 
     def _caption_remaining(self, worker):
         # ffmpeg writes out the segment it is in, so the speech up to
@@ -1212,13 +1350,14 @@ class _LiveRun(ChunkCaptioner):
         def whisper_done(took):
             timing.whisper_done(took)
             self.stage.transcribed(idx, took)
+            self.timeline.mark("first chunk transcribed")
         new_cues = process_chunk(
             window.path, idx, self.segment_seconds, self.source_language, self.whisper_size,
             self.engine, use_gpu=self.use_gpu, context_prompt=self.state["context"],
-            name_prompt=getattr(self.term_hints, "names", ""), translator=self.translator, first_id=len(self.board.cues), translate=False,
+            name_prompt=getattr(self.term_hints, "names", "") if NAMES_IN_WHISPER_PROMPT else "", translator=self.translator, first_id=len(self.board.cues), translate=False,
             overlap_seconds=window.pad_seconds, overlap_tail_text=window.tail_text,
             audio_shift=window.trimmed_seconds + shift, overlap_covered_seconds=covered,
-            on_overlap=self.stats.overlap_joined,
+            on_overlap=self.stats.overlap_joined, on_repeats_dropped=self.log.dropped,
             guard=lambda call: self.runner.run(call, self.limit, f"chunk {idx}"),
             on_transcribed=whisper_done,
             on_stage=lambda step: self.stage.chunk(step, idx),
@@ -1228,6 +1367,8 @@ class _LiveRun(ChunkCaptioner):
             # job at the next loop check. Whisper and a blocked
             # Ollama call are aborted either way (guard, cancel check).
             is_cancelled=self._superseded)
+        if idx < STAGE_LOGGED_CHUNKS:
+            self.timeline.mark(f"chunk {idx} transcribed, {len(new_cues)} lines")
         return new_cues, timing
 
 
@@ -1271,8 +1412,8 @@ def run_live_job(job_id: str, url: str, out_dir: str, segment_seconds: int,
     padded_*.wav left in out_dir by an earlier run before ffmpeg starts.
 
     max_seconds: a hard stop -- once this much wall-clock time has passed
-    since the call began, capture stops as if Stop were pressed. None
-    means no limit.
+    since the call began, capture stops as if Stop were pressed
+    (extend_time_limit moves it). None means no limit.
 
     stream_url_check: optional callable run on the stream URL yt-dlp
     resolved, before anything fetches it; it raises to refuse (the API
@@ -1301,11 +1442,15 @@ def run_live_job(job_id: str, url: str, out_dir: str, segment_seconds: int,
     reconnects (_LiveRun._reconnect) and, if the stream does not come back,
     ends like a stream that simply ends: a normal finish.
     """
+    live_run = None
     try:
-        _LiveRun(job_id, url, out_dir, segment_seconds, source_language, whisper_size, engine,
-                 use_gpu, poll_interval, cookies_browser, cookies_file, overlap_seconds,
-                 max_seconds, stream_url_check, proxy, report_stage, reply_without_thinking,
-                 report_note, whisper_clock, report_stats, term_hints, spend_guard,
-                 delayed_player, report_player).run()
+        live_run = _LiveRun(job_id, url, out_dir, segment_seconds, source_language, whisper_size,
+                            engine, use_gpu, poll_interval, cookies_browser, cookies_file,
+                            overlap_seconds, max_seconds, stream_url_check, proxy, report_stage,
+                            reply_without_thinking, report_note, whisper_clock, report_stats,
+                            term_hints, spend_guard, delayed_player, report_player)
+        live_run.run()
     finally:
+        if live_run is not None:
+            live_run.forget_deadline()
         drop_generation(job_id)

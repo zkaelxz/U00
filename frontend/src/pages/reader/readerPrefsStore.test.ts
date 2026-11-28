@@ -6,13 +6,11 @@ import {
   DEFAULT_PREFS,
   PREFS_KEY,
   formatLength,
-  keepPlace,
   loadPrefs,
   metricsLine,
-  pageCount,
   pageParams,
   readerEngine,
-  resumePage,
+  resumeTarget,
   roundChapterSize,
   sanitizePrefs,
   savePrefs,
@@ -84,32 +82,20 @@ describe('reader prefs', () => {
 })
 
 describe('paging', () => {
-  it('counts pages', () => {
-    expect(pageCount(0, 40)).toBe(1)
-    expect(pageCount(90, 40)).toBe(3)
-    expect(pageCount(80, 40)).toBe(2)
-  })
-
-  it('resumes at the page holding the last line read, clamped', () => {
-    expect(resumePage({ line_count: 90, last_page: 1, last_line_idx: null }, 40)).toBe(1)
-    expect(resumePage({ line_count: 90, last_page: 2, last_line_idx: null }, 40)).toBe(2)
-    expect(resumePage({ line_count: 90, last_page: 1, last_line_idx: 79 }, 40)).toBe(2)
-    expect(resumePage({ line_count: 90, last_page: 1, last_line_idx: 80 }, 20)).toBe(5)
-    expect(resumePage({ line_count: 90, last_page: 9, last_line_idx: 500 }, 40)).toBe(3)
-    expect(resumePage({ line_count: 90, last_page: 2, last_line_idx: 0 }, 40)).toBe(2)
-  })
-
-  it('keeps the first line in view when lines per page changes', () => {
-    expect(keepPlace(3, 40, 20)).toBe(5)
-    expect(keepPlace(5, 20, 40)).toBe(3)
-    expect(keepPlace(1, 40, 200)).toBe(1)
+  it('resumes at the last line read, not at a saved page number, clamped', () => {
+    expect(resumeTarget({ line_count: 90, last_page: 1, last_line_idx: null })).toEqual({ page: 1 })
+    expect(resumeTarget({ line_count: 90, last_page: 2, last_line_idx: null })).toEqual({ page: 2 })
+    // A page number saved under the old 40-line pages is not trusted when the line is known.
+    expect(resumeTarget({ line_count: 90, last_page: 2, last_line_idx: 79 })).toEqual({ line: 79 })
+    expect(resumeTarget({ line_count: 90, last_page: 9, last_line_idx: 500 })).toEqual({ line: 89 })
+    expect(resumeTarget({ line_count: 90, last_page: 2, last_line_idx: 0 })).toEqual({ page: 2 })
   })
 
   it('sets the spoiler boundary at the end of this page', () => {
-    expect(spoilerBoundary(false, 50, 2, 40, 90)).toBeUndefined()
-    expect(spoilerBoundary(true, 77, 2, 40, 90)).toBe(77)
-    expect(spoilerBoundary(true, null, 2, 40, 90)).toBe(79)
-    expect(spoilerBoundary(true, null, 3, 40, 90)).toBe(89)
+    expect(spoilerBoundary(false, 50, 79)).toBeUndefined()
+    expect(spoilerBoundary(true, 77, 79)).toBe(77)
+    expect(spoilerBoundary(true, null, 79)).toBe(79)
+    expect(spoilerBoundary(true, null, 89)).toBe(89)
   })
 
   it('formats the metrics line', () => {
