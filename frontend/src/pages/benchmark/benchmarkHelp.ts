@@ -97,11 +97,12 @@ export const BENCH_SECTIONS: Record<BenchSectionId, SectionCopy> = {
     title: 'Model re-evaluation',
     purpose: 'Check whether a newer model beats the one you use now.',
     steps: [
-      'Production is the model you use now.',
+      'Production is the model later re-evaluations compare against.',
       'Add up to 3 candidates: models you want to try.',
       'Run now scores production and every candidate on a golden set.',
       'Read the Latest report. Differences are candidate minus production.',
       'Promote makes a candidate production, after you confirm.',
+      'Translations keep their model: change it in Diagnostics > Model status.',
       'Promote also changes your default engine if its engine differs.',
       'Reject leaves a candidate out of later runs.',
       'The schedule is off by default. Nothing changes by itself.',

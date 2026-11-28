@@ -104,7 +104,7 @@ export default function UpdatesPage() {
       {data && !error && items.length === 0 && (
         <>
           <p className="muted" data-testid="updates-empty">
-            Nothing new. Chapters of tracked series and your followed channels show up here.
+            Nothing new since the last check. Chapters of tracked series and your followed channels show up here once a check finds them; Refresh only reloads this list. Channels are checked when you press Check now on the Live page, or every hour if you turned that on.
           </p>
           <div className="actions">
             {sourcesOn && <ButtonLink variant="secondary" href={sourcesHref()}>Track a series</ButtonLink>}
