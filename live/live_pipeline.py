@@ -469,7 +469,10 @@ class TranslationWorker:
 
     def _fail(self, cues: list, idx: int, exc: Exception) -> None:
         from engine_backends.shared import redact_secrets
-        self._stats.failed(exc)
+        try:
+            self._stats.failed(exc)
+        except Exception:
+            pass   # a stats slip must never stop the failure being shown
         live_whisper.log_failure(f"chunk {idx} translation failed", exc)
         note = f"{live_cue_feed.FAILED_PREFIX}: {redact_secrets(str(exc))}]"
         with self._board.lock:
