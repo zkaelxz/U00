@@ -203,9 +203,9 @@
     box = scrollBox();
     try { box.scrollTo({ top: box.scrollHeight, behavior: "instant" }); } catch (e) { box.scrollTop = box.scrollHeight; }
     await new Promise(function (r) { setTimeout(r, 700); });
-    var known = items.length;
+    var found = items.length;
     collect();
-    quiet = items.length > known ? 0 : quiet + 1;
+    quiet = items.length > found ? 0 : quiet + 1;
   }
   box.scrollTop = 0;
   var CHAPTER_TEXT = /第\s*[\d０-９一二三四五六七八九十百零]+\s*[章话話回集卷期]|(?:chapter|chap|ch|episode|ep|vol)\.?\s*[\d.]+|[\d.]+\s*[화話话章]|^\s*#?\d+\s*$/i;
