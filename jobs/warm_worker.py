@@ -73,8 +73,8 @@ def _read_card_total() -> None:
 
 def card_room_mb():
     """The card's total less "Keep free graphics memory" (at least the guard's
-    floor), or None before the total has been read. Reads settings: call it
-    outside _lock."""
+    floor), or None before the total has been read. Reads settings, so it is
+    called before this module's _lock is taken."""
     import diagnostics_torch
     if _card_total_mb is None:
         return None
