@@ -232,3 +232,50 @@ export function appendAudit(cur: AuditEvent[], older: AuditEvent[]): AuditEvent[
   const seen = new Set(cur.map((e) => e.id))
   return [...cur, ...older.filter((e) => !seen.has(e.id))]
 }
+
+/** What a self-saving field read from its text: the value to send, or why it can't be sent. */
+export type Parsed<T> = { value: T } | { problem: string }
+
+export function readDisplayName(text: string): Parsed<string> {
+  return { value: text.trim().replace(/\s+/g, ' ') }
+}
+
+/** Empty means no limit, so clearing the field is how a limit is removed. */
+export function readPaidLimit(text: string): Parsed<number | null> {
+  if (!text.trim()) return { value: null }
+  const usd = parsePaidLimit(text)
+  return usd === null
+    ? { problem: `Enter an amount above $0 and up to $${MAX_PAID_LIMIT_USD.toLocaleString('en-US')}, such as 5 or 12.50, or leave it empty for no limit.` }
+    : { value: usd }
+}
+
+export function readJobLimit(text: string): Parsed<number | null> {
+  if (!text.trim()) return { value: null }
+  const jobs = parseJobLimit(text)
+  return jobs === null
+    ? { problem: `Enter a whole number from 1 to ${MAX_JOB_LIMIT.toLocaleString('en-US')}, such as 10, or leave it empty for no limit.` }
+    : { value: jobs }
+}
+
+/** The short muted line on a person's closed row: sign-in state, then any limits they have. */
+export function personStatus(u: AdminUser): string {
+  const parts = [sessionsText(u.active_sessions)]
+  if (showRights(u)) {
+    if (u.monthly_paid_cap_usd != null) parts.push(`${dollars(u.monthly_paid_cap_usd)} a month`)
+    if (u.daily_job_limit != null) parts.push(`${u.daily_job_limit} ${u.daily_job_limit === 1 ? 'job' : 'jobs'} a day`)
+  }
+  return parts.join(' · ')
+}
+
+/** A rights-grid column heading: the name when there is one, else the email. */
+export function personShortName(u: AdminUser): string {
+  return u.display_name || u.email
+}
+
+/** Below this many people the list fits a screen, so there is no search box. */
+export const FIND_PEOPLE_AT = 8
+
+export function matchesPerson(u: AdminUser, query: string): boolean {
+  const q = query.trim().toLowerCase()
+  return !q || u.email.toLowerCase().includes(q) || (u.display_name ?? '').toLowerCase().includes(q)
+}

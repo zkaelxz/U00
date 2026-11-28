@@ -9,9 +9,10 @@ import { setPcProfileStatus } from '../../api/pcOnly'
 import {
   clearPcProfilePin, PIN_HINT, setPcProfilePin, validPin, type PcProfileStatus,
 } from '../../api/pcProfile'
-import { Card } from '../../components/Card'
 import { ErrorBanner } from '../../components/ErrorBanner'
 import { Field } from '../../components/Field'
+import { Section } from '../../components/Section'
+import { Toggle } from '../../components/Toggle'
 import { buttonClass } from '../../components/uiClasses'
 import { usePcProfile } from '../../hooks/usePcProfile'
 
@@ -61,7 +62,7 @@ export function PcProfileCard() {
   // Guest cannot change the PIN: the server refuses it, so the form says why instead.
   const guest = status.guest
   return (
-    <Card title={PC_PROFILE_TITLE} aria-label={PC_PROFILE_TITLE}>
+    <Section title={PC_PROFILE_TITLE}>
       <div className="settings-group" data-testid="pc-profile">
         <p className="settings-note">
           Set a PIN and this PC opens on Guest, which leaves out every title you marked private.
@@ -84,10 +85,10 @@ export function PcProfileCard() {
                 onChange={(e) => setNext(e.target.value)} />
             </Field>
             {!status.pin_set && (
-              <label className="checkbox-row">
-                <input type="checkbox" checked={hideAll} onChange={(e) => setHideAll(e.target.checked)} />
-                Also mark all my current titles private (household members stop seeing them too)
-              </label>
+              // Sent with the PIN: the server only takes it when profiles are turned on, so it can't save on its own.
+              <Field label="When profiles turn on, also mark all my current titles private" help="Household members stop seeing them too.">
+                <Toggle checked={hideAll} onChange={setHideAll} />
+              </Field>
             )}
             <div className="settings-actions">
               <button type="submit" className={buttonClass('primary')} disabled={busy} aria-busy={busy}>
@@ -104,6 +105,6 @@ export function PcProfileCard() {
         )}
         <span className="muted" aria-live="polite">{note}</span>
       </div>
-    </Card>
+    </Section>
   )
 }

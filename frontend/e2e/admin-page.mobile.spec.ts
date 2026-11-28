@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test'
 
-// People and access on a phone (390x844, touch): the cards fit without
-// sideways scroll in light and dark, and their summaries are 44px targets.
+// People and access on a phone (390x844, touch): every pane fits without sideways scroll in light and dark, the
+// panes are one row of tabs (one tap to switch), and the person rows are 44px targets.
 
 const ME = {
   auth_enabled: true, signed_in: true, sign_in_configured: true, zone: 'internet',
@@ -14,7 +14,7 @@ const USER = (id: number, email: string, extra: Record<string, unknown> = {}) =>
 })
 
 for (const scheme of ['light', 'dark'] as const) {
-  test(`phone ${scheme}: People and access fits and its cards are tappable`, async ({ page }) => {
+  test(`phone ${scheme}: People and access fits and its rows are tappable`, async ({ page }) => {
     await page.emulateMedia({ colorScheme: scheme })
     await page.route('**/api/meta', (r) => r.fulfill({ json: { app: 'Baihe Studio', api_version: '0.1', environment: 'production', local: true } }))
     await page.route('**/api/auth/me', (r) => r.fulfill({ json: ME }))
@@ -32,16 +32,24 @@ for (const scheme of ['light', 'dark'] as const) {
       next: 'name', fields: { public_url: false, google_client_id: false, google_client_secret: false }, restart_needed: false } }))
     await page.goto('/#/admin')
     await expect(page.getByRole('heading', { name: 'People and access', level: 1 })).toBeVisible()
-    const cards = page.locator('details.section')
-    await expect(cards).toHaveCount(5)
-    for (let n = 1; n < 5; n++) await cards.nth(n).locator('summary').tap()
-    await expect(page.getByRole('table', { name: 'Activity log' })).toBeVisible()
-    for (let n = 0; n < 5; n++) {
-      const box = await cards.nth(n).locator('summary').boundingBox()
+    const rows = page.getByRole('list', { name: 'People' }).locator(':scope > li > details > summary')
+    await expect(rows).toHaveCount(2)
+    for (let n = 0; n < 2; n++) {
+      await rows.nth(n).tap()
+      const box = await rows.nth(n).boundingBox()
       expect(box!.height).toBeGreaterThanOrEqual(44)
     }
-    const { scroll, client } = await page.evaluate(() => ({ scroll: document.documentElement.scrollWidth, client: document.documentElement.clientWidth }))
-    expect(scroll, 'page scrolls sideways').toBeLessThanOrEqual(client)
+    const noSideScroll = async () => {
+      const { scroll, client } = await page.evaluate(() => ({ scroll: document.documentElement.scrollWidth, client: document.documentElement.clientWidth }))
+      expect(scroll, 'page scrolls sideways').toBeLessThanOrEqual(client)
+    }
+    await noSideScroll()
+    await page.getByRole('tab', { name: 'Activity' }).tap()
+    await expect(page.getByRole('table', { name: 'Activity log' })).toBeVisible()
+    await noSideScroll()
+    await page.getByRole('tab', { name: 'Remote access' }).tap()
+    await expect(page.getByRole('heading', { name: 'Set up remote access' })).toBeVisible()
+    await noSideScroll()
     if (process.env.JOBS_SCREENS_DIR) await page.screenshot({ path: `${process.env.JOBS_SCREENS_DIR}/admin-phone-${scheme}.png`, fullPage: true })
   })
 }

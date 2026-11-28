@@ -7,7 +7,7 @@ import { animationsSettled } from './mockHelpers'
 export const SHELL_PAGES: { hash: string; width: 'narrow' | 'standard' | 'wide' }[] = [
   { hash: '#/settings', width: 'narrow' },
   { hash: '#/make-subtitles', width: 'narrow' },
-  { hash: '#/admin', width: 'narrow' },
+  { hash: '#/admin', width: 'standard' },
   { hash: '#/assistant', width: 'narrow' },
   { hash: '#/translate', width: 'standard' },
   { hash: '#/live', width: 'standard' },
