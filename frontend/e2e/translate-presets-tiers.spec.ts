@@ -29,7 +29,7 @@ test('applying a tier fills the form and starts nothing', async ({ page }) => {
   const run = page.getByRole('region', { name: 'Translate run' })
   await pickStyle(run, /^Release/)
   await expect(run.getByRole('status')).toContainText('Nothing has started')
-  await expect(run.getByRole('status')).toContainText('Release recommends Auto QC; run it from the Export stage.')
+  await expect(run.getByRole('status')).toContainText('Release recommends Auto QC; run it in Review > Flag lines for review.')
   expect(tierBodies).toEqual([{ tier: 'release' }])
 
   await expect(run.getByLabel('AI engine', { exact: true })).toHaveValue('claude')
@@ -167,4 +167,16 @@ test('translate by sentence explains itself and is saved for the title when chan
   await expect(run.getByTestId('by-sentence-saved')).toHaveText('Saved for this title; every later run uses it.')
   await toggle.click()
   await expect.poll(() => saved).toEqual([{ translate_by_sentence: true }, { translate_by_sentence: false }])
+})
+
+test('translate by sentence goes back off when the title refuses the save', async ({ page }) => {
+  await page.route('**/api/dramas/1/metadata', (route) =>
+    route.fulfill({ status: 403, json: { error: { code: 'forbidden', message: 'Not allowed.' } } }))
+  await page.goto('/#/drama/1/translate')
+  const run = page.getByRole('region', { name: 'Translate run' })
+  await run.getByText('More options', { exact: true }).click()
+  const toggle = run.getByRole('switch', { name: 'Translate by sentence' })
+  await toggle.click()
+  await expect(run.getByTestId('by-sentence-saved')).toHaveText('Could not save this choice for the title, so it is back as it was.')
+  await expect(toggle).not.toBeChecked()
 })

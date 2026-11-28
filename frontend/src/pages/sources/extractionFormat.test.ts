@@ -40,7 +40,7 @@ describe('AI fallback choice', () => {
   })
 
   it('labels engines', () => {
-    expect(engineLabel('ollama')).toBe('Ollama (on this PC)')
+    expect(engineLabel('ollama')).toBe('Ollama')
     expect(engineLabel('claude')).toBeTruthy()
   })
 })
@@ -232,7 +232,7 @@ describe('AI recovery confirm', () => {
   it('names the engine, one call, and whether it may be paid', () => {
     const e = { ...engines, free: ['ollama'] }
     expect(recoverSummary('claude', e)).toBe('Claude · 1 AI call · may use paid credits')
-    expect(recoverSummary('ollama', e)).toBe('Ollama (on this PC) · 1 AI call · free engine')
+    expect(recoverSummary('ollama', e)).toBe('Ollama · 1 AI call · free engine')
     expect(reviewWhy('recovery')).toContain('AI read it once')
   })
 })

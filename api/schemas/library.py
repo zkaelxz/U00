@@ -10,6 +10,8 @@ from api.schemas.common import AssStyleOverrides, ConfirmRequest, DramaDetail, D
 
 __all__ = [
     "LibraryHome",
+    "LibraryRecap",
+    "LibraryRecapTitle",
     "LibraryRunningEntry",
     "LibraryShelfTitle",
     "CaptureNote",
@@ -703,6 +705,24 @@ class LibraryHome(BaseModel):
     running: List[LibraryRunningEntry]
     running_count: int
     can_control_queue: bool
+
+
+class LibraryRecapTitle(BaseModel):
+    drama_id: int
+    title: str
+    days: int
+
+
+class LibraryRecap(BaseModel):
+    """One account's month (UTC). `spend_usd` is the PC's spend, null for a caller who can't open Spend history."""
+    month: str
+    titles_read: int
+    titles_finished: int
+    chapters_read: int
+    moments_saved: int
+    active_days: int
+    most_days: Optional[LibraryRecapTitle] = None
+    spend_usd: Optional[float] = None
 
 
 class LibraryFilterOptions(BaseModel):

@@ -27,6 +27,7 @@ export function subtitleQuery(o: SubtitleOptions): string {
   if (o.tidyTiming) p.set('tidy_timing', 'true')
   if (o.speakerNames) p.set('speaker_names', 'true')
   if (o.soundCaptions) p.set('sound_captions', 'true')
+  if (o.readingLine) p.set('reading_line', 'true')
   return p.toString()
 }
 

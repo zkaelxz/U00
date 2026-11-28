@@ -167,10 +167,52 @@ def subtitle_disposition(drama_id: int, field: str, ext: str, noun: str = "subti
         drama_id, what, field_language(drama, field), ext))
 
 
-def _load_drama_and_lines(drama_id: int):
+def _load_drama_and_lines(drama_id: int, with_words: bool = False):
     drama = ownership_service.require_drama(drama_id)
-    lines = db.load_line_objects(drama_id)
+    lines = db.load_line_objects(drama_id, with_words=with_words)
     return drama, lines
+
+
+def _require_reading_packages(lines, drama: dict) -> None:
+    """A reading row needs the Reader's word packages for every language its
+    lines are in; say which to install rather than fail on the first line."""
+    import segment
+    languages = {getattr(ln, "lang", None) or drama.get("source_language") or "zh" for ln in lines}
+    missing = sorted({name for lang in languages & {"zh", "ja"} for name in segment.missing_reader_packages(lang)})
+    if missing:
+        raise DependencyUnavailableError(
+            f"The reading line needs the {', '.join(missing)} package, which isn't installed. "
+            "Install it in Diagnostics > Packages.",
+            details={"reason": "missing_package", "package": missing[0]})
+
+
+def _reading_rows(lines, drama: dict) -> dict:
+    """{line id: its pinyin or kana row}, from the line's own text, so a
+    speaker name or a wrap added later is not read out."""
+    import segment
+    script = drama.get("chinese_script") or "simplified"
+    rows = {}
+    for ln in lines:
+        lang = getattr(ln, "lang", None) or drama.get("source_language") or "zh"
+        reading = "" if getattr(ln, "sfx", False) else segment.reading_text(ln.zh or "", lang, script)
+        if reading:
+            rows[ln.id] = reading
+    return rows
+
+
+def _with_reading_rows(lines, rows: dict):
+    """Copies of `lines` with the reading row above the original text. It
+    goes on after wrapping: the source wrap width counts characters, and a
+    pinyin row is several times longer than the line it reads."""
+    if not rows:
+        return lines
+    out = []
+    for ln in lines:
+        c = copy.copy(ln)
+        if rows.get(ln.id):
+            c.zh = f"{rows[ln.id]}\n{ln.zh}"
+        out.append(c)
+    return out
 
 
 def break_language(drama: dict) -> dict:
@@ -281,7 +323,8 @@ def generate_ass_text(drama_id: int, field: str = "en", style: Optional[dict] = 
                       notes_as_separate_line: bool = False,
                       wrap_chars_en: Optional[int] = None,
                       wrap_chars_source: Optional[int] = None,
-                      frame_aspect=TITLE_VIDEO, sound_captions: bool = False) -> str:
+                      frame_aspect=TITLE_VIDEO, sound_captions: bool = False,
+                      reading_line: bool = False, karaoke: bool = False) -> str:
     """Generates ASS subtitle text for one drama --
     pure and read-only, returns text only.
 
@@ -302,7 +345,8 @@ def generate_ass_text(drama_id: int, field: str = "en", style: Optional[dict] = 
     video's width / height (video_frame_aspect), so long CJK rows are broken
     to fit a portrait picture; None assumes landscape, and the default
     reads it from the title's own video (a downloaded file is most likely
-    played over that video).
+    played over that video). reading_line and karaoke apply to the original
+    text ("zh" and "bilingual"): see subtitle_ass.source_rows.
 
     Not done here: persisting the style per drama (it's per-request), the
     Package zip, "Mark as exported" (mark_exported), and any binary/file
@@ -332,7 +376,9 @@ def generate_ass_text(drama_id: int, field: str = "en", style: Optional[dict] = 
     check_wrap(wrap_chars_en, "wrap_chars_en")
     check_wrap(wrap_chars_source, "wrap_chars_source")
 
-    drama, lines = _load_drama_and_lines(drama_id)
+    drama, lines = _load_drama_and_lines(drama_id, with_words=karaoke)
+    if reading_line and field != "en":
+        _require_reading_packages(lines, drama)
     # An ASS file always has a header, so without this an untranslated title
     # gives an empty track, and a burned-in export re-encodes for nothing.
     _require_exportable_text(lines, field)
@@ -352,13 +398,17 @@ def generate_ass_text(drama_id: int, field: str = "en", style: Optional[dict] = 
     notes_by_idx = _load_notes_by_idx(drama_id) if include_notes else None
     ass_header, ass_header_key = subtitle_ass.ass_header_for(drama.get("ass_styles"), lines)
 
+    wrap_chars = build_wrap_chars(wrap_chars_en, wrap_chars_source)
+    source_text = subtitle_ass.source_rows(
+        merged_style, field, None if notes_as_separate_line else notes_by_idx, wrap_chars,
+        frame_aspect, reading_line=reading_line, karaoke=karaoke, **break_language(drama))
     return subtitle_ass.lines_to_ass(
         lines, merged_style, field, notes_by_idx,
-        speaker_colors=colors, speaker_names=speaker_names,
-        wrap_chars=build_wrap_chars(wrap_chars_en, wrap_chars_source),
+        speaker_colors=colors, speaker_names=speaker_names, wrap_chars=wrap_chars,
         title=drama.get("title_en") or drama.get("title_zh") or "",
         notes_as_separate_line=notes_as_separate_line, frame_aspect=frame_aspect,
-        ass_header=ass_header, ass_header_key=ass_header_key, **break_language(drama))
+        ass_header=ass_header, ass_header_key=ass_header_key, source_text=source_text,
+        **break_language(drama))
 
 
 def get_export_readiness(drama_id: int) -> dict:
@@ -593,7 +643,7 @@ def generate_subtitle_export(drama_id: int, fmt: str, field: str,
                              tidy_timing: bool = False,
                              fps: Optional[float] = None,
                              speaker_names: bool = False,
-                             sound_captions: bool = False) -> dict:
+                             sound_captions: bool = False, reading_line: bool = False) -> dict:
     """Generates SRT, VTT or LRC subtitle text for one drama -- pure and
     read-only: never writes to the database, never flags a line, never
     writes a file to disk. The caller decides what to do with the
@@ -621,6 +671,8 @@ def generate_subtitle_export(drama_id: int, fmt: str, field: str,
     sound_captions (default off) starts the English of a line the title's audio tags heard
     laughter, crying, applause, a cough, a sneeze or music under with "[laughs] " and so on
     (_with_sound_captions); a title never tagged exports as before.
+    reading_line (SRT and VTT, "zh" and "bilingual") puts a pinyin or kana
+    row above each original text.
 
     tidy_timing (SRT and bilingual SRT only, default off) runs
     subtitle_formats.tidy_cue_timing at `fps`; without one, the frame rate
@@ -646,6 +698,10 @@ def generate_subtitle_export(drama_id: int, fmt: str, field: str,
     lines = sorted(core_module.lines_from_rows(rows), key=lambda ln: ln.start)
     _require_exportable_text(lines, field)
     lines = _with_sound_captions(lines, field, _sound_tags(drama_id) if sound_captions else None)
+    readings = {}
+    if reading_line and field != "en" and fmt != "lrc":
+        _require_reading_packages(lines, drama)
+        readings = _reading_rows(lines, drama)
     export_lines, _ = subtitle_formats.clamp_overlaps(lines)
 
     wrap_chars = build_wrap_chars(wrap_chars_en, wrap_chars_source)
@@ -653,6 +709,11 @@ def generate_subtitle_export(drama_id: int, fmt: str, field: str,
     names = _speaker_display_names(drama_id) if speaker_names else None
 
     if fmt == "vtt":
+        if readings:
+            # The original is wrapped here, before its reading row goes on, so the writer leaves it as it is.
+            lines = _with_reading_rows(subtitle_formats.wrap_lines(
+                lines, wrap_chars and {"zh": wrap_chars.get("zh")}, **break_language(drama)), readings)
+            wrap_chars = wrap_chars and {**wrap_chars, "zh": None}
         return _export_result(subtitle_formats.lines_to_vtt(
             lines, field, notes_by_idx, wrap_chars, **break_language(drama), speaker_names=names))
     if fmt == "lrc":
@@ -664,8 +725,8 @@ def generate_subtitle_export(drama_id: int, fmt: str, field: str,
     timed, report = (subtitle_formats.tidy_cue_timing(export_lines, fps) if tidy_timing
                      else (export_lines, None))
     # The name goes in before wrapping, so the first row still fits the wrap width with it.
-    wrapped = subtitle_formats.wrap_lines(_with_speaker_names(timed, field, names), wrap_chars,
-                                          **break_language(drama))
+    wrapped = _with_reading_rows(subtitle_formats.wrap_lines(
+        _with_speaker_names(timed, field, names), wrap_chars, **break_language(drama)), readings)
     if field == "bilingual":
         text = core_module.lines_to_bilingual_srt(wrapped, notes_by_idx=notes_by_idx)
     else:

@@ -48,8 +48,8 @@ def _translate_cost(drama_id: int, engine: str, model=None, batch_size=None) -> 
         est = translate_run_service.estimate_translate_cost(
             drama_id, model=model, batch_size=batch_size)
     except ServiceError:
-        return "No estimate yet; uses your API key and costs money"
-    return f"About ${est['estimated_usd']:.2f}; uses your API key and costs money"
+        return "No estimate yet; costs money"
+    return f"About ${est['estimated_usd']:.2f}; costs money"
 
 
 def _cloud_needs_paid(engine: str, model) -> bool:

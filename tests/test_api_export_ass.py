@@ -131,3 +131,86 @@ def test_sound_captions_reach_the_ass_and_srt_downloads(client, drama, isolated_
     srt = client.get(f"/api/export/dramas/{drama}/subtitle", params={"fmt": "srt", "sound_captions": "true"})
     assert srt.status_code == 200 and "[laughs] Hello" in srt.text
     assert client.get(f"/api/export/dramas/{drama}/readiness").json()["sound_captioned_lines"] == 1
+
+
+def _dialogues(text):
+    return [ln.split(",", 9)[9] for ln in text.splitlines() if ln.startswith("Dialogue:")]
+
+
+def _timed_drama(isolated_db, **fields):
+    from segment_splitting import encode_line_words
+    did = isolated_db.create_drama(title_en="D", **fields)
+    words = [{"word": "你好，", "start": 0.2, "end": 0.6}, {"word": "世界", "start": 0.6, "end": 1.0}]
+    isolated_db.save_lines(did, [
+        Line(idx=0, start=0.0, end=2.0, zh="你好，世界", en="Hello, world",
+             word_timings=encode_line_words("你好，世界", words)),
+        Line(idx=1, start=2.0, end=4.0, zh="再见", en="Bye"),
+    ])
+    return did
+
+
+def test_karaoke_fills_each_word_as_it_is_spoken(client, isolated_db):
+    did = _timed_drama(isolated_db)
+    text = client.post(_url(did), json={"field": "zh", "karaoke": True}).text
+    timed, untimed = _dialogues(text)
+    assert timed == r"{\2a&H90&}{\k20}{\kf40}你好，{\kf40}世界{\r}"
+    assert untimed == "再见"
+
+
+def test_karaoke_leaves_the_english_alone(client, isolated_db):
+    did = _timed_drama(isolated_db)
+    both = _dialogues(client.post(_url(did), json={"field": "bilingual", "karaoke": True}).text)[0]
+    assert both.startswith(r"Hello, world\N{\2a&H90&}")
+    english = _dialogues(client.post(_url(did), json={"field": "en", "karaoke": True}).text)[0]
+    assert english == "Hello, world"
+
+
+def test_karaoke_follows_rows_broken_for_the_screen(client, isolated_db):
+    did = _timed_drama(isolated_db)
+    text = client.post(_url(did), json={"field": "zh", "karaoke": True, "wrap_chars_source": 3}).text
+    assert _dialogues(text)[0] == r"{\2a&H90&}{\k20}{\kf40}你好，\N{\kf40}世界{\r}"
+
+
+def test_reading_line_sits_small_above_the_original(client, isolated_db, monkeypatch):
+    import segment
+    monkeypatch.setattr(segment, "missing_reader_packages", lambda language: [])
+    monkeypatch.setattr(segment, "reading_text", lambda text, language, chinese_script="simplified":
+                        {"你好，世界": "nǐ hǎo, shì jiè"}.get(text, ""))
+    did = _timed_drama(isolated_db)
+    first, second = _dialogues(client.post(_url(did), json={"field": "bilingual", "reading_line": True}).text)
+    assert first == r"Hello, world\N{\fscx60\fscy60}nǐ hǎo, shì jiè{\r}\N你好，世界"
+    assert second == r"Bye\N再见"
+
+
+def test_reading_line_without_its_packages_names_what_to_install(client, isolated_db, monkeypatch):
+    import segment
+    monkeypatch.setattr(segment, "missing_reader_packages", lambda language: ["pypinyin"])
+    did = _timed_drama(isolated_db)
+    r = client.post(_url(did), json={"field": "zh", "reading_line": True})
+    assert r.status_code == 503
+    assert "pypinyin" in _error(r)["message"]
+    assert client.post(_url(did), json={"field": "en", "reading_line": True}).status_code == 200
+
+
+def _one_timed_line(isolated_db, text, words):
+    from segment_splitting import encode_line_words
+    did = isolated_db.create_drama(title_en="D")
+    isolated_db.save_lines(did, [Line(idx=0, start=1.0, end=5.0, zh=text, en="E",
+                                      word_timings=encode_line_words(text, words))])
+    return did
+
+
+def test_a_pause_between_words_is_not_drawn_as_the_word_still_being_said(client, isolated_db):
+    did = _one_timed_line(isolated_db, "嗯……我知道", [{"word": "嗯……", "start": 1.2, "end": 1.4},
+                                                  {"word": "我知道", "start": 3.4, "end": 4.0}])
+    text = client.post(_url(did), json={"field": "zh", "karaoke": True}).text
+    assert _dialogues(text)[0] == r"{\2a&H90&}{\k20}{\kf20}嗯……{\k200}{\kf60}我知道{\r}"
+
+
+def test_a_backslash_or_brace_in_the_text_cannot_break_the_tags(client, isolated_db, monkeypatch):
+    import segment
+    monkeypatch.setattr(segment, "missing_reader_packages", lambda language: [])
+    monkeypatch.setattr(segment, "reading_text", lambda text, language, chinese_script="simplified": "a\\")
+    did = _one_timed_line(isolated_db, "{好}\\", [{"word": "{好}\\", "start": 1.0, "end": 2.0}])
+    out = _dialogues(client.post(_url(did), json={"field": "zh", "karaoke": True, "reading_line": True}).text)[0]
+    assert out == "{\\fscx60\\fscy60}a\\\u2060{\\r}\\N{\\2a&H90&}{\\kf100}\\{好\\}\\\u2060{\\r}"

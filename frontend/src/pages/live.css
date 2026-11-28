@@ -77,6 +77,11 @@
 .live-tabs button { min-height: 44px; padding: 0 var(--space-4); border: 0; border-radius: 0; }
 .live-tabs button[aria-selected='true'] { background: var(--accent); color: var(--on-accent, #fff); font-weight: var(--weight-bold); }
 .live-stopbar { padding: var(--space-2) 0; display: flex; gap: var(--space-2); }
+.live-namefix { margin: var(--space-2) 0; }
+.live-namefix form { display: grid; gap: var(--space-2); }
+.live-namefix label { display: grid; gap: var(--space-1); }
+.live-namefix .live-namefix-save { display: flex; align-items: center; gap: var(--space-2); }
+.live-namefix-actions { display: flex; gap: var(--space-2); }
 .live-stopbar button { flex: 1; min-height: 48px; }
 @media (min-width: 900px) {
   .live-watch[data-running] { display: grid; grid-template-columns: minmax(0, 1fr) 400px; grid-template-rows: auto minmax(0, 1fr); grid-template-areas: 'bar bar' 'video feed'; }

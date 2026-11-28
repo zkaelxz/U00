@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test'
 
-import { openAdvanced, enableDeveloperMode } from './sourceHelpers'
+import { openAdvanced, enableDeveloperMode, openTranscribeOptions } from './sourceHelpers'
 
 // What is installed decides which Transcribe controls work. GET /api/setup/readiness is mocked
 // (the seeded server answers "everything present" to every other spec); the transcribe config is the
@@ -80,7 +80,8 @@ export function registerReadinessCases(prefix: string) {
     await setup(page, FRESH, { run_start: { run_diarize: false } })
     await page.goto('/#/drama/1/source?tab=transcribe')
     await expect(page.getByTestId('settings-summary')).toBeVisible()
-    // Detect speakers after transcribing sits on the Transcribe tab.
+    // Detect speakers after transcribing sits under the Run tab's More options.
+    await openTranscribeOptions(page)
     await expect(page.getByRole('switch', { name: 'Detect speakers', exact: true })).toBeDisabled()
     const tools = await openAdvanced(page)
 

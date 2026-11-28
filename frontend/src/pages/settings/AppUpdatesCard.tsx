@@ -186,7 +186,7 @@ function AppUpdatesControls() {
             </>
           )}
           <div className="setting-list">
-            <Field label="Check once a day" help={AUTO_CHECK_HELP}>
+            <Field label="Check once a day for updates" help={AUTO_CHECK_HELP}>
               <Toggle checked={status.auto_check} disabled={busy}
                 onChange={(next) => run(() => setUpdateAutoCheck(next))} />
             </Field>

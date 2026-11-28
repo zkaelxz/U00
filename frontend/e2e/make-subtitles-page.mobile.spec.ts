@@ -19,7 +19,7 @@ test('the drawer opens the page', async ({ page }) => {
   await navLink(page, 'Find & Add').click()
   await expect(page).toHaveURL(/#\/make-subtitles$/)
   await expect(page.getByRole('heading', { name: 'Find & Add', level: 1 })).toBeVisible()
-  const c = page.getByRole('region', { name: 'Add' })
+  const c = page.getByRole('region', { name: 'Add', exact: true })
   await c.getByLabel('Audio or video file').setInputFiles(AUDIO)
   await c.getByText('Change options', { exact: true }).tap()
   // Everything is ready for the default translator, so the list stays out of the way until one is not.
@@ -33,7 +33,7 @@ for (const scheme of ['light', 'dark'] as const) {
     await mockMakeSubtitles(page)
     await page.emulateMedia({ colorScheme: scheme })
     await page.goto('/#/make-subtitles')
-    const c = page.getByRole('region', { name: 'Add' })
+    const c = page.getByRole('region', { name: 'Add', exact: true })
     await expect(c).toBeVisible()
     await noSideways(page)
     await c.getByLabel('Audio or video file').setInputFiles({ name: 'a-rather-long-file-name-for-a-phone-screen.mp3', mimeType: 'audio/mpeg', buffer: Buffer.from('abc') })

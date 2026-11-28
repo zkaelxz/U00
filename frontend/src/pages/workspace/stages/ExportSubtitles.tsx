@@ -10,7 +10,7 @@ import { downloadText } from '../../../components/downloadBlob'
 import { Toggle } from '../../../components/Toggle'
 import { routeHref } from '../../../router'
 import type { AssStyleOptions, SubtitleField } from '../../../types/export'
-import { buildAssRequest, exportFilename, fileNameHint, MAX_BASE_NAME, parseWrap, srtFileText, type AssForm } from '../exportForm'
+import { buildAssRequest, exportFilename, fileNameHint, MAX_BASE_NAME, parseWrap, readingLanguage, srtFileText, type AssForm } from '../exportForm'
 import { useStage } from '../StageContext'
 import { stageLabel } from '../stages'
 import { titleKind } from '../titleKind'
@@ -54,6 +54,7 @@ interface Props {
 export function ExportSubtitles({ fmt, setFmt, form, setForm, options, totalLines, soundLines }: Props) {
   const { dramaId, drama, refetchDrama } = useStage()
   const blocked = exportBlocked(totalLines)
+  const sourceLanguage = readingLanguage(drama.source_language)
   const [problem, setProblem] = useState<string | null>(null)
   const [error, setError] = useState<unknown>(null)
   const [result, setResult] = useState<{ text: string; filename: string; fmt: SubtitleExportFormat } | null>(null)
@@ -94,6 +95,7 @@ export function ExportSubtitles({ fmt, setFmt, form, setForm, options, totalLine
       tidyTiming: form.tidyTiming && fmt === 'srt',
       speakerNames: form.speakerNames,
       soundCaptions: sent.soundCaptions,
+      readingLine: !!sourceLanguage && form.field !== 'en' && form.readingLine && fmt !== 'lrc',
     })
   }
 
@@ -191,6 +193,11 @@ export function ExportSubtitles({ fmt, setFmt, form, setForm, options, totalLine
           <Field label="Include notes" help="Add translation notes inline in the exported text.">
             <Toggle checked={form.includeNotes} onChange={(v) => set('includeNotes', v)} />
           </Field>
+          {sourceLanguage && form.field !== 'en' && (fmt === 'srt' || fmt === 'vtt') && (
+            <Field label="Reading line" help={`${sourceLanguage === 'ja' ? 'Kana' : 'Pinyin'} on its own row above the original. Needs the Reader's word packages (Diagnostics).`}>
+              <Toggle checked={form.readingLine} onChange={(v) => set('readingLine', v)} />
+            </Field>
+          )}
           <Field
             label="Tidy cue timing for players"
             help="SRT only. Lengthens very short cues into silence (up to 1 s) and leaves 2 frames between cues that touch, so players don't flash or merge them. Starts never move and your saved times are not changed."
