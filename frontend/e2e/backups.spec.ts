@@ -37,7 +37,7 @@ test.describe('Automatic backups card (real API)', () => {
 
   test('the toggle and frequency persist; a bad folder is refused in plain words', async ({ page }) => {
     const c = await openAuto(page)
-    await expect(c).toContainText('Keeps one copy a day for the last 7 days, plus the first copy of each of the last 4 weeks')
+    await expect(c).toContainText('Keeps up to 11 copies: the newest from each of the 7 most recent days with a backup')
     const auto = c.getByRole('switch', { name: 'Back up automatically' })
     await expect(auto).not.toBeChecked()
     // Daily is the default.

@@ -154,7 +154,7 @@ function NotesSection({ dramaId }: { dramaId: number }) {
   return (
     <Section title="My notes" storageKey="reader.notes" summary={saved ? 'Has notes' : 'Empty'}>
       <ErrorBanner error={loadError} />
-      <Field label="Notes" help="Notes for this title. Anyone with access to this library can see them. Saved when you press Save.">
+      <Field label="Notes" help="Your own notes for this title. Other accounts don’t see them. Saved when you press Save.">
         <textarea
           rows={5}
           maxLength={100_000}

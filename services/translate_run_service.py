@@ -330,7 +330,8 @@ def estimate_translate_cost(drama_id: int, engine_name: str | None = None, model
         # constructing a real engine (SDK import, key, network).
         stand_in = SimpleNamespace(name=engine_name, model=resolved_model, free_tier=free_tier)
         is_novel = drama.get("content_mode") == "novel_narration"
-        defaults = get_translate_config_defaults(is_novel, engine_name, model)
+        defaults = get_translate_config_defaults(is_novel, engine_name, model,
+                                                 _plain_stream(drama, engine_name, model))
         if batch_size is None:
             batch_size = defaults["batch_size"]
         zh_lines = [ln["zh"] for ln in targets]
@@ -520,7 +521,7 @@ def start_translate_run(drama_id: int, engine_name: str | None = None, model: st
 
     job_id, bulk_estimate = _job_id_and_bulk_estimate(
         drama_id, bulk, engine_name, model, caps[0], reflect, force_retranslate, gemini_free_tier,
-        job_cost_cap_usd)
+        job_cost_cap_usd, opts.style_preset)
 
     engines, engine, cost_cap = translate_run_options.instantiate_engines(built, chain, caps, not (reflect or bulk))
 
@@ -546,13 +547,13 @@ def start_translate_run(drama_id: int, engine_name: str | None = None, model: st
 
 
 def _job_id_and_bulk_estimate(drama_id, bulk, engine_name, model, cap, reflect, force_retranslate,
-                              gemini_free_tier, job_cost_cap_usd):
+                              gemini_free_tier, job_cost_cap_usd, style_preset):
     """(job id, bulk estimate or None); refuses when that job is already busy."""
     job_id, bulk_estimate = f"translate_{drama_id}", None
     if bulk:
         bulk_estimate = translate_run_options.require_bulk_ready(
             drama_id, engine_name, model, cap, reflect, force_retranslate,
-            gemini_free_tier, job_cost_cap_usd, estimate_translate_cost)
+            gemini_free_tier, job_cost_cap_usd, estimate_translate_cost, style_preset)
         job_id = bulk_job_id(drama_id)
     _refuse_if_busy(job_id)
     return job_id, bulk_estimate

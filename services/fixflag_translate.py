@@ -17,6 +17,7 @@ Timing flags never reach the engine: rewording the English can't move a
 subtitle onto its audio, so split_timing_flags drops them before any call.
 """
 import db
+from en_cleanup import drop_em_dashes
 from engine_backends import engine_registry, flag_reasons, glossary_check, shared, pricing, stream_recipe
 from engine_backends import line_text
 from engine_backends import prompts as engine_prompts
@@ -211,7 +212,7 @@ def fix_lines(flagged, *, engine, engine_choice, drama_id, base_context, charact
                     f"line {ln.idx + 1} translation: {e}"))
             replies = {}
         for ln in batch:
-            new = (replies.get(ln.idx) or "").strip()
+            new = drop_em_dashes((replies.get(ln.idx) or "").strip())
             if not new:
                 continue
             if new == (ln.en or "").strip():

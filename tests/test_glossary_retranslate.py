@@ -73,6 +73,14 @@ class TestFindAffected:
         assert p["has_glossary"] and p["hand_edited_count"] == 0
         assert p["estimate"]["target_line_count"] == 3
 
+    def test_the_preview_prices_the_style_picked_on_the_form(self, isolated_db, monkeypatch):
+        did, _sid, _rows = _seed([("林晚来了", "Lin came")], terms=[LIN])
+        styles, real = [], translate_run_service.estimate_translate_cost
+        monkeypatch.setattr(translate_run_service, "estimate_translate_cost",
+                            lambda *a, **k: styles.append(k.get("style_preset")) or real(*a, **k))
+        svc.find_glossary_affected_lines(did, engine_name="fake", style_preset="novel")
+        assert styles == ["novel", "novel"]
+
     def test_series_glossary_is_shared_by_dramas_of_the_series(self, isolated_db):
         _did, sid, _ = _seed([("x", "x")], terms=[LIN])
         other = db.create_drama(title_zh="E", series_id=sid)
@@ -707,6 +715,16 @@ class TestApi:
             (("POST",), "/api/translate-run/dramas/{drama_id}/glossary-affected/run"):
                 [("permission", "jobs.start")],
         }
+
+    def test_the_preview_route_prices_the_forms_style_and_batch_size(self, isolated_db, monkeypatch):
+        did, _sid, _rows = _seed([("林晚来了", "Lin came")], terms=[LIN])
+        seen, real = [], translate_run_service.estimate_translate_cost
+        monkeypatch.setattr(translate_run_service, "estimate_translate_cost",
+                            lambda *a, **k: seen.append((k.get("style_preset"), k.get("batch_size"))) or real(*a, **k))
+        r = TestClient(create_app()).get(f"/api/translate-run/dramas/{did}/glossary-affected",
+                                         params={"engine": "fake", "style_preset": "novel", "batch_size": 12})
+        assert r.status_code == 200, r.text
+        assert seen == [("novel", 12), ("novel", 12)]
 
     def test_preview_and_run(self, isolated_db):
         did, _sid, rows = _seed([("林晚", "machine"), ("晚晚", "mine")], terms=[LIN],

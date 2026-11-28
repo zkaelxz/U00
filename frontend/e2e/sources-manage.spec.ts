@@ -50,13 +50,13 @@ test('the header is the Sources page header with its tabs; switching tabs keeps 
   await expect(page).toHaveURL(/#\/sources\?tab=manage$/)
 })
 
-test('Sites is a compact row: name, status, On, Rules, Details', async ({ page }) => {
+test('Sites is a compact row: name, status, On, Pace, Details', async ({ page }) => {
   await mockSources(page)
   const manage = await openManage(page)
-  await expect(manage.getByRole('columnheader')).toHaveText(['Site', 'Status', 'On', 'Rules', 'Details'])
+  await expect(manage.getByRole('columnheader')).toHaveText(['Site', 'Status', 'On', 'Pace', 'Details'])
   const row = manage.locator('tbody tr').first()
   await expect(row.getByRole('switch', { name: 'On: Alpha Comics' })).toBeVisible()
-  await expect(row.getByRole('combobox', { name: 'Rules: Alpha Comics' })).toBeVisible()
+  await expect(row.getByRole('combobox', { name: 'Pace: Alpha Comics' })).toBeVisible()
   await expect(row.getByRole('button', { name: 'Details: Alpha Comics' })).toBeVisible()
   // Nothing else sits in the row: no Adult cell, no Sign-in column.
   await expect(manage.getByRole('columnheader', { name: /Adult|Sign-in|Health/ })).toHaveCount(0)

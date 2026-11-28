@@ -42,6 +42,7 @@ from .shared import (
 )
 from .line_text import is_english_line, keep_first_alternative, strip_echoed_label, tagged_line_languages
 import source_change
+from en_cleanup import drop_em_dashes
 
 
 def build_translation_context(engine, drama_meta: dict, style_note: str = "", novel_reference=None,
@@ -86,6 +87,9 @@ TRANSLATE_PROMPT_VERSION = "6"
 # A pause this long between two lines is treated as a scene break. Matches
 # core.diagnose_line_coverage's large-gap default so both agree on "large".
 SCENE_BREAK_GAP_SECONDS = 3.0
+# A pause this long is a cut between scenes, where a subtitle run may start another lane: the
+# line after it loses only the English of a scene that is over.
+SCENE_LANE_GAP_SECONDS = 20.0
 
 
 def plan_batches(lines, max_size: int, min_gap: float = SCENE_BREAK_GAP_SECONDS,
@@ -270,7 +274,7 @@ def _recheck_male_pronouns(engine, lines, translated, context, character_names, 
             continue
         for ln, tr in zip(chunk, redone):
             if (tr or "").strip():
-                ln.en = tr
+                ln.en = drop_em_dashes(tr)
                 retried.append(ln)
     if retried and save_cb:
         save_cb(lines)
@@ -329,6 +333,8 @@ class _TranslateRun:
         self.bi = 0
         self.batch_label = ""
         self.groups = []
+        self.lane_label = "Chapter"
+        self.english = []
         # Lines whose English this attempt split by length; flagged only once that English lands.
         self.split_by_length = set()
         self.character_names = args.character_names or {}
@@ -356,7 +362,7 @@ class _TranslateRun:
         batches = self._plan(target_lines)
         self.n_batches = len(batches)
         self._seed_first_batch_estimate(target_lines, batches)
-        chapters = self._chapter_groups(batches)
+        chapters = self._chapter_groups(batches) or self._scene_groups(batches)
         finished = self._run_chapter_lanes(chapters) if chapters else self._run_batches(batches)
         if finished:
             self._recheck_pronouns()
@@ -378,6 +384,7 @@ class _TranslateRun:
             ln.en = ln.zh
             source_change.clear_for_new_english(ln, a.replace_flags)
         target_lines = [ln for ln in target_lines if not is_english_line(ln)]
+        self.english = english
         if not target_lines:
             if english and a.save_cb:
                 a.save_cb(self.lines)
@@ -396,12 +403,19 @@ class _TranslateRun:
         # A chapter start in a batch's first half does not cut it, so chapters shorter than
         # a batch share requests and the lanes find fewer chapters than the book has.
         side_by_side = a.parallel_chapters >= 2 and can_run_in_parallel(self.engine)
+        self.scene_starts = (self._scene_starts(target_lines)
+                             if side_by_side and not novel_ends and a.target_ids is None else set())
+
+        def subtitle_batches(part):
+            return (plan_batches(part, size, a.scene_break_gap) if a.scene_aware_batches
+                    else [part[i:i + size] for i in range(0, len(part), size)])
+        # Planned part by part, so every scene cut is where a batch starts.
+        cuts = [0, *(i for i, ln in enumerate(target_lines) if ln.idx in self.scene_starts), len(target_lines)]
         batches = (plan_paragraph_batches(target_lines, size, novel_ends,
                                           max_chars=None if a.batch_size else novel_batch_chars(self.engine),
                                           chapter_starts=chapter_starts,
                                           one_chapter_per_batch=side_by_side) if novel_ends
-                   else plan_batches(target_lines, size, a.scene_break_gap) if a.scene_aware_batches
-                   else [target_lines[i:i + size] for i in range(0, len(target_lines), size)])
+                   else [b for lo, hi in zip(cuts, cuts[1:]) for b in subtitle_batches(target_lines[lo:hi])])
         by_sentence = a.translate_by_sentence
         if by_sentence is None:
             by_sentence = bool((a.drama_meta or {}).get("translate_by_sentence"))
@@ -485,6 +499,37 @@ class _TranslateRun:
             groups[-1].append(batch)
         return groups if len(groups) > 1 else None
 
+    def _scene_starts(self, target_lines) -> set:
+        """Where a subtitle run's lines are cut into up to `parallel_chapters` parts to run side by
+        side like chapters: the pauses of SCENE_LANE_GAP_SECONDS or more nearest an even split.
+        Only between neighbouring lines of the title, since a jump over lines not being sent
+        is not a pause."""
+        a, n = self.args, len(target_lines)
+        # A part shorter than a batch costs a request and a lane start for almost no speed.
+        pauses = [i for i in range(self.size, n - self.size + 1)
+                  if target_lines[i].idx == target_lines[i - 1].idx + 1
+                  and target_lines[i].start - target_lines[i - 1].end >= SCENE_LANE_GAP_SECONDS]
+        chosen = set()
+        for k in range(1, a.parallel_chapters):
+            free = [i for i in pauses if all(abs(i - c) >= self.size for c in chosen)]
+            if free:
+                chosen.add(min(free, key=lambda i: abs(i - n * k / a.parallel_chapters)))
+        return {target_lines[i].idx for i in chosen}
+
+    def _scene_groups(self, batches):
+        """The batches grouped by the scene parts _plan cut, or None when it cut none."""
+        if not self.scene_starts:
+            return None
+        groups = []
+        for batch in batches:
+            if not groups or batch[0].idx in self.scene_starts:
+                groups.append([])
+            groups[-1].append(batch)
+        if len(groups) < 2:
+            return None
+        self.lane_label = "Part"
+        return groups
+
     def _run_chapter_lanes(self, groups) -> bool:
         """Runs each chapter's batches in order on up to `parallel_chapters` threads, each
         with its own copy of the engine (an engine keeps per-call usage state). False when
@@ -498,6 +543,9 @@ class _TranslateRun:
             callback = getattr(a, name)
             if callback:
                 setattr(a, name, self._locked(callback))
+        # A lane saves only its own batch, and lines carried over as English are in none.
+        if self.english and a.save_cb:
+            a.save_cb(self.english)
         self.stopped = False
         self.in_flight = 0
         self.max_batch_cost = 0.0
@@ -786,7 +834,8 @@ class _TranslateRun:
         empty, fresh = [], []
         for ln, tr in zip(chunk, translations):
             if (tr or "").strip():
-                ln.en = keep_first_alternative(strip_echoed_label(self.character_names.get(ln.speaker), tr))
+                ln.en = drop_em_dashes(keep_first_alternative(
+                    strip_echoed_label(self.character_names.get(ln.speaker), tr)))
                 source_change.clear_for_new_english(ln, self.args.replace_flags)
                 self._flag_if_split(ln)
                 self.translated.append(ln)
@@ -855,7 +904,7 @@ class _TranslateRun:
             missed = []
             for ln, tr in zip(part, translations):
                 if (tr or "").strip():
-                    ln.en = tr
+                    ln.en = drop_em_dashes(tr)
                     source_change.clear_for_new_english(ln, self.args.replace_flags)
                     self._flag_if_split(ln)
                     self.translated.append(ln)
@@ -1057,6 +1106,7 @@ class _LaneRun(_TranslateRun):
         self.parent = parent
         self.engine = engine
         self.bi_offset = 0
+        self.number = 0
         self.chapter_label = ""
         self.batch_lines = []
         # A lane saves only its own batch: a whole-title save would read lines another lane
@@ -1088,7 +1138,8 @@ class _LaneRun(_TranslateRun):
         self.context = dict(parent.context)
         self.n_batches = len(batches)
         self.bi_offset = bi_offset
-        self.chapter_label = f"Chapter {number + 1} of {parent.chapters_total}, "
+        self.chapter_label = f"{parent.lane_label} {number + 1} of {parent.chapters_total}, "
+        self.number = number
         first_error = len(self.errors)
         done_before = len(self.translated)
         try:
@@ -1138,6 +1189,16 @@ class _LaneRun(_TranslateRun):
         if not self.reserved:
             self.stop_run = True
         super()._set_batch_context(batch)
+        # A later part starts before the part ahead of it has English: its last lines go along
+        # as source text, so who is speaking and what was just said carry over the cut.
+        if (self.parent.lane_label == "Part" and self.number > 0 and self.bi == 0
+                and self.args.context_window > 0):
+            first = next(i for i, ln in enumerate(self.lines) if ln is batch[0])
+            before = [ln.zh for ln in self.lines[max(0, first - self.args.context_window):first]
+                      if ln.zh.strip() and not ln.en.strip()]
+            if before:
+                self.context["upcoming_lines"] = before + list(self.context.get("upcoming_lines") or [])
+                self.context["context_around"] = True
 
     def _translate_batch(self, batch):
         if not self.reserved:
