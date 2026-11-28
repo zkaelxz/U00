@@ -189,7 +189,7 @@ def test_reflect_pass_in_a_translate_scope_gets_the_per_request_budget(monkeypat
                                                   batch_size=2, reflect=True)
     assert comp.calls  # the passes really went through call_llm_json
     assert seen and all(d >= SDK_REQUEST_TIMEOUT for d in seen)
-    assert "extra_body" not in comp.calls[0]  # the title's thinking choice is kept
+    assert "extra_body" not in comp.calls[0]  # the provider's default is kept
 
 
 def test_default_deepseek_deadline_still_applies_outside_a_translate_scope():

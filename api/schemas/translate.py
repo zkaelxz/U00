@@ -198,8 +198,6 @@ class TranslateRunConfig(BaseModel):
     # Never the URL. None when the drama's engine isn't Ollama
     # (not probed).
     ollama_reachable: Optional[bool] = None
-    thinking_switch_engines: List[str] = []
-    title_thinking: bool = False
     # The owner's saved choice for this title; None = never chosen (the form
     # then starts from the preset values, else genre notes on, she/her off).
     default_female_pronouns: Optional[bool] = None
@@ -218,8 +216,6 @@ class TranslateRunConfig(BaseModel):
     doubtful_flagged_count: int = 0
     # What redoing the doubtful lines with the stronger engine would cost; None when free or unknown.
     doubtful_redo_estimate_usd: Optional[float] = None
-    # True when the title's thinking is on for the redo: hidden reasoning is billed on top of the estimate.
-    doubtful_redo_estimate_is_lower_bound: bool = False
     # The monthly cap is used up, so the redo would be refused: the page shows that instead of a price.
     doubtful_redo_monthly_refusal: bool = False
     # The estimate is above the run's cap, so the redo would stop partway.
@@ -239,8 +235,6 @@ class TranslateRunEstimate(BaseModel):
     effective_cap_usd: Optional[float] = None
     monthly_refusal: bool
     estimate_above_cap: bool
-    thinking: bool = False
-    estimate_is_lower_bound: bool = False
 
 
 class TranslateRunStart(BaseModel):
@@ -264,7 +258,7 @@ class TranslateRunStart(BaseModel):
     # A preset's prompt toggles; None = the defaults (she/her off, genre notes on).
     default_female_pronouns: Optional[bool] = None
     include_genre_notes: Optional[bool] = None
-    # Let DeepSeek/Ollama reason first; None = the title's remembered choice.
+    # Accepted and ignored: older clients and saved profiles still send it.
     thinking: Optional[bool] = None
     # Add approved translation-memory pairs of the title's series to the prompt as examples.
     memory_examples: bool = False
@@ -284,7 +278,6 @@ class TranslateRunStarted(BaseModel):
     fallback_engines: List[str] = []
     reflect: bool = False
     bulk: bool = False
-    thinking: bool = False
 
 
 class TranslateFallbackEngine(BaseModel):
@@ -358,7 +351,7 @@ class GlossaryAffectedRunStart(BaseModel):
     reflect: bool = False
     default_female_pronouns: Optional[bool] = None
     include_genre_notes: Optional[bool] = None
-    thinking: Optional[bool] = None
+    thinking: Optional[bool] = None  # accepted and ignored: older clients still send it
 
 
 class GlossaryAffectedRunStarted(TranslateRunStarted):
@@ -393,7 +386,7 @@ class NovelChapterRetranslateStart(BaseModel):
     job_cost_cap_usd: Optional[float] = Field(None, ge=0)
     default_female_pronouns: Optional[bool] = None
     include_genre_notes: Optional[bool] = None
-    thinking: Optional[bool] = None
+    thinking: Optional[bool] = None  # accepted and ignored: older clients still send it
 
 
 class SourceChangedRetranslateStart(BaseModel):
@@ -415,7 +408,7 @@ class SourceChangedRetranslateStart(BaseModel):
     reflect: bool = False
     default_female_pronouns: Optional[bool] = None
     include_genre_notes: Optional[bool] = None
-    thinking: Optional[bool] = None
+    thinking: Optional[bool] = None  # accepted and ignored: older clients still send it
 
 
 class SourceChangedRetranslateStarted(TranslateRunStarted):
@@ -598,7 +591,7 @@ class RetryFailedLinesStart(BaseModel):
     fallback_chain: Optional[List[TranslateFallbackEngine]] = Field(None, max_length=2)
     default_female_pronouns: Optional[bool] = None
     include_genre_notes: Optional[bool] = None
-    thinking: Optional[bool] = None
+    thinking: Optional[bool] = None  # accepted and ignored: older clients still send it
 
 
 class RetryFailedLinesStarted(TranslateRunStarted):

@@ -31,13 +31,14 @@ from typing import Optional
 import db
 from engine_backends import shared as engine_shared
 from engine_backends import engine_registry
+from engine_backends import local as local_engine
 from lib import model_offline
 from jobs import user_caps
 from lib.errors import (ConflictError, ForbiddenError, InvalidInputError, NotFoundError,
                         RateLimitedError, ServiceError, UnsupportedOperationError)
 from services import (auth_service, export_service, inbox_service, jobs_service, series_auto_service, quick_video_service,
                       model_readiness_service, ownership_service, profile_service, queue_night, settings_service,
-                      transcribe_service, transcribe_options_service, translate_run_service, translate_thinking_service)
+                      transcribe_service, transcribe_options_service, translate_run_service)
 from services.queue_export_settings import (EXPORT_KEYS, changed_rows as _export_changed_rows,
                                             check_export_settings, export_fields, run_export)
 from services.queue_translate_settings import (TRANSLATE_KEYS, _NO_CAP, _cap_left, _check_translate_spend, _queued_model_and_batch,  # noqa: F401  (_NO_CAP is read from here)
@@ -401,8 +402,6 @@ def _translate_rows(drama: dict, settings: Optional[dict] = None) -> list:
     novel = drama.get("content_mode") == "novel_narration"
     preset = translation_guide.STYLE_PRESETS[last.get("style_preset") or ("novel" if novel else "audio_drama")]
     options = translate_run_service.get_translate_config_defaults(novel, engine, model)
-    thinking = translate_thinking_service.effective(
-        [engine], translate_thinking_service.get_title_choice(drama_id))
     terms = len(db.list_run_glossary_terms(drama))
     packs = [p["name"] for p in language_pack_service.get_title_packs(drama_id)["packs"] if p["enabled"]]
     override = settings_service.reply_guard_override()
@@ -414,7 +413,6 @@ def _translate_rows(drama: dict, settings: Optional[dict] = None) -> list:
         _row("English variant", args["locale"]),
         _row("Style note", "Set" if args["style_note"] else "None"),
         _row("Batch size", saved_batch or options["batch_size"]),
-        _row("Thinking", _on(thinking)),
         _row("Glossary", f"On, {terms} terms" if terms else "Off, no glossary terms yet"),
         _row("Language packs", ", ".join(packs) if packs else "Off"),
         _row("VTuber names", _on(vdb_names_service.is_enabled(drama_id))),
@@ -702,14 +700,102 @@ def cancel_item(principal, item_id: int) -> dict:
     return get_queue(principal)
 
 
+def _back_to_waiting(item: dict, at_pc: bool) -> None:
+    item.update(status=WAITING, reason="", job_id=None, started_at=None, finished_at=None,
+                held=False, not_before=None, at_pc=item["at_pc"] and at_pc)
+
+
 def retry_item(principal, item_id: int, *, at_pc: bool) -> dict:
     def change(doc, item):
         if item["status"] not in RETRYABLE:
             raise ConflictError("Only a failed, skipped, cancelled or interrupted item can be retried.")
-        item.update(status=WAITING, reason="", job_id=None, started_at=None, finished_at=None,
-                    held=False, not_before=None, at_pc=item["at_pc"] and at_pc)
+        _back_to_waiting(item, at_pc)
         _auto_start(doc, item["user_id"])
     return _mutate_item(principal, item_id, change)
+
+
+def interrupted_since(since: float) -> list:
+    """The job id of each item a restart stopped at or after `since` (None for
+    one whose job had not started): what the restart notice counts, and the
+    cut-off jobs it must not count a second time."""
+    with _lock:
+        doc = _load()
+    return [i["job_id"] for i in doc["items"] if i["status"] == INTERRUPTED
+            and i["reason"] in (_INTERRUPTED, _NOT_STARTED) and (i["finished_at"] or 0) >= since]
+
+
+def _needs_paid(engine, model) -> bool:
+    """The rule the start routes apply (api.auth.require_engines_allowed): an
+    engine not open to every account, or an Ollama hosted tag outside the
+    members' ones."""
+    return not engine_registry.open_to_all_accounts(engine) or (
+        engine == "ollama" and local_engine.cloud_model_needs_paid(model))
+
+
+# Steps that translate or name with an engine of their own choosing, the title's otherwise.
+_ENGINE_STEPS = ("translate", NAMES, LINES, RUN_TRANSLATE, RUN_SCANLATE)
+
+
+def _may_use_paid(item: dict) -> bool:
+    """Could this item run on an engine the caller may not use? Advisory, on
+    what the item would run with now (its own engine, else the title's): the
+    real gate is still the start, with the adder's rights. Raises a
+    ServiceError for transcribe settings that no longer apply."""
+    settings = item.get("settings") or {}
+    if settings.get("use_groq"):
+        return True
+    drama = db.get_drama(item["drama_id"])
+    if item["step"] in _ENGINE_STEPS:
+        engine = settings.get("engine") or (_translate_engine(drama) if drama else None)
+        if engine is None:
+            return False
+        model = settings.get("model")
+        if model is None and drama and not settings.get("engine"):
+            model = _queued_model_and_batch(drama, engine)[0]
+        return _needs_paid(engine, model or engine_registry.effective_default_model(engine))
+    if item["step"] == "transcribe" and drama:
+        return bool(transcribe_options_service.apply_run_overrides(drama, settings).get("use_groq"))
+    return False
+
+
+def retry_interrupted(principal, *, holds_paid: bool, at_pc: bool) -> dict:
+    """The restart notice's "Run them again": every interrupted item the
+    caller may change goes back to waiting, as Retry does, and the queue
+    starts when the caller may start it. An item that could run on a paid
+    engine is left as it is unless the caller holds engines.paid, even
+    though it would run with its adder's rights: the press is what starts it.
+    For such a caller an item whose saved settings no longer apply is left
+    too, for its own Retry to explain; a caller with engines.paid skips that
+    check, so the item goes back and fails at its start."""
+    retried = skipped_paid = skipped_stale = 0
+    with _lock:
+        doc = _load()
+        for item in doc["items"]:
+            if item["status"] != INTERRUPTED or not _sees(principal, item) \
+                    or not _may_change(principal, item):
+                continue
+            if not holds_paid:
+                try:
+                    paid = _may_use_paid(item)
+                except ServiceError:
+                    skipped_stale += 1
+                    continue
+                if paid:
+                    skipped_paid += 1
+                    continue
+            _back_to_waiting(item, at_pc)
+            retried += 1
+        if retried and _controls(principal):
+            doc["state"], doc["notice"] = ACTIVE, None
+            if doc["schedule"] and doc["schedule"]["missed"]:
+                doc["schedule"] = None
+        elif retried:
+            _auto_start(doc, ownership_service.user_id(principal))
+        started = doc["state"] == ACTIVE
+        _save(doc)
+    _wake.set()
+    return {"retried": retried, "skipped_paid": skipped_paid, "skipped_stale": skipped_stale,
+            "started": bool(retried) and started}
 
 
 def clear_finished(principal) -> dict:
@@ -864,12 +950,11 @@ def _start_translate(principal, drama: dict, settings: Optional[dict] = None,
     _check_translate_spend(drama["id"], settings.get("model", saved[0]), settings.get("batch_size", saved[1]),
                            series_left=left, style_preset=settings.get("style_preset"))
     own = {k: settings[k] for k in ("style_preset", "batch_size") if k in settings}
-    return translate_thinking_service.start_with_thinking(
-        translate_run_service.start_translate_run, drama["id"], None, False,
-        model=settings.get("model"), style_note=args["style_note"],
+    return translate_run_service.start_translate_run(
+        drama["id"], model=settings.get("model"), style_note=args["style_note"],
         locale=settings.get("locale", args["locale"]), record_run=not settings, **own,
         allow_paid_summary=holds_paid and settings_service.get_monthly_cap_usd() > 0,
-        **({"job_cost_cap_usd": left} if left is not None else {}))["job_id"]
+        job_cost_cap_usd=left)["job_id"]
 
 
 def _require_chain_finished(item: dict, items: list) -> None:
