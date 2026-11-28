@@ -57,8 +57,46 @@ def _reason(exc) -> str:
     return text or type(exc).__name__
 
 
+# A script only one of the languages writes. A title in Han characters alone says
+# nothing: Chinese and Japanese both write them. Chinese titles borrow the odd の,
+# so kana must be a fair share of the title.
+_KANA_RE = re.compile(r"[\u3040-\u30ff]")
+_HANGUL_RE = re.compile(r"[\uac00-\ud7af\u1100-\u11ff]")
+_HAN_RE = re.compile(r"[\u3400-\u4dbf\u4e00-\u9fff]")
+_THAI_RE = re.compile(r"[\u0e00-\u0e7f]")
+_MIN_SCRIPT_CHARS = 2
+
+
+def title_language(title: str) -> str | None:
+    """The language a stream title's script gives away, else None."""
+    title = title or ""
+    kana, hangul = len(_KANA_RE.findall(title)), len(_HANGUL_RE.findall(title))
+    han, thai = len(_HAN_RE.findall(title)), len(_THAI_RE.findall(title))
+    if hangul >= _MIN_SCRIPT_CHARS and hangul > kana:
+        return "ko"
+    if kana >= _MIN_SCRIPT_CHARS and kana * 10 >= kana + han:
+        return "ja"
+    if thai >= _MIN_SCRIPT_CHARS:
+        return "th"
+    return None
+
+
+def title_language_notice(title: str, source_language: str) -> str | None:
+    """One sentence when the stream's title is plainly in another language than
+    the captions are set to, as file titles get from the audio check
+    (whisper_transcribe.language_mismatch_notice), else None."""
+    from whisper_transcribe import CHECKED_LANGUAGE_NAMES
+    seen = title_language(title)
+    chosen = CHECKED_LANGUAGE_NAMES.get(source_language)
+    if seen is None or chosen is None or seen == source_language:
+        return None
+    return (f"This stream's title looks {CHECKED_LANGUAGE_NAMES[seen]}, but captions are set to "
+            f"{chosen}. If the speech is {CHECKED_LANGUAGE_NAMES[seen]}, stop and start again with that language.")
+
+
 def resolve_stream_url(url: str, cookies_browser: str | None = None, cookies_file: str | None = None,
-                       proxy: str | None = None, ladder=None, live_only: bool = False) -> str:
+                       proxy: str | None = None, ladder=None, live_only: bool = False,
+                       on_title=None) -> str:
     """
     Resolves a page URL (YouTube live, or anything yt-dlp supports) to a
     direct, ffmpeg-playable media URL WITHOUT downloading anything -- the
@@ -71,6 +109,7 @@ def resolve_stream_url(url: str, cookies_browser: str | None = None, cookies_fil
     through this proxy URL (yt-dlp's `proxy` option).
     live_only: raise StreamEnded when the page is no longer live, rather than
     hand back the recording that replaces a broadcast once it ends.
+    on_title(title): called with the page's title ("" without one) once resolved.
     """
     try:
         import yt_dlp
@@ -133,6 +172,8 @@ def resolve_stream_url(url: str, cookies_browser: str | None = None, cookies_fil
 
     if live_only and info.get("live_status") in _ENDED_LIVE_STATUSES:
         raise StreamEnded("The stream is no longer live.")
+    if on_title is not None:
+        on_title(str(info.get("title") or ""))
     stream_url = info.get("url")
     if not stream_url:
         raise LiveCaptureError(

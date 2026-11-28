@@ -88,7 +88,7 @@ from live import live_whisper
 from live.live_audio import read_wav_tail, write_padded_chunk  # noqa: F401 -- re-exported for callers and tests
 from live.live_caption import ChunkCaptioner
 from live.live_cue_translation import CueTranslator
-from live.live_resolve import LiveCaptureError, StreamEnded, resolve_stream_url
+from live.live_resolve import LiveCaptureError, StreamEnded, resolve_stream_url, title_language_notice
 from live.live_tokens import LEADING_NON_WORD_RE, TOKEN_RE, tokens
 
 
@@ -809,7 +809,8 @@ class _LiveRun(ChunkCaptioner):
         try:
             self.source_url = _run_abortable(
                 lambda: resolve_stream_url(self.url, cookies_browser=self.cookies_browser,
-                                           cookies_file=self.cookies_file, proxy=self.proxy),
+                                           cookies_file=self.cookies_file, proxy=self.proxy,
+                                           on_title=self._check_title),
                 self.should_stop)
         except background_jobs.JobCancelled:
             background_jobs.update_progress(self.job_id, 1.0, "Stopped.")
@@ -819,6 +820,11 @@ class _LiveRun(ChunkCaptioner):
         if not self._warm_whisper():
             return
         self._capture_and_caption()
+
+    def _check_title(self, title):
+        notice = title_language_notice(title, self.source_language)
+        if notice:
+            self.note(notice, "title-language")
 
     def _warm_whisper(self):
         """False when a cancel ended the job during the load."""
