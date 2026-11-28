@@ -7080,6 +7080,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/live/sessions/{session_id}/names": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Fix a name for the rest of the session (its owner only); optionally save it to its glossary */
+        post: operations["post_name_fix_api_live_sessions__session_id__names_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/live/sessions/{session_id}/stop": {
         parameters: {
             query?: never;
@@ -24076,6 +24093,32 @@ export interface components {
             /** Label */
             label: string;
         };
+        /** LiveNameFix */
+        LiveNameFix: {
+            /** English */
+            english: string;
+            /** Source */
+            source: string;
+        };
+        /** LiveNameFixAdd */
+        LiveNameFixAdd: {
+            /** English */
+            english: string;
+            /**
+             * Save To Glossary
+             * @default false
+             */
+            save_to_glossary?: boolean;
+            /** Source */
+            source: string;
+        };
+        /** LiveNameFixes */
+        LiveNameFixes: {
+            /** Fixes */
+            fixes: components["schemas"]["LiveNameFix"][];
+            /** Session Id */
+            session_id: string;
+        };
         /** LiveOllamaCheck */
         LiveOllamaCheck: {
             /** Message */
@@ -24187,6 +24230,11 @@ export interface components {
         /** LiveSessionStatus */
         LiveSessionStatus: {
             /**
+             * Can Fix Names
+             * @default false
+             */
+            can_fix_names: boolean;
+            /**
              * Chat
              * @default false
              */
@@ -24206,6 +24254,11 @@ export interface components {
             /** Engine */
             engine: string | null;
             /**
+             * Has Glossary
+             * @default false
+             */
+            has_glossary: boolean;
+            /**
              * Lag Seconds
              * @default 0
              */
@@ -24214,6 +24267,11 @@ export interface components {
             message: string;
             /** Model */
             model: string | null;
+            /**
+             * Name Fixes
+             * @default []
+             */
+            name_fixes: components["schemas"]["LiveNameFix"][];
             /** Next Index */
             next_index: number;
             /**
@@ -55040,6 +55098,68 @@ export interface operations {
             };
             /** @description Service Unavailable */
             503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    post_name_fix_api_live_sessions__session_id__names_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LiveNameFixAdd"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LiveNameFixes"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
                 headers: {
                     [name: string]: unknown;
                 };

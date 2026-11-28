@@ -20,6 +20,12 @@ export type LiveSessionSummary = Schemas['LiveSessionSummary']
 
 export type LiveSessionStopped = Schemas['LiveSessionStopped']
 
+export type LiveNameFix = Schemas['LiveNameFix']
+
+export type LiveNameFixAdd = Schemas['LiveNameFixAdd']
+
+export type LiveNameFixes = Schemas['LiveNameFixes']
+
 // Followed channels (api/routers/live_follow_routes.py). Never a URL:
 // `channel` is the short label ("@name", "channel/UC...").
 export type LiveFollowMode = 'notify' | 'auto'
