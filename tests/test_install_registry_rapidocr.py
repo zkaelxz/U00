@@ -145,3 +145,9 @@ def test_the_gpu_text_reader_pin_has_a_wheel_for_the_python_and_fits_the_constra
         assert version in limit
         assert tuple(map(int, version.split("."))) >= first_wheel
     assert install_registry.ort_gpu_pin((3, 14)) == install_registry.ort_gpu_pin((3, 13))
+
+
+def test_the_gpu_text_reader_pin_accepts_a_dotted_version_string():
+    assert install_registry.ort_gpu_pin("3.13") == install_registry.ort_gpu_pin((3, 13))
+    assert install_registry.ort_gpu_pin("3.13.17") == install_registry.ort_gpu_pin((3, 13))
+    assert install_registry.ort_gpu_pin("3.12") == install_registry.ORT_GPU_BY_PYTHON[(3, 12)]

@@ -36,7 +36,10 @@ ORT_GPU_BY_PYTHON = {(3, 12): "onnxruntime-gpu==1.19.2", (3, 13): "onnxruntime-g
 
 
 def ort_gpu_pin(version_info=None) -> str:
-    v = tuple((version_info or sys.version_info)[:2])
+    v = version_info or sys.version_info
+    if isinstance(v, str):
+        v = tuple(int(part) for part in v.split(".")[:2])
+    v = tuple(v[:2])
     return ORT_GPU_BY_PYTHON[(3, 13)] if v >= (3, 13) else ORT_GPU_BY_PYTHON[(3, 12)]
 
 
