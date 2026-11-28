@@ -404,17 +404,19 @@ class TestStartRefusal:
         assert "old reason" not in str(exc.value)
 
 
-    def test_waiting_for_another_click_never_shows_an_old_sentence(self, data_dir, monkeypatch):
+    def test_waiting_for_another_click_shows_that_clicks_reason(self, data_dir, monkeypatch):
+        # The first click cleared old files under the start lock, so a file
+        # there while this one waits is the first click's own refusal, even
+        # one written before this click got as far as waiting.
         (data_dir / "launcher").mkdir(parents=True)
-        (data_dir / "launcher" / launcher.START_REFUSAL_NAME).write_text("old reason", encoding="utf-8")
+        (data_dir / "launcher" / launcher.START_REFUSAL_NAME).write_text("fresh reason", encoding="utf-8")
         monkeypatch.setattr(launcher, "health_ok", lambda port, timeout=1.0: False)
         monkeypatch.setattr(launcher, "port_open", lambda port: False)
         monkeypatch.setattr(launcher, "apply_pending_install", lambda *a: None)
         monkeypatch.setattr(launcher, "acquire_start_lock", lambda: False)
         monkeypatch.setattr(launcher, "wait_for_health", lambda port, proc=None: False)
-        with pytest.raises(launcher.LaunchError, match="didn't answer") as exc:
+        with pytest.raises(launcher.LaunchError, match="fresh reason"):
             launcher.launch()
-        assert "old reason" not in str(exc.value)
 
 
 class TestWaitForHealth:
