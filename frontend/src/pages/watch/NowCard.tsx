@@ -2,6 +2,7 @@
 import type { MouseEvent, ReactNode, Ref } from 'react'
 
 import { ErrorBanner } from '../../components/ErrorBanner'
+import { chineseLang } from '../../hanScript'
 import { buttonClass } from '../../components/uiClasses'
 import type { ReviewLine } from '../../types/review'
 import { LineMarkBadge } from '../workspace/stages/review/LineMarkButtons'
@@ -65,7 +66,7 @@ export function NowCard({ line, dramaId, sourceLanguage, canEdit, fix, busy, sta
             {line.reviewed && <span className="watch-now-checked" data-testid="watch-now-checked">✓ Looks right</span>}
             {line.flag && <span className="watch-now-flag">⚑ Flagged</span>}
           </p>
-          {line.zh && <p className="watch-now-zh" lang={line.lang || sourceLanguage}>{line.zh}</p>}
+          {line.zh && <p className="watch-now-zh" lang={chineseLang(line.lang || sourceLanguage, line.zh, sourceLanguage)}>{line.zh}</p>}
           {/* Keyed by line so the next line starts closed rather than showing the last breakdown. */}
           {dramaId !== undefined && line.zh && !fix && <StudyLine key={line.id} dramaId={dramaId} lineId={line.id} language={line.lang || sourceLanguage} />}
           {fix ? (

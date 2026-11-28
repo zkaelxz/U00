@@ -116,13 +116,15 @@ def test_a_failed_overlay_render_keeps_the_boxes_and_hides_the_detail(token, fak
     assert any("typeset failed" in n[1] for n in page["notes"])
 
 
-def test_the_unsaved_page_s_temp_files_are_removed(token, fake_pipeline, drama, monkeypatch):
+def test_the_unsaved_page_s_temp_files_are_removed(token, fake_pipeline, drama, monkeypatch, tmp_path):
     import glob
     import tempfile
 
     from scanlate import scanlate_render
+    # Other xdist workers' overlay sends make baihe_page_* files in the shared system temp too.
+    monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
+
     def ours():
-        # Only the prefixes page_server creates: other xdist workers make baihe_test_* dirs in the system temp.
         return set(glob.glob(storage.temp_root() + "/typeset~*")
                    + glob.glob(tempfile.gettempdir() + "/baihe_page_*"))
 
