@@ -50,7 +50,7 @@ describe('QueueRow', () => {
   })
 
   it('says a waiting paid Translate uses your key and costs money', () => {
-    expect(row({ step: 'translate', engine: 'claude', paid: true })).toContain('Uses your API key and costs money.')
+    expect(row({ step: 'translate', engine: 'claude', paid: true })).toContain('which costs money.')
   })
 
   it("shows no controls on someone else's item", () => {

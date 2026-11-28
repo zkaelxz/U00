@@ -288,6 +288,18 @@ def test_fix_flagged_uses_the_titles_last_run_locale_and_style_note(monkeypatch)
     assert "Keep honorifics." not in prompts[0] and "British English" not in prompts[0]
 
 
+def test_fix_flagged_uses_the_titles_last_run_style_preset(monkeypatch):
+    from services import workspace_review_job_service as wrj
+    did = _seed((("你好", "old", "uncertain"),))
+    db.update_drama(did, translate_start_json=json.dumps({"style_preset": "novel"}))
+    presets, real = [], wrj.build_run_style_context
+    monkeypatch.setattr(wrj, "build_run_style_context",
+                        lambda d, dr, ln, preset, **k: presets.append(preset) or real(d, dr, ln, preset, **k))
+    _fake_fix_llm(monkeypatch)
+    wait_for_job(svc.start_fix_flagged(did, engine_name="claude")["job_id"])
+    assert presets == ["novel"]
+
+
 @pytest.mark.parametrize("starter", ["start_flag_review", "start_consistency_check",
                                       "start_emotion_tagging", "start_translation_notes",
                                       "start_fix_flagged"])

@@ -120,3 +120,19 @@ test('a review left after one run picks up with Run the remaining', async ({ pag
   expect(captures).toEqual([2, 3])
   expect(runBodies.map((b) => (b as { line_ids: number[] }).line_ids)).toEqual([[1, 2, 3], [1, 2, 3]])
 })
+
+test('on Ollama it says the three runs will match', async ({ page }) => {
+  await page.route('**/api/**', (route) => (route.request().method() === 'GET' ? route.continue() : route.abort()))
+  await page.route('**/api/review/dramas/3/lines?*', (route) =>
+    route.fulfill({ json: { lines: [1, 2].map(line), page: 1, page_size: 40, total: 2, flagged_count: 0, untranslated_count: 0 } }))
+  await page.route('**/api/three-run/dramas/3', (route) =>
+    route.fulfill({ json: { active: false, runs_done: 0, history_id: null, line_count: 0, items: [] } }))
+  await page.route('**/api/translate-run/dramas/3/config', async (route) => {
+    const real = await route.fetch()
+    return route.fulfill({ response: real, json: { ...(await real.json()), translation_engine: 'ollama' } })
+  })
+
+  await page.goto('/#/drama/3/review')
+  await openFoldFor(page, 'Run 3 times, review differences')
+  await expect(page.getByTestId('three-run-same')).toContainText('the three runs will almost always agree')
+})

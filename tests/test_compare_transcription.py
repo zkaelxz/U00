@@ -439,6 +439,15 @@ class TestTranslation:
         ctx = _env["engine"].contexts[0]
         assert ctx["locale"] == "en-AU" and ctx["style_note"] == "Plain and short."
 
+    def test_uses_the_titles_last_run_style_preset(self, _env, monkeypatch):
+        presets, real = [], svc.workspace_job_service.build_run_style_context
+        monkeypatch.setattr(svc.workspace_job_service, "build_run_style_context",
+                            lambda d, dr, ln, preset, **k: presets.append(preset) or real(d, dr, ln, preset, **k))
+        did, _ = _drama(2, translate_start_json=json.dumps({"style_preset": "novel"}))
+        _run(did, translate=True, engine_name="claude",
+             selection={"kind": "range", "from_number": 1, "to_number": 2})
+        assert presets == ["novel"]
+
     def test_retranslate_current(self, _env):
         did, _ = _drama(2)
         _run(did, translate=True, retranslate_current=True, engine_name="claude",

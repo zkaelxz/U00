@@ -203,6 +203,12 @@ export function ThreeRunReview({ dramaId, jobRunning, onChanged }: { dramaId: nu
               English, hand edits included; a snapshot is taken first. Keep this page open while the runs go; if they stop, Run the remaining picks up from there.
             </p>
             <LineAiPicker picker={picker} disabled={busy} />
+            {(engine || config?.translation_engine) === 'ollama' && (
+              <p className="muted" data-testid="three-run-same">
+                Ollama gives the same answer each time, so the three runs will almost always agree and you pay for all three.
+                Pick another engine to compare.
+              </p>
+            )}
             <p data-testid="three-run-estimate">
               {selectedIds.length ? `${selectedIds.length} line${selectedIds.length === 1 ? '' : 's'} ticked` : 'All lines'}
               {per != null && ` · 3 runs, estimate ${formatUsd(per * RUNS)}`}
