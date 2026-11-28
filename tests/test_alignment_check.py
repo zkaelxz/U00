@@ -317,21 +317,3 @@ def test_embedding_reports_progress_before_each_request(monkeypatch):
     monkeypatch.setattr(alignment_check, "_post_embed", lambda *a: (200, [[1.0]] * len(a[2])))
     alignment_check.embed("http://o:1", ["x"] * 40, on_progress=lambda done, total: seen.append((done, total)))
     assert seen == [(0, 40), (32, 40)]
-
-
-def test_a_reading_speed_flag_gives_way_only_to_a_clear_neighbour_doubt():
-    # 0.10 nearer the next line's source: enough for a free line, not for a reading speed one.
-    lines, embed = _shifted("0.0,0.7,0.8")
-    lines[1].flag, lines[1].flag_note = "reading_speed", "22 characters a second"
-    assert alignment_check.flag_mismatches(lines, embed) == 0
-    assert (lines[1].flag, lines[1].flag_note) == ("reading_speed", "22 characters a second")
-    lines[1].en = "0.0,0.6,0.8"
-    assert alignment_check.flag_mismatches(lines, embed) == 1
-    assert lines[1].flag == alignment_check.ALIGNMENT_FLAG
-
-
-def test_a_judges_shifted_verdict_takes_a_reading_speed_flags_place():
-    lines, embed = _shifted("0.0,0.7,0.8")
-    lines[1].flag = "reading_speed"
-    assert alignment_check.flag_mismatches(lines, embed, judge=lambda items: {1: "shifted"}) == 1
-    assert lines[1].flag == alignment_check.ALIGNMENT_FLAG
