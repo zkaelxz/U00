@@ -1,10 +1,12 @@
 """Keeps Windows from sleeping while there is work to finish, from one thread of its own."""
+import logging
 import os
 import threading
 
 ES_CONTINUOUS = 0x80000000
 ES_SYSTEM_REQUIRED = 0x00000001
 CHECK_SECONDS = 5.0
+_log = logging.getLogger("baihe")
 
 
 def _windows_setter():
@@ -59,16 +61,20 @@ class KeepAwake:
                 if want != self.holding:
                     self._apply(ES_CONTINUOUS | (ES_SYSTEM_REQUIRED if want else 0))
                     self.holding = want
+                    _log.info("Keep PC awake: on (a job is queued or running)" if want
+                              else "Keep PC awake: off (no jobs left)")
                 self._stop.wait(self._interval)
         finally:
             if self.holding:
                 self._apply(ES_CONTINUOUS)
                 self.holding = False
+                _log.info("Keep PC awake: off (app stopping)")
 
     def _apply(self, flags: int) -> None:
         if self._set_state is None:
             return
         try:
             self._set_state(flags)
-        except Exception:
-            pass   # nothing to do about it; the next change tries again
+        except Exception as exc:
+            # Nothing to do about it; the next change tries again.
+            _log.warning("Keep PC awake: Windows refused the request (%s)", type(exc).__name__)

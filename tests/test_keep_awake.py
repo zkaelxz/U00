@@ -108,3 +108,23 @@ def test_the_server_holds_it_while_a_job_runs(isolated_db, monkeypatch):
     finally:
         gate.set()
         background.stop_keep_awake()
+
+
+def test_taking_and_releasing_the_hold_is_logged(caplog):
+    import logging
+    import time
+    from lib.keep_awake import KeepAwake
+    busy = [True]
+    keeper = KeepAwake(lambda: busy[0], set_state=lambda flags: None, interval=0.01)
+    with caplog.at_level(logging.INFO, logger="baihe"):
+        keeper.start()
+        deadline = time.monotonic() + 2
+        while not keeper.holding and time.monotonic() < deadline:
+            time.sleep(0.01)
+        busy[0] = False
+        while keeper.holding and time.monotonic() < deadline:
+            time.sleep(0.01)
+        keeper.stop()
+    messages = [r.getMessage() for r in caplog.records]
+    assert "Keep PC awake: on (a job is queued or running)" in messages
+    assert "Keep PC awake: off (no jobs left)" in messages
