@@ -245,6 +245,7 @@ test('stacked cards on every Settings tab are never touching', async ({ page }) 
       const rects = cards.map((e) => e.getBoundingClientRect()).sort((a, b) => a.top - b.top)
       return rects.slice(1).map((r, i) => Math.round(r.top - rects[i].bottom))
     })
+    if (tab === 'Engines and keys') expect(gaps.length, 'Engines and keys stacks several cards in one wrapper').toBeGreaterThan(1)
     // A note between two cards may widen a gap; none may be under the page gap.
     expect(Math.min(...gaps, 99), `${tab}: gaps ${gaps}`).toBeGreaterThanOrEqual(24)
   }

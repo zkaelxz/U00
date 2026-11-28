@@ -405,7 +405,7 @@ a:hover { text-decoration-color: currentColor; }
   overflow-x: auto;
 }
 #root > .panel { max-width: var(--page-narrow); margin-inline: auto; }
-@media (max-width: 640px) { .panel { padding: var(--space-4); } .tools-stack { padding-inline: var(--space-4); } }
+@media (max-width: 640px) { .panel { padding: var(--space-4); } }
 .panel > :last-child { margin-bottom: 0; }
 /* Specificity 0,1,1: a list class that wants no indent has to use `padding: 0 !important` to win, so those
    `!important`s across the stylesheets are required. */
@@ -1186,6 +1186,7 @@ a.drama-card-title:focus-visible { outline: none; box-shadow: none; }
 
 /* Library tools: rare lists, all folded */
 .tools-stack { display: grid; gap: 0; padding: var(--space-2) var(--space-5); }
+@media (max-width: 640px) { .tools-stack { padding-inline: var(--space-4); } }
 .tools-stack details.section { margin: 0; border: 0; border-bottom: 1px solid var(--border); border-radius: 0; padding: var(--space-2) 0; }
 .tools-group-title { margin: var(--space-4) 0 var(--space-1); font-size: var(--text-sm); font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
 .tools-export { margin-top: var(--page-gap); }
