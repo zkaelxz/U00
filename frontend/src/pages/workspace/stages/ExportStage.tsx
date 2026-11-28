@@ -128,7 +128,9 @@ export default function ExportStage() {
   const sentForm = earMarks || !form.earPlacement ? form : { ...form, earPlacement: false }
   const assStyle = options ? <ExportAss form={form} setForm={setForm} options={options} earMarks={earMarks} sourceLanguage={drama.source_language} /> : <ErrorBanner error={optionsError} />
   const mediaRequest = () =>
-    options ? buildAssRequest(sentForm, options) : { error: 'The style options have not loaded yet.' }
+    options
+      ? buildAssRequest({ ...sentForm, soundCaptions: !!r?.sound_captioned_lines && form.soundCaptions }, options)
+      : { error: 'The style options have not loaded yet.' }
   const reasonOf = (id: ExportBlockId) => exportBlockReason(id, inputs) ?? (id === 'burned_video' && libass ? NO_LIBASS : null)
   const shown = shownExportBlocks(kind, simple, inputs)
   // Picked once, after the reads that decide the reasons have answered, and the blocks mount only then: a block that
@@ -154,6 +156,7 @@ export default function ExportStage() {
           setForm={setForm}
           options={options}
           totalLines={r ? r.total_lines : null}
+          soundLines={r ? r.sound_captioned_lines : null}
         />
         {fmt === 'ass' && assStyle}
         <div className="actions">

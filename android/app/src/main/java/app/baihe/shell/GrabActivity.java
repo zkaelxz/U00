@@ -930,7 +930,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
                 say("Open the series page, the one that lists its chapters, first.");
                 return;
             }
-            SeriesRun.Plan plan = SeriesRun.plan(links, GrabStore.doneChapters(prefs()), GrabStore.history(prefs()), GrabStore.queue(prefs()));
+            SeriesRun.Plan plan = SeriesRun.plan(links, GrabStore.doneChapters(prefs()), GrabStore.doneHistory(prefs()), GrabStore.queue(prefs()));
             int room = GrabQueue.MAX_QUEUED - GrabStore.queue(prefs()).size();
             if (plan.fresh.isEmpty() || room <= 0) {
                 say(plan.fresh.isEmpty() ? "Every chapter listed here is already done or waiting." : "The queue is full.");
@@ -1279,7 +1279,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
                 next = ServerAddress.nextChapterUrl(pageUrl, pageNext);
                 if (next == null) {
                     message = message + (toEnd ? ". That was the last chapter." : ". No next chapter link was found.");
-                } else if (toEnd && SeriesRun.stopsBefore(next, pageUrl, GrabStore.doneChapters(prefs()), GrabStore.history(prefs()))) {
+                } else if (toEnd && SeriesRun.stopsBefore(next, pageUrl, GrabStore.doneChapters(prefs()), GrabStore.doneHistory(prefs()))) {
                     // An earlier run already sent everything from here on; going further would only repeat it.
                     next = null;
                     message = message + ". The next chapter was grabbed before, so it stopped here.";

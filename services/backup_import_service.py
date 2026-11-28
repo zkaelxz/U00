@@ -103,11 +103,13 @@ _VOICE_BANK_DIRNAME = "voice_bank"
 # pages' own fields. Not the system tab (GPU, memory, voice detection: this
 # PC's hardware), not App updates (how this PC's install updates), not this
 # PC's spending cap, keys (the Gemini free-tier switch describes this PC's key),
-# pop-up or sharing default, not a card with its own UI or state the app keeps for
+# pop-up or sharing default, not whether this PC lets pages and default runs go to
+# Ollama's servers, not a card with its own UI or state the app keeps for
 # itself (no tab), and never a key, a path or anything a whole-library restore
 # keeps from this library.
 _SETTINGS_TABS = ("translation", "preferences")
 _SETTINGS_SKIPPED_SECTIONS = ("App updates", "Spending", "Keys", "Notifications", "Sharing")
+_SETTINGS_SKIPPED_KEYS = ("scanlate_page_image", "ollama_cloud_default")
 KEYS_NOT_IMPORTED = ("API keys are never in a backup: enter them again in Settings > "
                      "Engines and keys.")
 
@@ -120,7 +122,8 @@ def _importable_settings() -> dict:
     return {st.store_key: st.key for st in settings_schema.SETTINGS
             if st.store == "db" and st.tab in _SETTINGS_TABS and not st.custom
             and not st.secret and st.type != "path" and not st.dev_only
-            and st.section not in _SETTINGS_SKIPPED_SECTIONS and st.store_key not in kept}
+            and st.section not in _SETTINGS_SKIPPED_SECTIONS and st.key not in _SETTINGS_SKIPPED_KEYS
+            and st.store_key not in kept}
 
 
 def _save_upload(stream, dest: str):

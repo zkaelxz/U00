@@ -45,11 +45,13 @@ interface Props {
   options: AssStyleOptions | null
   // Lines in the drama from the readiness check; null while it loads or if it failed.
   totalLines: number | null
+  // Lines the title's audio tags give a sound caption; 0 or null hides the option.
+  soundLines?: number | null
 }
 
 // The one primary panel: Format, Language and a single Export (download) button.
 // Notes and line wrapping live in Advanced; the shared form also feeds ASS and burned-in video.
-export function ExportSubtitles({ fmt, setFmt, form, setForm, options, totalLines }: Props) {
+export function ExportSubtitles({ fmt, setFmt, form, setForm, options, totalLines, soundLines }: Props) {
   const { dramaId, drama, refetchDrama } = useStage()
   const blocked = exportBlocked(totalLines)
   const sourceLanguage = readingLanguage(drama.source_language)
@@ -72,13 +74,15 @@ export function ExportSubtitles({ fmt, setFmt, form, setForm, options, totalLine
     latest.current += 1
   }, [selection])
 
+  // A saved draft can hold the option while the toggle is hidden (no tagged lines, or readiness not in).
+  const sent = { ...form, soundCaptions: !!soundLines && form.soundCaptions }
   const fetchText = (): Promise<SubtitleFile> | null => {
     if (fmt === 'ass') {
       if (!options) {
         setProblem('The style options have not loaded yet.')
         return null
       }
-      const built = buildAssRequest(form, options)
+      const built = buildAssRequest(sent, options)
       setProblem(built.error ?? null)
       return built.request ? getAssText(dramaId, built.request) : null
     }
@@ -90,6 +94,7 @@ export function ExportSubtitles({ fmt, setFmt, form, setForm, options, totalLine
       fmt, field: form.field, includeNotes: form.includeNotes, wrapEn: en.value, wrapSource: src.value,
       tidyTiming: form.tidyTiming && fmt === 'srt',
       speakerNames: form.speakerNames,
+      soundCaptions: sent.soundCaptions,
       readingLine: !!sourceLanguage && form.field !== 'en' && form.readingLine && fmt !== 'lrc',
     })
   }
@@ -199,6 +204,14 @@ export function ExportSubtitles({ fmt, setFmt, form, setForm, options, totalLine
           >
             <Toggle checked={form.tidyTiming} onChange={(v) => set('tidyTiming', v)} />
           </Field>
+          {!!soundLines && (
+            <Field
+              label="Sound captions"
+              help={`Start the English of ${soundLines} ${soundLines === 1 ? 'line' : 'lines'} with what Audio tags heard: [laughs], [crying], [applause], [coughs], [sneezes], and [music] where music starts. For anyone who can't hear the audio well. The source-language export is unchanged.`}
+            >
+              <Toggle checked={form.soundCaptions} onChange={(v) => set('soundCaptions', v)} />
+            </Field>
+          )}
         </div>
       </Section>
       {problem && <p className="error" role="alert">{problem}</p>}

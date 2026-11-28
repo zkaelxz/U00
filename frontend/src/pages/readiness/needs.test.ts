@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { LIVE_DEFAULT_MODEL } from '../../api/live'
 import type { SetupReadiness } from '../../types/setup'
 import {
-  ankiNeed, cardAudioNeed, gpuSettingNote, audioToolNeed, gpuTorchNeed, libassNeed, liveBlockers, gpuOnText, liveGpuReason, liveNeeds, liveWhisperOptionNote, liveWhisperSize, senseVoiceNeed, wordSplitterNeed, ytDlpNeed, qwen3Need, qwen3Warning, qwenAlignNeed, realignNeed, runBlockers, separationNeed,
+  ankiNeed, cardAudioNeed, gpuSettingNote, audioToolNeed, gpuTorchNeed, libassNeed, liveBlockers, gpuOnText, liveGpuReason, liveNeeds, liveWhisperOptionNote, liveWhisperSize, whisperSizeCached, senseVoiceNeed, wordSplitterNeed, ytDlpNeed, qwen3Need, qwen3Warning, qwenAlignNeed, realignNeed, runBlockers, separationNeed,
   browserTierNeed, mlDetectorNeed, notifyNeed, ollamaNeed, ocrBackendNeed, trafilaturaNeed,
   nemotronWillRun, scanlateNeed, speakerNeeds, transcribeNeeds, unavailableBackends, urlDownloadNeeds, usesLocalWhisper, whisperNeed, type TranscribeNeedsForm,
 } from './needs'
@@ -383,5 +383,20 @@ describe('ollamaNeed', () => {
   it('names the model to pull when Ollama runs without it', () => {
     const need = ollamaNeed({ ...FRESH, ollama_reachable: true, ollama_model_pulled: false })
     expect(need?.reason).toContain(`ollama pull ${LIVE_DEFAULT_MODEL}`)
+  })
+})
+
+describe('whether the picked Whisper size is on this PC', () => {
+  const saved = { size: 'large-v3', cached: true }
+  it('follows the picked size; the saved size keeps the title config\'s answer', () => {
+    const r = { whisper_cached_large_v3: true, whisper_cached_breeze_asr_25: false } as unknown as SetupReadiness
+    expect(whisperSizeCached(r, 'breeze-asr-25', saved)).toBe(false)
+    expect(whisperSizeCached(r, 'large-v3', { size: 'large-v3', cached: false })).toBe(false)
+    expect(whisperSizeCached(r, 'large-v3', { size: 'breeze-asr-25', cached: false })).toBe(true)
+    expect(whisperSizeCached(r, 'large-v3', null)).toBe(true)
+  })
+  it('is unknown for a size that is neither saved nor listed by readiness', () => {
+    expect(whisperSizeCached(null, 'breeze-asr-25', saved)).toBeNull()
+    expect(whisperSizeCached({} as SetupReadiness, 'kotoba-v2', saved)).toBeNull()
   })
 })
