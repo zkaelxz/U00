@@ -24,13 +24,13 @@ describe('engine display helpers', () => {
     expect(engineOptionLabel({ name: 'deepseek', key_configured: true })).toBe('DeepSeek')
     expect(engineOptionLabel({ name: 'openai', key_configured: false })).toBe('OpenAI (no key)')
     expect(engineOptionLabel({ name: 'openai', key_configured: false, package_installed: false })).toBe('OpenAI (not installed)')
-    expect(engineOptionLabel({ name: 'ollama', key_configured: false })).toBe('Ollama (local) (not running)')
+    expect(engineOptionLabel({ name: 'ollama', key_configured: false })).toBe('Ollama (not running)')
     expect(
       engineNotesHelp([
         { name: 'claude', label: 'Paid, cloud.' },
         { name: 'ollama', label: 'Free and private.' },
       ]),
-    ).toBe('Claude: Paid, cloud. Ollama (local): Free and private.')
+    ).toBe('Claude: Paid, cloud. Ollama: Free and private.')
   })
 
   it('summarises a long label as its first sentence', () => {

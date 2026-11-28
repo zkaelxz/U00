@@ -115,7 +115,7 @@ export function ClipImportSection({ options, pc, onDone }: Props) {
   }
 
   return (
-    <Section title="Your own clips" summary="Upload audio with its transcript" storageKey="benchmark.clips" defaultOpen>
+    <Section title="Your own clips" summary="Upload audio with its transcript">
       <p className="muted">
         Pick the audio files you want to test on, then type each clip's transcript (and, if you have one, its translation).
         A clip becomes a transcription case; with a translation it also becomes a translation case. Write each transcript

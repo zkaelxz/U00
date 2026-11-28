@@ -136,7 +136,7 @@ export function TimingTab({ settings, developerMode, onSaved, onClearCache, clea
             {cache.entries ? `${cache.entries} item${cache.entries === 1 ? '' : 's'} · ${formatDecimalBytes(cache.bytes)}` : 'empty'}
           </span>
           {cache.entries > 0 && (
-            <ConfirmButton label="Clear cache…" name="raw-content cache" verb="clear" busy={clearing} onConfirm={onClearCache} />
+            <ConfirmButton label="Clear cache…" name="saved pages" verb="clear" busy={clearing} onConfirm={onClearCache} />
           )}
         </div>
       </ManageCard>

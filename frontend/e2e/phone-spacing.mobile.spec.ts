@@ -82,7 +82,7 @@ for (const size of sizes) {
     await load(page, '/#/drama/1/translate')
     const blocker = page.getByTestId('translate-blocker')
     await expect(blocker).toBeVisible()
-    const primary = page.locator('.translate-go > button.primary')
+    const primary = page.locator('.translate-go > button.btn-primary')
     const p = (await primary.boundingBox())!
     const b = (await blocker.boundingBox())!
     expect(b.y - (p.y + p.height)).toBeGreaterThanOrEqual(8)
