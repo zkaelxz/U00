@@ -12,7 +12,7 @@ import { usePersistedState } from '../../hooks/usePersistedState'
 import type { JobRecord } from '../../types/jobs'
 import { BenchSection } from './BenchSection'
 import { JobProgress } from './RunCard'
-import { formatCost, formatScore, formatWhen, plainError, runningStatus } from './benchmarkForm'
+import { formatCost, formatScore, formatWhen, plainError } from './benchmarkForm'
 import {
   SWEEP_LANGUAGES, canDecide, cerPoints, formatSweepTime, passesLine, recommendationLabel, recommendationTone, startLabel,
   startProblem, stepLabel, sweepKey, sweepSets, sweepStatusLabel, sweepStatusTone,
@@ -99,7 +99,6 @@ export function SweepCard({ sets, pc, job, running, onStarted, onStop, onCompare
     <BenchSection
       id="sweep"
       meta={sweep ? `Latest: ${sweep.set_name} (${sweep.language}) · ${sweepStatusLabel(sweep.status)}` : undefined}
-      status={sweeping ? runningStatus(job) : null}
       className="sweep"
     >
       <p className="muted sweep-intro">

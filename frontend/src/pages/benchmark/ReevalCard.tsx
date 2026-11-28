@@ -25,7 +25,7 @@ import { EngineBlockNotes } from './EngineBlockNotes'
 import { EstimateBlock, JobProgress } from './RunCard'
 import {
   TIER_LABELS, casesInSelection, deltaTone, formatCost, formatDelta, formatLatency, formatScore, formatWhen, plainError, runStatusLabel,
-  runStatusTone, runningStatus, setOptions, benchmarkTierLabel,
+  runStatusTone, setOptions, benchmarkTierLabel,
 } from './benchmarkForm'
 import {
   MAX_NOTE_CHARS, MAX_REASON_CHARS, addOutcome, canPromote, canReopen, candidateBody, candidateEngines, candidateStatusLabel,
@@ -120,7 +120,6 @@ export function ReevalCard({ options, sets, pc, phone, job, running, onStarted, 
     <BenchSection
       id="reeval"
       meta={`${open.length} open ${open.length === 1 ? 'candidate' : 'candidates'} · schedule ${overview.settings.schedule_enabled ? 'on' : 'off'}`}
-      status={showProgress ? runningStatus(job) : null}
       className="reeval"
     >
       {loadError && (
@@ -661,7 +660,7 @@ function ScheduleSection({ overview, options, sets, remote, savedEstimate, onSav
   }
 
   return (
-    <Section title="Schedule and golden set" summary={scheduleSummary(saved, tierName)} storageKey="benchmark.reevalSchedule" defaultOpen>
+    <Section title="Schedule and golden set" summary={scheduleSummary(saved, tierName)} storageKey="benchmark.reevalSchedule" defaultOpen keepFold>
       <div className="setting-list">
         <Field
           label="Re-evaluate on a schedule"
@@ -751,6 +750,7 @@ function HistorySection({ decisions, candidates }: { decisions: ModelDecision[] 
       summary={decisions === null ? 'Could not load' : n ? 'Newest first' : 'None yet'}
       storageKey="benchmark.reevalHistory"
       defaultOpen
+      keepFold
     >
       {decisions === null ? (
         <p className="muted">The decision history could not be loaded.</p>

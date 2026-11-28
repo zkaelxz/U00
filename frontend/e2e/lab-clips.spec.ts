@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { openBenchTab } from './benchSections'
+import { flatSection, openBenchTab } from './benchSections'
 import { enableDeveloperMode } from './sourceHelpers'
 
 // The Benchmark Lab page is behind Developer Mode.
@@ -17,9 +17,9 @@ const audio = (name: string) => ({ name, mimeType: 'audio/wav', buffer: Buffer.f
 test('Benchmark Lab: upload clips, fix a reference, exclude, compare on shared clips, export, delete a run', async ({ page }) => {
   const setName = `clips-${Date.now()}`
   await page.goto('/#/benchmark')
-  await openBenchTab(page, 'Golden sets')
+  await openBenchTab(page, 'Add cases')
   const sets = page.getByRole('region', { name: 'Golden sets' })
-  const clips = sets.locator('details', { hasText: 'Your own clips' })
+  const clips = flatSection(page, 'Your own clips')
 
   // Nothing to save until there are files, a set name and a transcript for every clip.
   await expect(clips.getByRole('button', { name: 'Save clips' })).toBeDisabled()
@@ -48,6 +48,7 @@ test('Benchmark Lab: upload clips, fix a reference, exclude, compare on shared c
   await expect(clips.getByRole('button', { name: 'Save clips' })).toBeEnabled()
   await clips.getByRole('button', { name: 'Save clips' }).click()
   await expect(clips.getByRole('status').filter({ hasText: 'Added 2 clips' })).toContainText('2 transcription, 2 translation')
+  await openBenchTab(page, 'Golden sets')
   const transcription = sets.getByRole('row', { name: new RegExp(`${setName}.*Transcription`) })
   await expect(transcription).toContainText('2')
 

@@ -17,7 +17,7 @@ for (const theme of ['light', 'dark', 'sepia', 'oled']) {
     await installHitArea(page)
     await page.addInitScript((t) => localStorage.setItem('baihe.theme', t), theme)
     await mockLab(page, () => finished)
-    await page.goto('/#/benchmark?tab=run')
+    await page.goto('/#/benchmark?tab=sweep')
     const card = page.getByRole('region', { name: 'Settings sweep' })
     await expect(card.getByTestId('sweep-recommendation')).toContainText('Change recommended')
     await expect(card.getByRole('list', { name: 'Held-out score by tag' })).toContainText('Too few clips to decide')
@@ -35,7 +35,7 @@ test('Settings sweep on the remote view leaves out the PC-only controls and note
   await page.route('**/api/meta', (r) =>
     r.fulfill({ json: { app: 'Baihe Studio', api_version: '0.1', environment: 'production', local: false } }))
   await mockLab(page, () => finished)
-  await page.goto('/#/benchmark?tab=run')
+  await page.goto('/#/benchmark?tab=sweep')
   const card = page.getByRole('region', { name: 'Settings sweep' })
   await expect(card.getByTestId('sweep-recommendation')).toContainText('Change recommended')
   await expect(card.getByRole('button', { name: 'Estimate', exact: true })).toBeVisible()
