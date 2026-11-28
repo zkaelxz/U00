@@ -1,6 +1,6 @@
 import { expect, test } from './fixtures'
 import { hitHeight, installHitArea } from './hitArea'
-import { mockLibraryOrder } from './libraryOrderMocks'
+import { DRAMAS, mockLibraryOrder } from './libraryOrderMocks'
 
 // Phone (390x844): the Library's first title is on screen, the filters sit in a sheet, the new title
 // sheet keeps Create and Clear and close in reach, and small controls keep a 44px hit area.
@@ -49,4 +49,17 @@ test('help and small buttons keep a 44px hit area', async ({ page }) => {
     expect(await hitHeight(page.getByRole('link', { name: new RegExp(`^${name}`) }).or(page.getByRole('button', { name: new RegExp(`^${name}`) })).first())).toBeGreaterThanOrEqual(44)
   }
   expect(await hitHeight(page.getByRole('button', { name: 'Select', exact: true }))).toBeGreaterThanOrEqual(44)
+})
+
+test('300 titles show 20 cards, then 20 more per Show more', async ({ page }) => {
+  const many = Array.from({ length: 300 }, (_, i) => ({ ...DRAMAS[0], id: 1000 + i, title_en: `Title ${i}`, series_id: null }))
+  await page.route('**/api/library/dramas**', (route) => {
+    if (new URL(route.request().url()).pathname !== '/api/library/dramas') return route.fallback()
+    return route.fulfill({ json: { items: many, count: many.length } })
+  })
+  await page.goto('/')
+  await expect(page.locator('.drama-card')).toHaveCount(20)
+  await page.getByTestId('library-more').getByRole('button', { name: 'Show more' }).tap()
+  await expect(page.locator('.drama-card')).toHaveCount(40)
+  await expect(page.getByTestId('library-more')).toContainText('Showing 40 of 300')
 })
